@@ -1,4 +1,9 @@
-# Prosa
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="kit/prosamd-horizontal-white.svg">
+    <img src="kit/prosamd-horizontal.svg" width="440" alt="ProsaMD">
+  </picture>
+</p>
 
 **Минималистичный открытый редактор и читалка Markdown — «блокнот» для `.md`-файлов.**
 A minimal open-source Markdown reader & editor — a "notepad" for `.md` files.

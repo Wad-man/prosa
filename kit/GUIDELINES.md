@@ -11,6 +11,7 @@
 | `prosamd-symbol.svg` | знак отдельно: аватар, иконка, водяной знак — от 24 px |
 | `prosamd-symbol-small.svg` | 16–24 px: favicon, трей, вкладки (шире просвет, толще ножка) |
 | `*-black` / `*-white` / `*-ink` | одноцветная печать, гравировка, тёмный фон |
+| `social/` | соцкарточка 1280×640 (и @2x 2560×1280): Social preview репозитория GitHub (загружается вручную в Settings), og:image сайта |
 | `icons/` | favicon.ico, favicon.svg, PNG 16/32/48/180/192/512, maskable, `site.webmanifest`, `head-snippet.html`, иконка приложения 512/1024 |
 | `png/` | растровые локапы 1200 px на прозрачном фоне |
 
@@ -50,10 +51,14 @@ CMYK и Pantone — расчётные; перед печатью сверить
 
 ## Мастер-файлы и пересборка
 
-Все SVG — чистые контуры без `<text>`, растров и фильтров. Пересобрать после правок геометрии или цвета: `python ../build_kit.py` (из папки `md-notebook-logo`), затем экспорт иконок скриптом `export_variants.py` навыка logo-design.
+Все SVG — чистые контуры без `<text>`, растров и фильтров; мастера — корневые `prosamd-*.svg` этого каталога. Производные артефакты пересобираются так:
+
+- иконки приложения: `npm run tauri icon kit/icons/prosamd-symbol-app-icon-1024.png` (из корня репозитория) → `src-tauri/icons/`;
+- favicon веб-версии: копии из `kit/icons/` в `public/` репозитория + `<link>`-блок в `index.html`;
+- соцкарточка: `kit/social/prosamd-social-1280x640*.png` (рендерилась из HTML с локапом и слоганом через headless-браузер).
 
 ## Открытые пункты
 
 - Регистрационная проверка товарного знака и обратный поиск по изображению (дальнее родство: Pinterest, значки-булавки на картах).
-- Иконки ОС: `.icns` для macOS, `.ico` для Windows-установщика (можно взять `icons/favicon.ico` как основу, но для установщика нужны 256 px), PNG-набор для Linux (hicolor).
-- README-баннер и соцкарточка 1280×640 для GitHub.
+
+Готово: иконки ОС (`.ico` 16–256 px, `.icns`, PNG-набор) пересобраны в `src-tauri/icons/` через `tauri icon`; README-баннер и соцкарточка 1280×640 (`social/`) добавлены. Пересборка иконок приложения: `npm run tauri icon kit/icons/prosamd-symbol-app-icon-1024.png`.
