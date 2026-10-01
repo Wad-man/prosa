@@ -1,0 +1,57 @@
+name: Release
+
+# Tag push (v*) builds signed bundles and creates a DRAFT release in the
+# public releases-only repo Wad-man/prosa-releases. Edit the notes there
+# and publish — the in-app updater serves from that repo's latest release.
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  windows:
+    name: Windows release (x64)
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+
+      - name: Build signed bundles
+        run: npx tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      - name: Create draft release in prosa-releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          V="${TAG#v}"
+          NSIS="src-tauri/target/release/bundle/nsis"
+          SETUP="Prosa_${V}_x64-setup.exe"
+
+          node scripts/make-updater-json.mjs "$TAG"
+          cp "src-tauri/target/release/prosa.exe" "prosa-v${V}-portable-x64.exe"
+          sed "s/__VERSION__/${V}/g" .github/release-notes-template.md > release-notes.md
+
+          gh release create "$TAG" \
+            --repo Wad-man/prosa-releases \
+            --draft \
+            --title "Prosa $TAG" \
+            --notes-file release-notes.md \
+            "$NSIS/$SETUP" \
+            "$NSIS/$SETUP.sig" \
+            "prosa-v${V}-portable-x64.exe" \
+            "src-tauri/target/release/bundle/latest.json"

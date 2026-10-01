@@ -902,6 +902,36 @@ body {
   white-space: nowrap;
 }
 
+.st-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+/* Doubles as the update button and the download-progress readout */
+#st-version {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-3);
+  cursor: pointer;
+  transition: color var(--t-2) var(--ease);
+}
+
+#st-version:hover,
+#st-version:focus-visible {
+  color: var(--accent);
+}
+
+#st-version[hidden] {
+  display: none;
+}
+
 /* ---------- reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {

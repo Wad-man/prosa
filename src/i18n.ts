@@ -24,6 +24,16 @@ const strings = {
     minShort: 'мин',
     emptyDrop: 'Перетащите .md-файл в окно — или просто начните писать',
     modeToggle: 'Режим',
+    versionTip: 'Проверить обновления',
+    upToDate: 'У вас последняя версия Prosa',
+    updateTitle: 'Обновление Prosa',
+    updateAvailable: 'Доступна версия {version}. Установить сейчас?',
+    updateSaveFirst:
+      'Для установки приложение перезапустится, несохранённый документ будет потерян. Сохранить его перед обновлением?',
+    updateDownloading: 'Скачивание обновления…',
+    updateInstalling: 'Установка обновления…',
+    updateCheckError: 'Не удалось проверить обновления',
+    updateError: 'Не удалось установить обновление',
   },
   en: {
     open: 'Open…',
@@ -46,6 +56,16 @@ const strings = {
     minShort: 'min',
     emptyDrop: 'Drop a .md file into the window — or just start writing',
     modeToggle: 'Mode',
+    versionTip: 'Check for updates',
+    upToDate: 'Prosa is up to date',
+    updateTitle: 'Prosa update',
+    updateAvailable: 'Version {version} is available. Install now?',
+    updateSaveFirst:
+      'The app will restart to install the update and unsaved changes will be lost. Save the document first?',
+    updateDownloading: 'Downloading update…',
+    updateInstalling: 'Installing update…',
+    updateCheckError: 'Failed to check for updates',
+    updateError: 'Failed to install the update',
   },
 } as const;
 

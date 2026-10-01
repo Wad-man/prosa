@@ -6,6 +6,9 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 
+# Updater signing key (public key is committed, private must never be)
+src-tauri/keys/*.key
+
 # Local machine config (proxy workaround etc.)
 .npmrc
 

@@ -5,9 +5,12 @@ import {
   save as saveFileDialog,
 } from '@tauri-apps/plugin-dialog';
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getVersion } from '@tauri-apps/api/app';
 import { VisualEditor } from './editor/visual';
 import { SourceEditor } from './editor/source';
 import { getLang, setLang, t } from './i18n';
@@ -53,6 +56,7 @@ const els = {
   stPath: $('st-path'),
   stModified: $('st-modified'),
   stCount: $('st-count'),
+  stVersion: $('st-version') as HTMLButtonElement,
 };
 
 const visual = new VisualEditor();
@@ -190,6 +194,76 @@ async function saveFile(saveAs: boolean): Promise<void> {
   }
 }
 
+// ---------- updates ----------
+
+let updateBusy = false;
+let appVersion = '';
+
+// The Windows installer force-closes the app, so anything unsaved is lost;
+// save first — silently when the doc has a path, via a dialog when untitled.
+async function saveBeforeUpdate(): Promise<boolean> {
+  if (!dirty) return true;
+  if (filePath !== null) {
+    await saveFile(false);
+  } else {
+    const save = await ask(t('updateSaveFirst'), { title: t('updateTitle'), kind: 'warning' });
+    if (!save) return true; // user chose to discard explicitly
+    await saveFile(true);
+  }
+  return !dirty; // a failed or cancelled save aborts the update
+}
+
+async function checkForUpdates(manual: boolean): Promise<void> {
+  if (!inTauri || updateBusy) return;
+  updateBusy = true;
+  try {
+    let update: Awaited<ReturnType<typeof check>> = null;
+    try {
+      update = await check();
+    } catch (err) {
+      if (manual) {
+        void message(`${t('updateCheckError')}: ${String(err)}`, { title: 'Prosa', kind: 'error' });
+      }
+      return;
+    }
+    if (update === null) {
+      if (manual) void message(t('upToDate'), { title: 'Prosa', kind: 'info' });
+      return;
+    }
+    const confirmed = await ask(t('updateAvailable').replace('{version}', update.version), {
+      title: t('updateTitle'),
+      kind: 'info',
+    });
+    if (!confirmed) return;
+    if (!(await saveBeforeUpdate())) return;
+
+    let received = 0;
+    let total = 0;
+    try {
+      await update.downloadAndInstall((event) => {
+        if (event.event === 'Started') {
+          total = event.data.contentLength ?? 0;
+          els.stVersion.textContent = t('updateDownloading');
+        } else if (event.event === 'Progress') {
+          received += event.data.chunkLength;
+          const percent = total > 0 ? ` ${Math.floor((received / total) * 100)}%` : '';
+          els.stVersion.textContent = `${t('updateDownloading')}${percent}`;
+        } else {
+          els.stVersion.textContent = t('updateInstalling');
+        }
+      });
+      // on Windows the installer exits the app during install, so this
+      // only runs on platforms where the process survives
+      await relaunch();
+    } catch (err) {
+      void message(`${t('updateError')}: ${String(err)}`, { title: 'Prosa', kind: 'error' });
+    }
+  } finally {
+    updateBusy = false;
+    if (appVersion) els.stVersion.textContent = `v${appVersion}`;
+  }
+}
+
 function setMode(next: Mode): void {
   if (next === mode && source !== null) {
     // still normalize UI classes on early calls
@@ -254,6 +328,8 @@ function applyStaticTexts(): void {
   els.btnLang.setAttribute('aria-label', t('langTip'));
 
   els.stPath.textContent = filePath ?? t('untitled');
+  els.stVersion.title = t('versionTip');
+  els.stVersion.setAttribute('aria-label', t('versionTip'));
 }
 
 async function init(): Promise<void> {
@@ -345,6 +421,18 @@ async function init(): Promise<void> {
         if (await confirmLoseChanges()) await loadPath(path);
       })();
     }).catch(() => {});
+
+    // version shown in the statusbar doubles as the manual update check
+    void getVersion()
+      .then((v) => {
+        appVersion = v;
+        els.stVersion.textContent = `v${v}`;
+        els.stVersion.hidden = false;
+      })
+      .catch(() => {});
+    els.stVersion.addEventListener('click', () => void checkForUpdates(true));
+    // background update check shortly after launch; silent unless an update exists
+    window.setTimeout(() => void checkForUpdates(false), 3000);
   }
 }
 
