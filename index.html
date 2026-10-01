@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Prosa</title>
+    <script>
+      // Apply theme before first paint to avoid flashing
+      (function () {
+        var stored = localStorage.getItem('prosa.theme');
+        var theme =
+          stored ||
+          (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app">
+      <header id="toolbar">
+        <div class="tb-group">
+          <button id="btn-open" class="btn" title="Ctrl+O"></button>
+          <button id="btn-save" class="btn" title="Ctrl+S"></button>
+          <button id="btn-save-as" class="btn" title="Ctrl+Shift+S"></button>
+        </div>
+        <div class="tb-spacer"></div>
+        <div id="mode-switch" class="seg" role="tablist">
+          <button id="btn-mode-visual" class="seg-btn" role="tab" title="Ctrl+/"></button>
+          <button id="btn-mode-source" class="seg-btn" role="tab" title="Ctrl+/"></button>
+        </div>
+        <div class="tb-spacer"></div>
+        <div class="tb-group">
+          <button id="btn-lang" class="btn" title="RU / EN">EN</button>
+          <button id="btn-theme" class="btn" title="Light / Dark">◐</button>
+        </div>
+      </header>
+
+      <main id="editor-host">
+        <div id="visual-editor" class="editor-pane"></div>
+        <div id="source-editor" class="editor-pane"></div>
+      </main>
+
+      <footer id="statusbar">
+        <span id="st-path" class="st-dim"></span>
+        <span id="st-count" class="st-dim"></span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

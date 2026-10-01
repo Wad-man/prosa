@@ -1,0 +1,24 @@
+# Node
+node_modules/
+dist/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# Local machine config (proxy workaround etc.)
+.npmrc
+
+# Binary installers not part of the source
+*.dmg
+*.exe
+*.deb
+*.msi
+*.AppImage
+*.snap
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+*.log
