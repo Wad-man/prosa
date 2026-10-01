@@ -5,6 +5,8 @@ import {
   save as saveFileDialog,
 } from '@tauri-apps/plugin-dialog';
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { VisualEditor } from './editor/visual';
 import { SourceEditor } from './editor/source';
@@ -269,6 +271,24 @@ async function init(): Promise<void> {
   }
 
   refreshChrome();
+
+  if (inTauri) {
+    // cold start: the OS passed the associated file as a CLI argument
+    try {
+      const initial = await invoke<string | null>('get_initial_file');
+      if (initial !== null && MD_PATH_RE.test(initial)) await loadPath(initial);
+    } catch {
+      // command unavailable — nothing to open
+    }
+    // warm start: a second instance forwarded its file argument to us
+    void listen<string>('prosa://open-file', (event) => {
+      const path = event.payload;
+      if (!MD_PATH_RE.test(path)) return;
+      void (async () => {
+        if (await confirmLoseChanges()) await loadPath(path);
+      })();
+    }).catch(() => {});
+  }
 }
 
 void init();
