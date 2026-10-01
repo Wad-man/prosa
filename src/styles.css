@@ -147,9 +147,12 @@ body {
 
 #visual-editor .milkdown-wrapper,
 #visual-editor > div {
-  max-width: 840px;
+  /* 80% of the pane, capped so 2K/4K lines don't stretch absurdly;
+     on narrow windows fall back to full width minus 24px side margins */
+  width: min(80%, 1600px);
+  min-width: min(640px, calc(100% - 48px));
   margin: 0 auto;
-  padding: 44px 40px 35vh;
+  padding: 44px clamp(24px, 4%, 56px) 35vh;
 }
 
 #visual-editor .milkdown,
@@ -159,6 +162,11 @@ body {
   font-size: 16px;
   line-height: 1.7;
   outline: none;
+}
+
+/* Crepe reset.css pads .ProseMirror with 60px 120px; the wrapper owns spacing */
+#visual-editor .ProseMirror {
+  padding: 0;
 }
 
 #visual-editor h1,
