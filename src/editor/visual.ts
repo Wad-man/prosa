@@ -1,6 +1,7 @@
 import { Crepe } from '@milkdown/crepe';
 import '@milkdown/crepe/theme/common/style.css';
 import '@milkdown/crepe/theme/frame.css';
+import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import { replaceAll } from '@milkdown/kit/utils';
 
 /**
@@ -19,14 +20,12 @@ export class VisualEditor {
       // the app-level empty-state hint replaces Crepe's block placeholder
       features: { placeholder: false },
     });
+    // only real document changes count as edits: a DOM-wide mutation observer
+    // would misread focus/cursor/block-handle widget mutations as edits
+    this.crepe.editor.use(listener);
     await this.crepe.create();
-    // ProseMirror applies its own DOM mutations and does not reliably emit
-    // native `input` events, so observe the DOM for user edits instead.
-    new MutationObserver(() => onChange()).observe(root, {
-      subtree: true,
-      childList: true,
-      characterData: true,
-      attributes: true,
+    this.crepe.editor.action((ctx) => {
+      ctx.get(listenerCtx).markdownUpdated(() => onChange());
     });
   }
 

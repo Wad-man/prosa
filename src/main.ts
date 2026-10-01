@@ -62,8 +62,8 @@ const els = {
 const visual = new VisualEditor();
 let source: SourceEditor | null = null; // lazily created on first switch
 
-// Crepe mounts focus/cursor widgets asynchronously, which the mutation
-// observer would misread as edits; only user input can mark the doc dirty.
+// Belt-and-suspenders alongside the editor change events: only user input can
+// mark the doc dirty, so any programmatic/async editor update is ignored.
 let userInteracted = false;
 
 let mode: Mode = 'visual';
