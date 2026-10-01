@@ -68,6 +68,9 @@ let userInteracted = false;
 
 let mode: Mode = 'visual';
 let filePath: string | null = null;
+// name of a file whose contents were loaded without a path (OS drag-drop
+// without a usable file URL) — used for the title and the Save As default
+let fileSuggestion: string | null = null;
 let dirty = false;
 let suppressChange = false;
 let statsTimer: number | undefined;
@@ -78,8 +81,8 @@ function getMarkdown(): string {
 }
 
 function fileName(): string {
-  if (filePath === null) return t('untitled');
-  return filePath.split(/[\\/]/).pop() ?? t('untitled');
+  if (filePath !== null) return filePath.split(/[\\/]/).pop() ?? t('untitled');
+  return fileSuggestion ?? t('untitled');
 }
 
 function pluralRu(n: number, one: string, few: string, many: string): string {
@@ -109,7 +112,7 @@ function refreshChrome(): void {
   document.title = title;
   const nw = nativeWindow();
   if (nw) void nw.setTitle(title).catch(() => {});
-  els.stPath.textContent = filePath ?? t('untitled');
+  els.stPath.textContent = filePath ?? fileSuggestion ?? t('untitled');
   els.stPath.title = filePath ?? '';
   els.stModified.hidden = !dirty;
   els.btnSave.disabled = !dirty && filePath !== null;
@@ -149,19 +152,52 @@ async function confirmLoseChanges(): Promise<boolean> {
   return await ask(t('discardQuestion'), { title: t('discardTitle'), kind: 'warning' });
 }
 
-async function loadPath(path: string): Promise<void> {
+function applyLoaded(text: string, path: string | null, suggestedName?: string): void {
+  suppressChange = true;
+  if (mode === 'visual') visual.setMarkdown(text);
+  else source?.setContent(text);
+  filePath = path;
+  fileSuggestion = path === null ? (suggestedName ?? null) : null;
+  dirty = false;
+  // let programmatic editor updates land before unmasking change events
+  window.setTimeout(() => {
+    suppressChange = false;
+    refreshChrome();
+  }, 0);
+}
+
+async function loadPath(path: string): Promise<boolean> {
   try {
-    const text = await readTextFile(path);
-    suppressChange = true;
-    if (mode === 'visual') visual.setMarkdown(text);
-    else source?.setContent(text);
-    filePath = path;
-    dirty = false;
-    // let programmatic editor updates land before unmasking change events
-    window.setTimeout(() => {
-      suppressChange = false;
-      refreshChrome();
-    }, 0);
+    applyLoaded(await readTextFile(path), path);
+    return true;
+  } catch (err) {
+    void message(`${t('openError')}: ${String(err)}`, { title: 'Prosa', kind: 'error' });
+    return false;
+  }
+}
+
+// OS files dragged onto the window arrive as ordinary HTML5 drops: Tauri's
+// native drag-drop handler is disabled so that in-page drag-and-drop (block
+// handles, text) works in WebView2 — see dragDropEnabled in tauri.conf.json.
+async function openDroppedFile(dt: DataTransfer, file: File): Promise<void> {
+  if (!MD_PATH_RE.test(file.name)) {
+    void message(t('notMarkdown'), { title: 'Prosa', kind: 'info' });
+    return;
+  }
+  if (!(await confirmLoseChanges())) return;
+  // A file dragged from Explorer may carry its file:/// URL — recover the
+  // real path so saving works in place
+  const uri = dt.getData('text/uri-list').trim().split('\n')[0] ?? '';
+  if (inTauri && uri.startsWith('file:')) {
+    try {
+      const path = decodeURIComponent(new URL(uri).pathname).replace(/^\//, '');
+      if (await loadPath(path)) return;
+    } catch {
+      // no usable URL — fall back to the dragged file's contents
+    }
+  }
+  try {
+    applyLoaded(await file.text(), null, file.name);
   } catch (err) {
     void message(`${t('openError')}: ${String(err)}`, { title: 'Prosa', kind: 'error' });
   }
@@ -179,7 +215,7 @@ async function saveFile(saveAs: boolean): Promise<void> {
   const md = getMarkdown();
   let path = filePath;
   if (path === null || saveAs) {
-    const defaultName = filePath === null ? `${t('untitled')}.md` : fileName();
+    const defaultName = filePath === null ? (fileSuggestion ?? `${t('untitled')}.md`) : fileName();
     const picked = await saveFileDialog({ defaultPath: defaultName, filters: MD_FILTER });
     if (typeof picked !== 'string') return;
     path = picked;
@@ -385,23 +421,18 @@ async function init(): Promise<void> {
     }
   });
 
-  const nw = nativeWindow();
-  if (nw) {
-    void nw
-      .onDragDropEvent((event) => {
-        if (event.payload.type !== 'drop') return;
-        const dropped = event.payload.paths[0];
-        if (dropped === undefined) return;
-        if (!MD_PATH_RE.test(dropped)) {
-          void message(t('notMarkdown'), { title: 'Prosa', kind: 'info' });
-          return;
-        }
-        void (async () => {
-          if (await confirmLoseChanges()) await loadPath(dropped);
-        })();
-      })
-      .catch(() => {});
-  }
+  // files dragged from the OS: plain HTML5 drop (Tauri's native drag-drop
+  // handler is off — see openDroppedFile)
+  window.addEventListener('dragover', (e) => {
+    if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+  });
+  window.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer;
+    const file = dt?.files[0];
+    if (!dt || !file) return;
+    e.preventDefault();
+    void openDroppedFile(dt, file);
+  });
 
   refreshChrome();
 
