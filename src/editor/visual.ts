@@ -13,7 +13,12 @@ export class VisualEditor {
 
   async create(root: HTMLElement, defaultValue: string, onChange: () => void): Promise<void> {
     this.root = root;
-    this.crepe = new Crepe({ root, defaultValue });
+    this.crepe = new Crepe({
+      root,
+      defaultValue,
+      // the app-level empty-state hint replaces Crepe's block placeholder
+      features: { placeholder: false },
+    });
     await this.crepe.create();
     // ProseMirror applies its own DOM mutations and does not reliably emit
     // native `input` events, so observe the DOM for user edits instead.

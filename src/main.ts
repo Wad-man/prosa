@@ -32,6 +32,7 @@ const $ = (id: string): HTMLElement => {
 };
 
 const els = {
+  app: $('app'),
   btnOpen: $('btn-open') as HTMLButtonElement,
   btnSave: $('btn-save') as HTMLButtonElement,
   btnSaveAs: $('btn-save-as') as HTMLButtonElement,
@@ -39,9 +40,18 @@ const els = {
   btnTheme: $('btn-theme') as HTMLButtonElement,
   btnVisual: $('btn-mode-visual') as HTMLButtonElement,
   btnSource: $('btn-mode-source') as HTMLButtonElement,
+  modeSwitch: $('mode-switch'),
+  lblOpen: $('lbl-open'),
+  lblSave: $('lbl-save'),
+  lblSaveAs: $('lbl-saveas'),
+  lblLang: $('lbl-lang'),
   visualPane: $('visual-editor'),
   sourcePane: $('source-editor'),
+  ehLine: $('eh-line'),
+  ehOpen: $('eh-open'),
+  ehMode: $('eh-mode'),
   stPath: $('st-path'),
+  stModified: $('st-modified'),
   stCount: $('st-count'),
 };
 
@@ -68,6 +78,27 @@ function fileName(): string {
   return filePath.split(/[\\/]/).pop() ?? t('untitled');
 }
 
+function pluralRu(n: number, one: string, few: string, many: string): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
+function statsText(words: number, chars: number): string {
+  const ru = getLang() === 'ru';
+  const fmt = (n: number): string => n.toLocaleString(ru ? 'ru-RU' : 'en-US');
+  const wordsLabel = ru ? pluralRu(words, 'слово', 'слова', 'слов') : t('words');
+  const parts = [`${fmt(words)} ${wordsLabel}`, `${fmt(chars)} ${t('chars')}`];
+  if (words > 0) parts.push(`${Math.ceil(words / 200)} ${t('minShort')}`);
+  return parts.join(' · ');
+}
+
+function refreshEmptyState(): void {
+  els.app.classList.toggle('empty', getMarkdown().trim() === '');
+}
+
 function refreshChrome(): void {
   const prefix = dirty ? '• ' : '';
   const title = `${prefix}${fileName()} — Prosa`;
@@ -75,8 +106,11 @@ function refreshChrome(): void {
   const nw = nativeWindow();
   if (nw) void nw.setTitle(title).catch(() => {});
   els.stPath.textContent = filePath ?? t('untitled');
+  els.stPath.title = filePath ?? '';
+  els.stModified.hidden = !dirty;
   els.btnSave.disabled = !dirty && filePath !== null;
   updateStats();
+  refreshEmptyState();
 }
 
 let statsPending = '';
@@ -86,7 +120,8 @@ function scheduleStats(): void {
   statsTimer = window.setTimeout(() => {
     const md = statsPending.trim();
     const words = md ? md.split(/\s+/).length : 0;
-    els.stCount.textContent = `${words} ${t('words')} · ${statsPending.length} ${t('chars')}`;
+    els.stCount.textContent = statsText(words, statsPending.length);
+    refreshEmptyState();
   }, 250);
 }
 
@@ -176,6 +211,10 @@ function setMode(next: Mode): void {
   els.sourcePane.classList.toggle('active', mode === 'source');
   els.btnVisual.classList.toggle('active', mode === 'visual');
   els.btnSource.classList.toggle('active', mode === 'source');
+  els.btnVisual.setAttribute('aria-selected', String(mode === 'visual'));
+  els.btnSource.setAttribute('aria-selected', String(mode === 'source'));
+  els.modeSwitch.dataset.active = mode;
+  els.app.dataset.mode = mode;
   (mode === 'visual' ? visual.focus() : source?.focus());
   refreshChrome();
 }
@@ -190,12 +229,30 @@ function applyTheme(theme: 'light' | 'dark'): void {
 }
 
 function applyStaticTexts(): void {
-  els.btnOpen.textContent = t('open');
-  els.btnSave.textContent = t('save');
-  els.btnSaveAs.textContent = t('saveAs');
-  els.btnVisual.textContent = t('visual');
-  els.btnSource.textContent = t('source');
-  els.btnLang.textContent = getLang().toUpperCase();
+  document.documentElement.lang = getLang();
+  document.getElementById('toolbar')?.setAttribute('aria-label', t('toolbar'));
+  els.modeSwitch.setAttribute('aria-label', t('modeToggle'));
+  els.lblOpen.textContent = t('open');
+  els.lblSave.textContent = t('save');
+  els.lblSaveAs.textContent = t('saveAs');
+  els.lblLang.textContent = getLang().toUpperCase();
+  els.ehLine.textContent = t('emptyDrop');
+  els.ehOpen.textContent = t('open').replace('…', '');
+  els.ehMode.textContent = t('modeToggle');
+
+  const tip = (el: HTMLElement, text: string): void => el.setAttribute('data-tip', text);
+  tip(els.btnOpen, `${t('open')} · Ctrl+O`);
+  tip(els.btnSave, `${t('save')} · Ctrl+S`);
+  tip(els.btnSaveAs, `${t('saveAs')} · Ctrl+Shift+S`);
+  tip(els.btnVisual, `${t('visual')} · Ctrl+/`);
+  tip(els.btnSource, `${t('source')} · Ctrl+/`);
+  els.btnVisual.setAttribute('aria-label', t('visual'));
+  els.btnSource.setAttribute('aria-label', t('source'));
+  tip(els.btnTheme, t('themeTip'));
+  els.btnTheme.setAttribute('aria-label', t('themeTip'));
+  tip(els.btnLang, t('langTip'));
+  els.btnLang.setAttribute('aria-label', t('langTip'));
+
   els.stPath.textContent = filePath ?? t('untitled');
 }
 

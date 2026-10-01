@@ -18,6 +18,12 @@ const strings = {
     openError: 'Не удалось открыть файл',
     saveError: 'Не удалось сохранить файл',
     notMarkdown: 'Это не Markdown-файл',
+    toolbar: 'Панель инструментов',
+    langTip: 'Сменить язык интерфейса (RU / EN)',
+    themeTip: 'Переключить тему (светлая / тёмная)',
+    minShort: 'мин',
+    emptyDrop: 'Перетащите .md-файл в окно — или просто начните писать',
+    modeToggle: 'Режим',
   },
   en: {
     open: 'Open…',
@@ -34,6 +40,12 @@ const strings = {
     openError: 'Failed to open file',
     saveError: 'Failed to save file',
     notMarkdown: 'Not a Markdown file',
+    toolbar: 'Toolbar',
+    langTip: 'Switch interface language (RU / EN)',
+    themeTip: 'Switch theme (light / dark)',
+    minShort: 'min',
+    emptyDrop: 'Drop a .md file into the window — or just start writing',
+    modeToggle: 'Mode',
   },
 } as const;
 
