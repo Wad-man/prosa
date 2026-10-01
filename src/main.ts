@@ -7,8 +7,8 @@ import {
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { VisualEditor } from './editor/visual';
@@ -27,6 +27,7 @@ const THEME_KEY = 'prosa.theme';
 const inTauri = '__TAURI_INTERNALS__' in window;
 const nativeWindow = (): ReturnType<typeof getCurrentWindow> | null =>
   inTauri ? getCurrentWindow() : null;
+const currentWindow = nativeWindow();
 
 const $ = (id: string): HTMLElement => {
   const el = document.getElementById(id);
@@ -57,6 +58,19 @@ const els = {
   stModified: $('st-modified'),
   stCount: $('st-count'),
   stVersion: $('st-version') as HTMLButtonElement,
+  aboutOverlay: $('about-overlay'),
+  aboutModal: document.querySelector('#about-overlay .modal') as HTMLElement,
+  aboutClose: $('about-close') as HTMLButtonElement,
+  aboutVersion: $('about-version'),
+  aboutDesc: $('about-desc'),
+  aboutLicense: $('about-license') as HTMLAnchorElement,
+  aboutCheck: $('about-check') as HTMLButtonElement,
+  aboutLinks: Array.from(document.querySelectorAll<HTMLAnchorElement>('#about-overlay a')),
+  closeOverlay: $('close-overlay'),
+  ccText: $('cc-text'),
+  ccDontSave: $('cc-dont-save') as HTMLButtonElement,
+  ccCancel: $('cc-cancel') as HTMLButtonElement,
+  ccSave: $('cc-save') as HTMLButtonElement,
 };
 
 const visual = new VisualEditor();
@@ -142,9 +156,42 @@ function markDirty(): void {
   if (!dirty) {
     dirty = true;
     refreshChrome();
+    reportDocState();
   } else {
     scheduleStats();
   }
+}
+
+// Keep the Rust side in sync with this window's document state — it routes
+// newly opened files (focus / reuse / new window) and warns before an update
+// force-closes other windows.
+function reportDocState(): void {
+  if (!inTauri) return;
+  void invoke('report_doc_state', {
+    path: filePath,
+    dirty,
+    empty: getMarkdown().trim() === '',
+  }).catch(() => {});
+}
+
+// An untouched untitled document — a newly opened file can take its place
+// instead of spawning a window.
+function pristine(): boolean {
+  return filePath === null && !dirty && getMarkdown().trim() === '';
+}
+
+// Open a file in this window while it is still pristine; otherwise hand it
+// to the Rust side, which focuses an existing window for the file or opens
+// a new document window.
+async function openPathBestWindow(path: string): Promise<void> {
+  if (!inTauri || pristine()) {
+    await loadPath(path);
+    return;
+  }
+  await invoke('open_document_window', { path }).catch(async () => {
+    // window creation failed — fall back to replacing this document
+    if (await confirmLoseChanges()) await loadPath(path);
+  });
 }
 
 async function confirmLoseChanges(): Promise<boolean> {
@@ -163,6 +210,7 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
   window.setTimeout(() => {
     suppressChange = false;
     refreshChrome();
+    reportDocState();
   }, 0);
 }
 
@@ -184,18 +232,20 @@ async function openDroppedFile(dt: DataTransfer, file: File): Promise<void> {
     void message(t('notMarkdown'), { title: 'Prosa', kind: 'info' });
     return;
   }
-  if (!(await confirmLoseChanges())) return;
   // A file dragged from Explorer may carry its file:/// URL — recover the
   // real path so saving works in place
   const uri = dt.getData('text/uri-list').trim().split('\n')[0] ?? '';
   if (inTauri && uri.startsWith('file:')) {
     try {
       const path = decodeURIComponent(new URL(uri).pathname).replace(/^\//, '');
-      if (await loadPath(path)) return;
+      await openPathBestWindow(path);
+      return;
     } catch {
       // no usable URL — fall back to the dragged file's contents
     }
   }
+  // contents only: cannot be handed to another window — load here
+  if (!(await confirmLoseChanges())) return;
   try {
     applyLoaded(await file.text(), null, file.name);
   } catch (err) {
@@ -205,9 +255,8 @@ async function openDroppedFile(dt: DataTransfer, file: File): Promise<void> {
 
 async function openFile(): Promise<void> {
   if (!inTauri) return;
-  if (!(await confirmLoseChanges())) return;
   const picked = await openFileDialog({ multiple: false, directory: false, filters: MD_FILTER });
-  if (typeof picked === 'string') await loadPath(picked);
+  if (typeof picked === 'string') await openPathBestWindow(picked);
 }
 
 async function saveFile(saveAs: boolean): Promise<void> {
@@ -225,6 +274,7 @@ async function saveFile(saveAs: boolean): Promise<void> {
     filePath = path;
     dirty = false;
     refreshChrome();
+    reportDocState();
   } catch (err) {
     void message(`${t('saveError')}: ${String(err)}`, { title: 'Prosa', kind: 'error' });
   }
@@ -252,6 +302,7 @@ async function saveBeforeUpdate(): Promise<boolean> {
 async function checkForUpdates(manual: boolean): Promise<void> {
   if (!inTauri || updateBusy) return;
   updateBusy = true;
+  els.aboutCheck.disabled = true;
   try {
     let update: Awaited<ReturnType<typeof check>> = null;
     try {
@@ -271,6 +322,15 @@ async function checkForUpdates(manual: boolean): Promise<void> {
       kind: 'info',
     });
     if (!confirmed) return;
+    // the installer force-closes every window — other unsaved documents die with them
+    try {
+      if (await invoke<boolean>('has_dirty_windows')) {
+        const proceed = await ask(t('updateOtherDirty'), { title: t('updateTitle'), kind: 'warning' });
+        if (!proceed) return;
+      }
+    } catch {
+      // command unavailable — skip the cross-window check
+    }
     if (!(await saveBeforeUpdate())) return;
 
     let received = 0;
@@ -296,6 +356,7 @@ async function checkForUpdates(manual: boolean): Promise<void> {
     }
   } finally {
     updateBusy = false;
+    els.aboutCheck.disabled = false;
     if (appVersion) els.stVersion.textContent = `v${appVersion}`;
   }
 }
@@ -333,6 +394,70 @@ function toggleMode(): void {
   setMode(mode === 'visual' ? 'source' : 'visual');
 }
 
+// ---------- modals ----------
+
+let modalReturnFocus: HTMLElement | null = null;
+
+function activeModalOverlay(): HTMLElement | null {
+  if (!els.aboutOverlay.hidden) return els.aboutOverlay;
+  if (!els.closeOverlay.hidden) return els.closeOverlay;
+  return null;
+}
+
+function showModal(overlay: HTMLElement, initialFocus: HTMLElement): void {
+  modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  overlay.hidden = false;
+  initialFocus.focus();
+}
+
+function hideModal(overlay: HTMLElement): void {
+  overlay.hidden = true;
+  const back = modalReturnFocus;
+  modalReturnFocus = null;
+  back?.focus();
+}
+
+// keep Tab cycling inside the open dialog
+function trapTabKey(overlay: HTMLElement, e: KeyboardEvent): void {
+  const focusable = Array.from(
+    overlay.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'),
+  ).filter((el) => el.offsetParent !== null);
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (e.shiftKey && active === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+function refreshAboutVersion(): void {
+  els.aboutVersion.textContent = appVersion ? `${t('versionWord')} ${appVersion}` : '';
+}
+
+function openAbout(): void {
+  refreshAboutVersion();
+  showModal(els.aboutOverlay, els.aboutClose);
+}
+
+// ---------- window close guard ----------
+
+let forceClose = false;
+
+function closeWindow(): void {
+  forceClose = true;
+  void currentWindow?.close().catch(() => {});
+}
+
+function askBeforeClose(): void {
+  els.ccText.textContent = t('closeQuestion').replace('{name}', fileName());
+  showModal(els.closeOverlay, els.ccSave);
+}
+
 function applyTheme(theme: 'light' | 'dark'): void {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem(THEME_KEY, theme);
@@ -366,6 +491,17 @@ function applyStaticTexts(): void {
   els.stPath.textContent = filePath ?? t('untitled');
   els.stVersion.title = t('versionTip');
   els.stVersion.setAttribute('aria-label', t('versionTip'));
+
+  els.aboutModal.setAttribute('aria-label', t('versionTip'));
+  els.aboutDesc.textContent = t('aboutDesc');
+  els.aboutLicense.textContent = t('licenseLink');
+  els.aboutCheck.textContent = t('checkUpdates');
+  els.aboutClose.setAttribute('aria-label', t('closeTip'));
+  tip(els.aboutClose, t('closeTip'));
+  els.ccDontSave.textContent = t('dontSave');
+  els.ccCancel.textContent = t('cancel');
+  els.ccSave.textContent = t('save');
+  refreshAboutVersion();
 }
 
 async function init(): Promise<void> {
@@ -407,7 +543,17 @@ async function init(): Promise<void> {
 
   window.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
-    if (!mod) return;
+    if (!mod) {
+      const overlay = activeModalOverlay();
+      if (overlay === null) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        hideModal(overlay);
+      } else if (e.key === 'Tab') {
+        trapTabKey(overlay, e);
+      }
+      return;
+    }
     const key = e.key.toLowerCase();
     if (key === 's') {
       e.preventDefault();
@@ -435,36 +581,94 @@ async function init(): Promise<void> {
   });
 
   refreshChrome();
+  reportDocState();
+
+  // About dialog: the version in the statusbar opens it; the update check
+  // that used to live there moved into the dialog
+  els.stVersion.addEventListener('click', () => openAbout());
+  els.aboutClose.addEventListener('click', () => hideModal(els.aboutOverlay));
+  els.aboutCheck.addEventListener('click', () => {
+    hideModal(els.aboutOverlay);
+    void checkForUpdates(true);
+  });
+  els.aboutOverlay.addEventListener('click', (e) => {
+    if (e.target === els.aboutOverlay) hideModal(els.aboutOverlay);
+  });
+  for (const link of els.aboutLinks) {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (inTauri) {
+        void openUrl(link.href).catch((err) => {
+          void message(String(err), { title: 'Prosa', kind: 'error' });
+        });
+      } else {
+        window.open(link.href, '_blank', 'noreferrer');
+      }
+    });
+  }
+
+  // close confirmation
+  els.ccCancel.addEventListener('click', () => hideModal(els.closeOverlay));
+  els.closeOverlay.addEventListener('click', (e) => {
+    if (e.target === els.closeOverlay) hideModal(els.closeOverlay);
+  });
+  els.ccDontSave.addEventListener('click', () => {
+    hideModal(els.closeOverlay);
+    closeWindow();
+  });
+  els.ccSave.addEventListener('click', () => {
+    hideModal(els.closeOverlay);
+    void (async () => {
+      await saveFile(filePath === null);
+      if (!dirty) closeWindow();
+    })();
+  });
+  void currentWindow?.onCloseRequested(async (event) => {
+    if (!dirty || forceClose) return;
+    event.preventDefault();
+    askBeforeClose();
+  });
 
   if (inTauri) {
-    // cold start: the OS passed the associated file as a CLI argument
-    try {
-      const initial = await invoke<string | null>('get_initial_file');
-      if (initial !== null && MD_PATH_RE.test(initial)) await loadPath(initial);
-    } catch {
-      // command unavailable — nothing to open
+    // document windows created by the Rust side carry their file in the URL
+    const qsFile = new URLSearchParams(location.search).get('file');
+    let opened = false;
+    if (qsFile !== null && MD_PATH_RE.test(qsFile)) opened = await loadPath(qsFile);
+    // cold start on the main window: the OS passed the associated file as a
+    // CLI argument
+    if (!opened && currentWindow?.label === 'main') {
+      try {
+        const initial = await invoke<string | null>('get_initial_file');
+        if (initial !== null && MD_PATH_RE.test(initial)) await loadPath(initial);
+      } catch {
+        // command unavailable — nothing to open
+      }
     }
-    // warm start: a second instance forwarded its file argument to us
-    void listen<string>('prosa://open-file', (event) => {
-      const path = event.payload;
-      if (!MD_PATH_RE.test(path)) return;
-      void (async () => {
-        if (await confirmLoseChanges()) await loadPath(path);
-      })();
-    }).catch(() => {});
 
-    // version shown in the statusbar doubles as the manual update check
+    // version shown in the statusbar opens the About dialog
     void getVersion()
       .then((v) => {
         appVersion = v;
         els.stVersion.textContent = `v${v}`;
         els.stVersion.hidden = false;
+        refreshAboutVersion();
       })
       .catch(() => {});
-    els.stVersion.addEventListener('click', () => void checkForUpdates(true));
-    // background update check shortly after launch; silent unless an update exists
-    window.setTimeout(() => void checkForUpdates(false), 3000);
+    // background update check shortly after launch; only the main window runs
+    // it so multiple documents don't race to install the same update
+    if (currentWindow?.label === 'main') {
+      window.setTimeout(() => void checkForUpdates(false), 3000);
+    }
   }
 }
+
+// The Rust side routes a file opened outside any window here when this window
+// is still pristine; otherwise it opens a new document window itself.
+function prosaOpen(path: string): void {
+  if (!MD_PATH_RE.test(path)) return;
+  if (pristine()) void loadPath(path);
+  else void invoke('open_document_window', { path }).catch(() => {});
+}
+(window as unknown as { __prosaOpen?: (path: string) => void }).__prosaOpen = prosaOpen;
 
 void init();

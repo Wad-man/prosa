@@ -1,14 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the main window",
-  "windows": ["main"],
+  "description": "Capabilities for every Prosa window (main + document windows)",
+  "windows": ["main", "doc-*"],
   "permissions": [
     "core:default",
     "core:event:default",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
     "dialog:default",
     "updater:default",
     "process:allow-restart",
+    "opener:default",
     {
       "identifier": "fs:allow-read-text-file",
       "allow": [{ "path": "**" }]

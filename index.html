@@ -86,6 +86,35 @@
         </div>
       </footer>
     </div>
+
+    <div id="about-overlay" class="modal-overlay" hidden>
+      <div class="modal modal-about" role="dialog" aria-modal="true">
+        <button id="about-close" class="modal-x" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <img class="about-logo about-logo-color" src="/prosamd-horizontal.svg" alt="ProsaMD" width="220" height="63" draggable="false">
+        <img class="about-logo about-logo-white" src="/prosamd-horizontal-white.svg" alt="ProsaMD" width="220" height="63" draggable="false">
+        <p class="about-version" id="about-version"></p>
+        <p class="about-desc" id="about-desc"></p>
+        <nav class="about-links">
+          <a href="https://github.com/Wad-man/prosa" target="_blank" rel="noreferrer">GitHub</a>
+          <a id="about-license" href="https://github.com/Wad-man/prosa/blob/main/LICENSE" target="_blank" rel="noreferrer"></a>
+        </nav>
+        <button id="about-check" class="modal-btn" type="button"></button>
+      </div>
+    </div>
+
+    <div id="close-overlay" class="modal-overlay" hidden>
+      <div class="modal modal-close-confirm" role="dialog" aria-modal="true" aria-labelledby="cc-text">
+        <p class="cc-text" id="cc-text"></p>
+        <div class="modal-actions">
+          <button id="cc-dont-save" class="modal-btn" type="button"></button>
+          <button id="cc-cancel" class="modal-btn" type="button"></button>
+          <button id="cc-save" class="modal-btn modal-btn-primary" type="button"></button>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
