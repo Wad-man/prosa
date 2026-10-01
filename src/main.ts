@@ -17,7 +17,11 @@ const MD_FILTER = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', '
 const MD_PATH_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
 const THEME_KEY = 'prosa.theme';
 
-const appWindow = getCurrentWindow();
+// In a plain browser (no Tauri shell) native APIs are unavailable;
+// the editor core still works — only window/file integration is skipped.
+const inTauri = '__TAURI_INTERNALS__' in window;
+const nativeWindow = (): ReturnType<typeof getCurrentWindow> | null =>
+  inTauri ? getCurrentWindow() : null;
 
 const $ = (id: string): HTMLElement => {
   const el = document.getElementById(id);
@@ -42,6 +46,10 @@ const els = {
 const visual = new VisualEditor();
 let source: SourceEditor | null = null; // lazily created on first switch
 
+// Crepe mounts focus/cursor widgets asynchronously, which the mutation
+// observer would misread as edits; only user input can mark the doc dirty.
+let userInteracted = false;
+
 let mode: Mode = 'visual';
 let filePath: string | null = null;
 let dirty = false;
@@ -62,7 +70,8 @@ function refreshChrome(): void {
   const prefix = dirty ? '• ' : '';
   const title = `${prefix}${fileName()} — Prosa`;
   document.title = title;
-  void appWindow.setTitle(title);
+  const nw = nativeWindow();
+  if (nw) void nw.setTitle(title).catch(() => {});
   els.stPath.textContent = filePath ?? t('untitled');
   els.btnSave.disabled = !dirty && filePath !== null;
   updateStats();
@@ -118,12 +127,14 @@ async function loadPath(path: string): Promise<void> {
 }
 
 async function openFile(): Promise<void> {
+  if (!inTauri) return;
   if (!(await confirmLoseChanges())) return;
   const picked = await openFileDialog({ multiple: false, directory: false, filters: MD_FILTER });
   if (typeof picked === 'string') await loadPath(picked);
 }
 
 async function saveFile(saveAs: boolean): Promise<void> {
+  if (!inTauri) return;
   const md = getMarkdown();
   let path = filePath;
   if (path === null || saveAs) {
@@ -187,8 +198,25 @@ function applyStaticTexts(): void {
 }
 
 async function init(): Promise<void> {
+  window.addEventListener(
+    'pointerdown',
+    () => {
+      userInteracted = true;
+    },
+    true,
+  );
+  window.addEventListener(
+    'keydown',
+    () => {
+      userInteracted = true;
+    },
+    true,
+  );
+
   applyStaticTexts();
-  await visual.create(els.visualPane, '', markDirty);
+  await visual.create(els.visualPane, '', () => {
+    if (userInteracted) markDirty();
+  });
   setMode('visual');
 
   els.btnOpen.addEventListener('click', () => void openFile());
@@ -222,18 +250,23 @@ async function init(): Promise<void> {
     }
   });
 
-  void appWindow.onDragDropEvent((event) => {
-    if (event.payload.type !== 'drop') return;
-    const dropped = event.payload.paths[0];
-    if (dropped === undefined) return;
-    if (!MD_PATH_RE.test(dropped)) {
-      void message(t('notMarkdown'), { title: 'Prosa', kind: 'info' });
-      return;
-    }
-    void (async () => {
-      if (await confirmLoseChanges()) await loadPath(dropped);
-    })();
-  });
+  const nw = nativeWindow();
+  if (nw) {
+    void nw
+      .onDragDropEvent((event) => {
+        if (event.payload.type !== 'drop') return;
+        const dropped = event.payload.paths[0];
+        if (dropped === undefined) return;
+        if (!MD_PATH_RE.test(dropped)) {
+          void message(t('notMarkdown'), { title: 'Prosa', kind: 'info' });
+          return;
+        }
+        void (async () => {
+          if (await confirmLoseChanges()) await loadPath(dropped);
+        })();
+      })
+      .catch(() => {});
+  }
 
   refreshChrome();
 }

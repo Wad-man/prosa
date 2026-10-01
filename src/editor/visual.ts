@@ -15,9 +15,14 @@ export class VisualEditor {
     this.root = root;
     this.crepe = new Crepe({ root, defaultValue });
     await this.crepe.create();
-    // contenteditable emits DOM `input` on user edits; programmatic
-    // transactions from ProseMirror don't emit it, which is what we want here.
-    root.addEventListener('input', onChange);
+    // ProseMirror applies its own DOM mutations and does not reliably emit
+    // native `input` events, so observe the DOM for user edits instead.
+    new MutationObserver(() => onChange()).observe(root, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+    });
   }
 
   getMarkdown(): string {
