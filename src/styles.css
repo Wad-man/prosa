@@ -758,14 +758,25 @@ body {
 #source-editor .cm-scroller {
   font-family: var(--font-mono);
   line-height: 1.7;
-  padding: 22px 28px 30vh 8px;
+  padding: 22px 0 30vh;
 }
 
+/* Same content column as visual mode (80% of the pane, min 640, max 1600).
+   Auto margins on gutters/content center the line-numbers + text group,
+   while the scroller (and its scrollbar) stays full width like visual mode. */
 #source-editor .cm-gutters {
+  margin-left: auto;
   background: transparent;
   border-right: none;
   color: var(--fg-3);
   padding-right: 14px;
+}
+
+#source-editor .cm-content {
+  flex: none;
+  width: min(80%, 1600px);
+  min-width: min(640px, calc(100% - 48px));
+  margin-right: auto;
 }
 
 #source-editor .cm-activeLine {
