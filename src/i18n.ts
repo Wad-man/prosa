@@ -33,8 +33,8 @@ const strings = {
     closeQuestion: 'В документе «{name}» есть несохранённые изменения.',
     dontSave: 'Не сохранять',
     cancel: 'Отмена',
-    upToDate: 'У вас последняя версия Prosa',
-    updateTitle: 'Обновление Prosa',
+    upToDate: 'У вас последняя версия ProsaMD',
+    updateTitle: 'Обновление ProsaMD',
     updateAvailable: 'Доступна версия {version}. Установить сейчас?',
     updateSaveFirst:
       'Для установки приложение перезапустится, несохраненный документ будет потерян. Сохранить его перед обновлением?',
@@ -43,7 +43,7 @@ const strings = {
     updateCheckError: 'Не удалось проверить обновления',
     updateError: 'Не удалось установить обновление',
     updateOtherDirty:
-      'В других окнах Prosa есть несохранённые изменения — при установке обновления они будут потеряны. Продолжить?',
+      'В других окнах ProsaMD есть несохранённые изменения — при установке обновления они будут потеряны. Продолжить?',
   },
   en: {
     open: 'Open…',
@@ -66,7 +66,7 @@ const strings = {
     minShort: 'min',
     emptyDrop: 'Drop a .md file into the window — or just start writing',
     modeToggle: 'Mode',
-    versionTip: 'About Prosa',
+    versionTip: 'About ProsaMD',
     aboutDesc: 'A minimal open-source Markdown reader & editor — a "notepad" for .md files',
     versionWord: 'Version',
     licenseLink: 'MIT License',
@@ -75,8 +75,8 @@ const strings = {
     closeQuestion: '"{name}" has unsaved changes.',
     dontSave: "Don't save",
     cancel: 'Cancel',
-    upToDate: 'Prosa is up to date',
-    updateTitle: 'Prosa update',
+    upToDate: 'ProsaMD is up to date',
+    updateTitle: 'ProsaMD update',
     updateAvailable: 'Version {version} is available. Install now?',
     updateSaveFirst:
       'The app will restart to install the update and unsaved changes will be lost. Save the document first?',
@@ -85,7 +85,7 @@ const strings = {
     updateCheckError: 'Failed to check for updates',
     updateError: 'Failed to install the update',
     updateOtherDirty:
-      'Other Prosa windows have unsaved changes — they will be lost when the update installs. Continue?',
+      'Other ProsaMD windows have unsaved changes — they will be lost when the update installs. Continue?',
   },
 } as const;
 

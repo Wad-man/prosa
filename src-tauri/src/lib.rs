@@ -95,7 +95,7 @@ fn create_doc_window(app: &AppHandle, path: &str) -> tauri::Result<()> {
         &label,
         WebviewUrl::App(format!("index.html?file={encoded}").into()),
     )
-    .title("Prosa")
+    .title("ProsaMD")
     .inner_size(1100.0, 780.0)
     .min_inner_size(520.0, 400.0);
     // Tauri's native drag-drop handler must stay off for in-page HTML5

@@ -1,7 +1,7 @@
 [package]
 name = "prosa"
 version = "0.1.5"
-description = "Prosa — a minimal open-source Markdown reader & editor"
+description = "ProsaMD — a minimal open-source Markdown reader & editor"
 authors = ["Wad-man"]
 license = "MIT"
 edition = "2021"

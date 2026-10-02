@@ -122,7 +122,7 @@ function refreshEmptyState(): void {
 
 function refreshChrome(): void {
   const prefix = dirty ? '• ' : '';
-  const title = `${prefix}${fileName()} — Prosa`;
+  const title = `${prefix}${fileName()} — ProsaMD`;
   document.title = title;
   const nw = nativeWindow();
   if (nw) void nw.setTitle(title).catch(() => {});
@@ -219,7 +219,7 @@ async function loadPath(path: string): Promise<boolean> {
     applyLoaded(await readTextFile(path), path);
     return true;
   } catch (err) {
-    void message(`${t('openError')}: ${String(err)}`, { title: 'Prosa', kind: 'error' });
+    void message(`${t('openError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
     return false;
   }
 }
@@ -229,7 +229,7 @@ async function loadPath(path: string): Promise<boolean> {
 // handles, text) works in WebView2 — see dragDropEnabled in tauri.conf.json.
 async function openDroppedFile(dt: DataTransfer, file: File): Promise<void> {
   if (!MD_PATH_RE.test(file.name)) {
-    void message(t('notMarkdown'), { title: 'Prosa', kind: 'info' });
+    void message(t('notMarkdown'), { title: 'ProsaMD', kind: 'info' });
     return;
   }
   // A file dragged from Explorer may carry its file:/// URL — recover the
@@ -249,7 +249,7 @@ async function openDroppedFile(dt: DataTransfer, file: File): Promise<void> {
   try {
     applyLoaded(await file.text(), null, file.name);
   } catch (err) {
-    void message(`${t('openError')}: ${String(err)}`, { title: 'Prosa', kind: 'error' });
+    void message(`${t('openError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
   }
 }
 
@@ -276,7 +276,7 @@ async function saveFile(saveAs: boolean): Promise<void> {
     refreshChrome();
     reportDocState();
   } catch (err) {
-    void message(`${t('saveError')}: ${String(err)}`, { title: 'Prosa', kind: 'error' });
+    void message(`${t('saveError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
   }
 }
 
@@ -309,12 +309,12 @@ async function checkForUpdates(manual: boolean): Promise<void> {
       update = await check();
     } catch (err) {
       if (manual) {
-        void message(`${t('updateCheckError')}: ${String(err)}`, { title: 'Prosa', kind: 'error' });
+        void message(`${t('updateCheckError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
       }
       return;
     }
     if (update === null) {
-      if (manual) void message(t('upToDate'), { title: 'Prosa', kind: 'info' });
+      if (manual) void message(t('upToDate'), { title: 'ProsaMD', kind: 'info' });
       return;
     }
     const confirmed = await ask(t('updateAvailable').replace('{version}', update.version), {
@@ -352,7 +352,7 @@ async function checkForUpdates(manual: boolean): Promise<void> {
       // only runs on platforms where the process survives
       await relaunch();
     } catch (err) {
-      void message(`${t('updateError')}: ${String(err)}`, { title: 'Prosa', kind: 'error' });
+      void message(`${t('updateError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
     }
   } finally {
     updateBusy = false;
@@ -599,7 +599,7 @@ async function init(): Promise<void> {
       e.preventDefault();
       if (inTauri) {
         void openUrl(link.href).catch((err) => {
-          void message(String(err), { title: 'Prosa', kind: 'error' });
+          void message(String(err), { title: 'ProsaMD', kind: 'error' });
         });
       } else {
         window.open(link.href, '_blank', 'noreferrer');
