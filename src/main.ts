@@ -64,6 +64,7 @@ const els = {
   aboutVersion: $('about-version'),
   aboutDesc: $('about-desc'),
   aboutLicense: $('about-license') as HTMLAnchorElement,
+  aboutFeedback: $('about-feedback') as HTMLAnchorElement,
   aboutCheck: $('about-check') as HTMLButtonElement,
   aboutLinks: Array.from(document.querySelectorAll<HTMLAnchorElement>('#about-overlay a')),
   closeOverlay: $('close-overlay'),
@@ -495,6 +496,7 @@ function applyStaticTexts(): void {
   els.aboutModal.setAttribute('aria-label', t('versionTip'));
   els.aboutDesc.textContent = t('aboutDesc');
   els.aboutLicense.textContent = t('licenseLink');
+  els.aboutFeedback.textContent = t('feedback');
   els.aboutCheck.textContent = t('checkUpdates');
   els.aboutClose.setAttribute('aria-label', t('closeTip'));
   tip(els.aboutClose, t('closeTip'));
