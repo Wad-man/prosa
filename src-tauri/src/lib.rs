@@ -102,7 +102,20 @@ fn create_doc_window(app: &AppHandle, path: &str) -> tauri::Result<()> {
     // drag-and-drop (block handles) — same as the main window config
     #[cfg(windows)]
     let builder = builder.drag_and_drop(false);
-    builder.build().map(|_| ())
+    let window = builder.build()?;
+    // Windows denies foreground to a window created by an already-running
+    // background process: the document would open behind the user's current
+    // app (issue #5). A brief topmost toggle forces the activation that
+    // set_focus() alone cannot get.
+    #[cfg(windows)]
+    {
+        let _ = window.set_always_on_top(true);
+        let _ = window.set_focus();
+        let _ = window.set_always_on_top(false);
+    }
+    #[cfg(not(windows))]
+    let _ = window.set_focus();
+    Ok(())
 }
 
 /// Open a file as a new document window (or focus the window already showing
