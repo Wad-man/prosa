@@ -40,18 +40,18 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           V="${TAG#v}"
           NSIS="src-tauri/target/release/bundle/nsis"
-          SETUP="Prosa_${V}_x64-setup.exe"
+          SETUP="ProsaMD_${V}_x64-setup.exe"
 
           node scripts/make-updater-json.mjs "$TAG"
-          cp "src-tauri/target/release/prosa.exe" "prosa-v${V}-portable-x64.exe"
+          cp "src-tauri/target/release/prosa.exe" "ProsaMD-v${V}-portable-x64.exe"
           sed "s/__VERSION__/${V}/g" .github/release-notes-template.md > release-notes.md
 
           gh release create "$TAG" \
             --repo Wad-man/prosa-releases \
             --draft \
-            --title "Prosa $TAG" \
+            --title "ProsaMD $TAG" \
             --notes-file release-notes.md \
             "$NSIS/$SETUP" \
             "$NSIS/$SETUP.sig" \
-            "prosa-v${V}-portable-x64.exe" \
+            "ProsaMD-v${V}-portable-x64.exe" \
             "src-tauri/target/release/bundle/latest.json"

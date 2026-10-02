@@ -1,4 +1,4 @@
-## Prosa v__VERSION__
+## ProsaMD v__VERSION__
 
 **RU** — что нового:
 

@@ -51,7 +51,7 @@ try {
 
 const manifest = {
   version,
-  notes: `Prosa ${tag}`,
+  notes: `ProsaMD ${tag}`,
   pub_date: new Date().toISOString(),
   platforms: {
     'windows-x86_64': {
