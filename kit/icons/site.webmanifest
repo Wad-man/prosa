@@ -1,5 +1,6 @@
 {
-  "name": "ProsaMD logo",
+  "name": "ProsaMD",
+  "description": "Минималистичный редактор и читалка Markdown — «блокнот» для .md-файлов.",
   "icons": [
     {
       "src": "/icon-192.png",
@@ -19,6 +20,6 @@
     }
   ],
   "theme_color": "#D9452B",
-  "background_color": "#D9452B",
+  "background_color": "#FFFFFF",
   "display": "standalone"
 }

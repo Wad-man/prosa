@@ -2,4 +2,8 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
-<meta name="theme-color" content="#D9452B">
+<!-- theme-color — под цвет фактического фона страницы (split light/dark через media), а не брендовая
+     киноварь #D9452B: хром браузера должен сливаться с фоном страницы, сплошная киноварь давала бы
+     красную рамку вокруг светлой и тёмной версий сайта -->
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16141f" media="(prefers-color-scheme: dark)">
