@@ -14,6 +14,7 @@ export class SourceEditor {
         doc,
         extensions: [
           basicSetup,
+          EditorView.lineWrapping,
           markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: true }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onDocChanged();
