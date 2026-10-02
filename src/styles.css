@@ -14,7 +14,7 @@
   /* text */
   --fg: #191c22;
   --fg-2: #4b5261;
-  --fg-3: #6f7887;
+  --fg-3: #66707f;
 
   /* lines */
   --border: #e7e9ee;
@@ -66,7 +66,7 @@
 
   --fg: #e8ebf1;
   --fg-2: #b2bac7;
-  --fg-3: #7d8697;
+  --fg-3: #8a93a4;
 
   --border: #262c37;
   --border-strong: #353e4d;
@@ -342,7 +342,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
+  height: 26px;
   width: 32px;
   border-radius: var(--r-pill);
   font: inherit;
@@ -587,8 +587,23 @@ body {
   text-wrap: pretty;
 }
 
-#visual-editor li > p {
+/* Crepe's reset.css forces p line-height 1.5 (.milkdown .ProseMirror p);
+   keep the declared 1.75 of the editor root */
+#visual-editor .ProseMirror p {
+  line-height: 1.75;
+}
+
+/* Crepe renders list items as div structures (.milkdown-list-item-block >
+   .children > … > p), there are no li > p; compact spacing keeps one-line
+   items tight instead of full paragraph gaps (Crepe's reset also pads every
+   paragraph with 4px 0 — zeroed here) */
+#visual-editor .milkdown-list-item-block .children p {
   margin: 0.15em 0;
+  padding: 0;
+}
+
+#visual-editor .milkdown-list-item-block .children p:last-child {
+  margin-bottom: 0;
 }
 
 #visual-editor a {
@@ -628,7 +643,13 @@ body {
   padding: 0;
 }
 
-/* Crepe code-block component (CodeMirror inside a themed surface) */
+/* Crepe code-block component (CodeMirror inside a themed surface).
+   Token/chrome colors of the embedded CodeMirror come from the CM theme
+   extension defined in src/editor/visual.ts (codeBlockTheme) on the CSS
+   variables above. Note: Crepe merges featureConfigs via defaultsDeep,
+   not replacement — the theme array there is shape-aligned with the
+   One Dark default (incl. an explicit darkTheme.of(false)) so the dark
+   base flag cannot leak into the light theme. */
 #visual-editor .milkdown-code-block {
   background: var(--code-bg);
   border: 1px solid var(--border);
@@ -700,6 +721,11 @@ body {
   border-collapse: separate;
   border-spacing: 0;
   margin: 0;
+  /* prosemirror-tables' stock style is table-layout: fixed + width: 100%,
+     which clips no-wrapping headers into equal columns instead of letting
+     the wide table overflow and scroll inside .milkdown-table-block */
+  table-layout: auto;
+  width: 100%;
 }
 
 #visual-editor th,
@@ -714,6 +740,14 @@ body {
   background: color-mix(in srgb, var(--fg) 4.5%, transparent);
   font-weight: 600;
   border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+}
+
+/* `text-wrap: pretty` on p (above) re-enables wrapping inside table headers —
+   its text-wrap-mode: wrap beats the inherited white-space: nowrap — so the
+   no-wrap must target the header paragraph itself; wide tables then scroll
+   horizontally inside .milkdown-table-block (overflow-x: auto) */
+#visual-editor th p {
   white-space: nowrap;
 }
 
@@ -739,7 +773,8 @@ body {
   color: var(--fg-3);
 }
 
-#visual-editor .milkdown-list-item-block:has(.checked) .children .paragraph {
+/* Crepe paragraphs carry no .paragraph class — target the p element */
+#visual-editor .milkdown-list-item-block:has(.checked) .children p {
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--fg-3) 55%, transparent);
 }
@@ -766,19 +801,22 @@ body {
 
 /* Same content column as visual mode (80% of the pane, min 640, max 1600).
    Auto margins on gutters/content center the line-numbers + text group,
-   while the scroller (and its scrollbar) stays full width like visual mode. */
+   while the scroller (and its scrollbar) stays full width like visual mode.
+   The min-width subtracts the 49px gutter: 640−49 = 591, 24px+49px+24px = 97,
+   so narrow windows never get a horizontal scrollbar (soft-wrap only). */
 #source-editor .cm-gutters {
   margin-left: auto;
   background: transparent;
   border-right: none;
   color: var(--fg-3);
   padding-right: 14px;
+  font-variant-numeric: tabular-nums;
 }
 
 #source-editor .cm-content {
   flex: none;
   width: min(80%, 1600px);
-  min-width: min(640px, calc(100% - 48px));
+  min-width: min(591px, calc(100% - 97px));
   margin-right: auto;
 }
 
@@ -811,52 +849,9 @@ body {
   color: inherit;
 }
 
-#source-editor .cm-header {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-#source-editor .cm-link,
-#source-editor .cm-url {
-  color: var(--accent);
-}
-
-#source-editor .cm-quote {
-  color: var(--fg-3);
-  font-style: italic;
-}
-
-#source-editor .cm-emphasis {
-  font-style: italic;
-}
-
-#source-editor .cm-strong {
-  font-weight: 700;
-}
-
-#source-editor .cm-strikethrough {
-  text-decoration: line-through;
-}
-
-#source-editor .cm-keyword {
-  color: var(--syn-key);
-}
-
-#source-editor .cm-atom,
-#source-editor .cm-number,
-#source-editor .cm-bool {
-  color: var(--syn-num);
-}
-
-#source-editor .cm-string,
-#source-editor .cm-string2 {
-  color: var(--syn-str);
-}
-
-#source-editor .cm-comment {
-  color: var(--syn-com);
-  font-style: italic;
-}
+/* Token colors for the source mode are defined in the HighlightStyle
+   (src/editor/source.ts) on the CSS variables above — heading/link/quote/
+   monospace/markers + --syn-* for embedded languages. */
 
 /* ---------- statusbar ---------- */
 

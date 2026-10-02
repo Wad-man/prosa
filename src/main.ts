@@ -76,8 +76,10 @@ const els = {
 const visual = new VisualEditor();
 let source: SourceEditor | null = null; // lazily created on first switch
 
-// Belt-and-suspenders alongside the editor change events: only user input can
-// mark the doc dirty, so any programmatic/async editor update is ignored.
+// Belt-and-suspenders alongside the editor change events: only real user input
+// (pointer/keyboard) can mark the doc dirty. Programmatic or async updates —
+// e.g. text dropped into the page without a click — still refresh the word
+// count and the empty-state hint, they just never set the dirty flag.
 let userInteracted = false;
 
 let mode: Mode = 'visual';
@@ -522,7 +524,13 @@ async function init(): Promise<void> {
 
   applyStaticTexts();
   await visual.create(els.visualPane, '', () => {
-    if (userInteracted) markDirty();
+    if (userInteracted) {
+      markDirty();
+      return;
+    }
+    // update without real user input behind it: not dirty, but the stats
+    // and the empty-state hint must still track the actual content
+    scheduleStats();
   });
   setMode('visual');
 
