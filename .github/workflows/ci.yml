@@ -34,6 +34,10 @@ jobs:
           workspaces: src-tauri
       - run: npm ci
       - run: npx tauri build
+        env:
+          # createUpdaterArtifacts is on, so the builder refuses to finish
+          # without the signing key — same secret the Release workflow uses
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       - uses: actions/upload-artifact@v4
         with:
           name: prosa-windows-x64
