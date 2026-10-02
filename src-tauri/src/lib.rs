@@ -106,15 +106,16 @@ fn create_doc_window(app: &AppHandle, path: &str) -> tauri::Result<()> {
     // Windows denies foreground to a window created by an already-running
     // background process: the document would open behind the user's current
     // app (issue #5). A brief topmost toggle forces the activation that
-    // set_focus() alone cannot get.
+    // set_focus() alone cannot get. Dropping the topmost flag must not fail
+    // silently — a window stuck on top of everything is worse than no focus.
     #[cfg(windows)]
     {
         let _ = window.set_always_on_top(true);
         let _ = window.set_focus();
-        let _ = window.set_always_on_top(false);
+        if let Err(err) = window.set_always_on_top(false) {
+            eprintln!("prosa: failed to drop topmost flag on {label}: {err}");
+        }
     }
-    #[cfg(not(windows))]
-    let _ = window.set_focus();
     Ok(())
 }
 
