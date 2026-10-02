@@ -482,7 +482,10 @@ body {
   --crepe-color-surface-low: color-mix(in srgb, var(--fg) 7%, transparent);
   --crepe-color-on-surface: var(--fg);
   --crepe-color-on-surface-variant: var(--fg-2);
-  --crepe-color-outline: var(--border-strong);
+  /* Crepe paints muted control icons (selection toolbar, link tooltip,
+     block handle, code-block language picker) with this token — it needs
+     icon contrast, not hairline-border contrast */
+  --crepe-color-outline: var(--fg-2);
   --crepe-color-primary: var(--accent);
   --crepe-color-secondary: transparent;
   --crepe-color-on-secondary: var(--fg);
