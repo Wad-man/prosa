@@ -59,6 +59,8 @@ const els = {
   ehLine: $('eh-line'),
   ehOpen: $('eh-open'),
   ehMode: $('eh-mode'),
+  ehFormatKbd: $('eh-format-kbd'),
+  ehFormat: $('eh-format'),
   stPath: $('st-path'),
   stModified: $('st-modified'),
   stCount: $('st-count'),
@@ -481,6 +483,8 @@ function applyStaticTexts(): void {
   els.ehLine.textContent = t('emptyDrop');
   els.ehOpen.textContent = t('open').replace('…', '');
   els.ehMode.textContent = t('modeToggle');
+  els.ehFormatKbd.textContent = t('formatKbd');
+  els.ehFormat.textContent = t('formatPanel');
 
   const tip = (el: HTMLElement, text: string): void => el.setAttribute('data-tip', text);
   tip(els.btnOpen, `${t('open')} · Ctrl+O`);
@@ -548,6 +552,18 @@ async function init(): Promise<void> {
     setLang(getLang() === 'ru' ? 'en' : 'ru');
     applyStaticTexts();
     refreshChrome();
+    // Crepe bakes its feature strings in at construction — rebuild the
+    // visual editor so its menus/tooltips follow the new language (undo
+    // history resets; a rare action, accepted). Works in source mode too:
+    // the hidden editor rebuilds with the current content.
+    const md = getMarkdown();
+    suppressChange = true;
+    void visual.rebuild(md).then(() => {
+      if (mode === 'visual') visual.focus();
+      window.setTimeout(() => {
+        suppressChange = false;
+      }, 0);
+    });
   });
   els.btnTheme.addEventListener('click', () => {
     const now = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -567,14 +583,19 @@ async function init(): Promise<void> {
       }
       return;
     }
-    const key = e.key.toLowerCase();
-    if (key === 's') {
+    // match the physical key (e.code), not e.key: on the RU layout the
+    // same physical O reports key='щ', so a literal 'o' check would make
+    // Ctrl+O layout-dependent. Note this binds by scancode position — a
+    // software-remapped layout (Dvorak etc.) gets the physical key, an
+    // accepted trade-off
+    const code = e.code;
+    if (code === 'KeyS') {
       e.preventDefault();
       void saveFile(e.shiftKey);
-    } else if (key === 'o') {
+    } else if (code === 'KeyO') {
       e.preventDefault();
       void openFile();
-    } else if (key === '/') {
+    } else if (code === 'Slash') {
       e.preventDefault();
       toggleMode();
     }

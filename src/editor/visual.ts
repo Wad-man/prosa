@@ -5,8 +5,17 @@ import { EditorView } from '@codemirror/view';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import type { Extension } from '@codemirror/state';
 import { tags as t } from '@lezer/highlight';
+import { commandsCtx } from '@milkdown/kit/core';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
-import { replaceAll } from '@milkdown/kit/utils';
+import {
+  createCodeBlockCommand,
+  turnIntoTextCommand,
+  wrapInHeadingCommand,
+} from '@milkdown/kit/preset/commonmark';
+import { $shortcut, replaceAll } from '@milkdown/kit/utils';
+import { crepeLocaleConfigs } from './crepe-locale';
+import { ContextPanel } from './context-panel';
+import { getLang } from '../i18n';
 
 /**
  * Theme for the CodeMirror editor inside code blocks (Crepe's `code-mirror`
@@ -95,20 +104,61 @@ const codeBlockTheme: Extension = [
 export class VisualEditor {
   private crepe: Crepe | null = null;
   private root: HTMLElement | null = null;
+  private onChange: (() => void) | null = null;
+  private panel: ContextPanel | null = null;
 
   async create(root: HTMLElement, defaultValue: string, onChange: () => void): Promise<void> {
     this.root = root;
+    this.onChange = onChange;
+    // a rebuild (language switch) remounts everything — clean the old panel first
+    this.panel?.destroy();
+    const locale = crepeLocaleConfigs(getLang());
     this.crepe = new Crepe({
       root,
       defaultValue,
-      // the app-level empty-state hint replaces Crepe's block placeholder
-      features: { placeholder: false },
+      // the app-level empty-state hint replaces Crepe's block placeholder;
+      // the right-click context panel (see below) replaces the auto
+      // selection toolbar — a panel on every selection is noise while
+      // copying text or sharing the screen (owner decision 2026-10-03)
+      features: { placeholder: false, toolbar: false },
       // merged with Crepe's defaults (defaultsDeep), not replaced — see
       // the codeBlockTheme note on why the shapes must stay aligned
       featureConfigs: {
-        [Crepe.Feature.CodeMirror]: { theme: codeBlockTheme },
+        ...locale,
+        [Crepe.Feature.CodeMirror]: {
+          ...locale[Crepe.Feature.CodeMirror],
+          theme: codeBlockTheme,
+        },
       },
     });
+    // Typora-style aliases on top of the built-in Ctrl+Alt-… keymap of
+    // the commonmark preset (Ctrl+Alt+1..6/0 already work out of the box):
+    // Ctrl+1..6 → heading level, Ctrl+0 → plain text — familiar muscle
+    // memory for the Typora audience ProsaMD targets.
+    //
+    // 'Mod-Alt-с' mirrors the preset's Ctrl+Alt+C (code block) for the RU
+    // layout: prosemirror-keymap matches e.key, and its physical-keyCode
+    // fallback — which normally rescues letter combos on non-Latin layouts
+    // (Ctrl+B/I/E, Ctrl+Shift+B) — is explicitly skipped for Ctrl+Alt on
+    // Windows, because Ctrl+Alt doubles as AltGr there. Without this alias
+    // the code-block hotkey is dead on the RU layout (same bug class as
+    // the fixed Ctrl+O in main.ts). Digits are layout-identical; the alias
+    // itself never fires on the EN layout.
+    this.crepe.editor.use(
+      $shortcut((ctx) => {
+        const call = ctx.get(commandsCtx);
+        return {
+          'Mod-0': () => call.call(turnIntoTextCommand.key),
+          'Mod-1': () => call.call(wrapInHeadingCommand.key, 1),
+          'Mod-2': () => call.call(wrapInHeadingCommand.key, 2),
+          'Mod-3': () => call.call(wrapInHeadingCommand.key, 3),
+          'Mod-4': () => call.call(wrapInHeadingCommand.key, 4),
+          'Mod-5': () => call.call(wrapInHeadingCommand.key, 5),
+          'Mod-6': () => call.call(wrapInHeadingCommand.key, 6),
+          'Mod-Alt-с': () => call.call(createCodeBlockCommand.key),
+        };
+      }),
+    );
     // only real document changes count as edits: a DOM-wide mutation observer
     // would misread focus/cursor/block-handle widget mutations as edits
     this.crepe.editor.use(listener);
@@ -135,10 +185,31 @@ export class VisualEditor {
       };
       if (!stripDrag()) requestAnimationFrame(stripDrag);
     });
+    // the right-click formatting panel — the only floating panel left
+    this.panel = new ContextPanel();
+    this.panel.mount(this.crepe, root);
   }
 
   getMarkdown(): string {
     return this.crepe?.getMarkdown() ?? '';
+  }
+
+  /**
+   * Recreate the editor with fresh feature configs. Crepe bakes its
+   * configs (including the localized strings from crepe-locale) in at
+   * construction, so a language switch needs a full rebuild — there is no
+   * supported way to re-localize a live instance. Undo history is lost;
+   * language toggles are rare enough to accept that. Content and the
+   * change callback are carried over from the destroyed instance.
+   */
+  async rebuild(defaultValue: string): Promise<void> {
+    if (!this.root) return;
+    const onChange = this.onChange;
+    await this.crepe?.destroy();
+    // destroy unmounts the ProseMirror DOM; clear any leftovers so the
+    // new instance mounts into a clean root
+    this.root.replaceChildren();
+    if (onChange) await this.create(this.root, defaultValue, onChange);
   }
 
   setMarkdown(md: string): void {
