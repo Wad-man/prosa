@@ -13,8 +13,13 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { VisualEditor } from './editor/visual';
 import { SourceEditor } from './editor/source';
+import { applyWebView2DragFix } from './platform/webview2-dnd';
 import { getLang, setLang, t } from './i18n';
 import './styles.css';
+
+// Must run before the editors mount: it re-routes DataTransfer writes so
+// HTML5 drag-and-drop survives inside the WebView2 shell (see module comment).
+applyWebView2DragFix();
 
 type Mode = 'visual' | 'source';
 
