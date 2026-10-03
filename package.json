@@ -2,6 +2,13 @@
   "name": "prosa",
   "private": true,
   "version": "0.1.7",
+  "description": "ProsaMD — a minimal open-source Markdown reader & editor",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Wad-man/prosa.git"
+  },
+  "homepage": "https://prosamd.ru",
+  "bugs": "https://github.com/Wad-man/prosa/issues",
   "type": "module",
   "scripts": {
     "dev": "vite",

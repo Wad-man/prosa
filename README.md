@@ -8,6 +8,8 @@
 **Минималистичный открытый редактор и читалка Markdown — «блокнот» для `.md`-файлов.**
 A minimal open-source Markdown reader & editor — a "notepad" for `.md` files.
 
+Сайт проекта — **[prosamd.ru](https://prosamd.ru)** · [Скачать последнюю версию](https://github.com/Wad-man/prosa-releases/releases/latest)
+
 Десктоп: Windows (x64 / ARM64), macOS (Intel / Apple Silicon), Linux — на Tauri 2.
 В планах: iOS и Android (Tauri 2 mobile).
 
