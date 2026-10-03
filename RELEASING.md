@@ -1,6 +1,6 @@
 # Как выпустить релиз
 
-Требуемые секреты приватного репозитория (Settings → Secrets and variables → Actions):
+Требуемые секреты репозитория (Settings → Secrets and variables → Actions):
 
 - `TAURI_SIGNING_PRIVATE_KEY` — содержимое `src-tauri/keys/prosa-updater.key`
   (подпись пакетов обновления; **держите бэкап этого ключа** — без него уже

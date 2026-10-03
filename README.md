@@ -80,13 +80,11 @@ ProsaMD проверяет обновления при запуске (тихо,
 └─ Нативная оболочка — Tauri 2 (Rust): файлы, диалоги, окна
 ```
 
-Исследование, планы плагин-платформы и мобильных версий — в базе знаний проекта: [IDEA.md в internal docs](https://github.com/Wad-man/internal docs/blob/main/10-concept/IDEA.md) (приватный репозиторий).
-
 ## Дорожная карта
 
 - [x] v0.1.0 — Windows: 2 режима, открытие/сохранение, темы, RU/EN
 - [ ] v0.2 — macOS (universal) и Linux (x64/ARM64) в CI
-- [ ] v0.3 — плагины и темы от сообщества (API + каталог) — дизайн принят: [PLUGIN_SYSTEM.md в internal docs](https://github.com/Wad-man/internal docs/blob/main/20-arch/PLUGIN_SYSTEM.md) (приватный репозиторий)
+- [ ] v0.3 — плагины и темы от сообщества (API + каталог)
 - [ ] v0.4 — iOS / Android
 - [ ] Экспорт: PDF, HTML, docx/epub (Pandoc)
 

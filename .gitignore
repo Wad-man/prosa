@@ -25,6 +25,3 @@ src-tauri/keys/*.key
 Thumbs.db
 .idea/
 *.log
-
-# local workspace
-.scratch/
