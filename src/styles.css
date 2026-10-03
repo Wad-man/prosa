@@ -681,6 +681,19 @@ body {
   line-height: 1.6;
 }
 
+/* The language dropdown (.list-wrapper) is the one Crepe chrome piece on
+   --crepe-color-surface-low that floats over the document: stock Crepe
+   themes keep that token opaque (#ededed/#1c1c1c), but our mapping makes
+   it translucent for the in-surface chips (language button, CM search
+   inputs), so the dropdown would let the page text bleed through. Pin it
+   to the same opaque panel treatment as every other floating layer
+   (context panel, modals). Shadow/radius already come from Crepe's rule
+   via --crepe-shadow-1/--r-lg equivalents. */
+#visual-editor .milkdown-code-block .list-wrapper {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+}
+
 #visual-editor blockquote {
   position: relative;
   margin: 1.25em 0;
