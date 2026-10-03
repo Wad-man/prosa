@@ -115,6 +115,20 @@ export class VisualEditor {
     await this.crepe.create();
     this.crepe.editor.action((ctx) => {
       ctx.get(listenerCtx).markdownUpdated(() => onChange());
+
+      // Block moving is out of the core (owner decision 2026-10-03, #15):
+      // the ideal drag UX needs many deliberate decisions and is plugin
+      // territory, not core. Kill the drag affordance but keep the
+      // add-block button: strip `draggable` (no drag session can start) and
+      // hide the grip icon, which would otherwise advertise dragging.
+      const handle = root.querySelector('.milkdown-block-handle');
+      if (handle instanceof HTMLElement) {
+        handle.removeAttribute('draggable');
+        handle.addEventListener('dragstart', (e) => e.preventDefault());
+        const items = handle.querySelectorAll('.operation-item');
+        const grip = items[items.length - 1];
+        if (grip instanceof HTMLElement) grip.style.display = 'none';
+      }
     });
   }
 
