@@ -120,15 +120,20 @@ export class VisualEditor {
       // the ideal drag UX needs many deliberate decisions and is plugin
       // territory, not core. Kill the drag affordance but keep the
       // add-block button: strip `draggable` (no drag session can start) and
-      // hide the grip icon, which would otherwise advertise dragging.
-      const handle = root.querySelector('.milkdown-block-handle');
-      if (handle instanceof HTMLElement) {
+      // hide the grip icon, which would otherwise advertise dragging. The
+      // handle is a floating overlay appended to document.body — not part of
+      // the editor root — and may mount a tick after create().
+      const stripDrag = (): boolean => {
+        const handle = document.querySelector('.milkdown-block-handle');
+        if (!(handle instanceof HTMLElement)) return false;
         handle.removeAttribute('draggable');
         handle.addEventListener('dragstart', (e) => e.preventDefault());
         const items = handle.querySelectorAll('.operation-item');
         const grip = items[items.length - 1];
         if (grip instanceof HTMLElement) grip.style.display = 'none';
-      }
+        return true;
+      };
+      if (!stripDrag()) requestAnimationFrame(stripDrag);
     });
   }
 
