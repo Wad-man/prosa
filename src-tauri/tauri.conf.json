@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ProsaMD",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "identifier": "io.github.wad-man.prosa",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -55,7 +55,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZGOTdEOEEzNkFBREJGQ0UKUldUT3Y2MXFvOWlYLzdjTUN2N2RaakRSK24xaHU5UlJwQzRyVU5Ib3QvVkZPQVRJSDM5Qld5a1IK",
       "endpoints": [
-        "https://github.com/Wad-man/prosa-releases/releases/latest/download/latest.json"
+        "https://github.com/Wad-man/prosa/releases/latest/download/latest.json"
       ]
     }
   }

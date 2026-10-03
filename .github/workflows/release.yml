@@ -1,8 +1,10 @@
 name: Release
 
-# Tag push (v*) builds signed bundles and creates a DRAFT release in the
-# public releases-only repo Wad-man/prosa-releases. Edit the notes there
-# and publish — the in-app updater serves from that repo's latest release.
+# Tag push (v*) builds signed bundles and creates a DRAFT release in this
+# repo (Wad-man/prosa). Edit the notes there and publish — the in-app
+# updater serves from the latest release of this repo.
+# (≤0.1.7 clients still poll Wad-man/prosa-releases; v0.1.8 was mirrored
+# there once as a transitional release, then that repo was frozen.)
 
 on:
   push:
@@ -13,7 +15,7 @@ jobs:
     name: Windows release (x64)
     runs-on: windows-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,10 +33,10 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
-      - name: Create draft release in prosa-releases
+      - name: Create draft release
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
@@ -47,7 +49,6 @@ jobs:
           sed "s/__VERSION__/${V}/g" .github/release-notes-template.md > release-notes.md
 
           gh release create "$TAG" \
-            --repo Wad-man/prosa-releases \
             --draft \
             --title "ProsaMD $TAG" \
             --notes-file release-notes.md \

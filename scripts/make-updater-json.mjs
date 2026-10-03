@@ -12,9 +12,9 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Public releases-only repo; the app checks for updates here
+// Releases live in the main code repo; the app checks for updates here
 // (see plugins.updater.endpoints in src-tauri/tauri.conf.json).
-const RELEASES_REPO = 'Wad-man/prosa-releases';
+const RELEASES_REPO = 'Wad-man/prosa';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const die = (msg) => {

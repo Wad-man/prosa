@@ -8,7 +8,7 @@
 **Минималистичный открытый редактор и читалка Markdown — «блокнот» для `.md`-файлов.**
 A minimal open-source Markdown reader & editor — a "notepad" for `.md` files.
 
-Сайт проекта — **[prosamd.ru](https://prosamd.ru)** · [Скачать последнюю версию](https://github.com/Wad-man/prosa-releases/releases/latest)
+Сайт проекта — **[prosamd.ru](https://prosamd.ru)** · [Скачать последнюю версию](https://github.com/Wad-man/prosa/releases/latest)
 
 Десктоп: Windows (x64 / ARM64), macOS (Intel / Apple Silicon), Linux — на Tauri 2.
 В планах: iOS и Android (Tauri 2 mobile).
@@ -57,8 +57,7 @@ npm run tauri dev      # запуск в dev-режиме
 npm run tauri build    # release-сборка (Windows: exe + NSIS-установщик)
 ```
 
-Готовые сборки — в публичном репозитории релизов
-[Wad-man/prosa-releases](https://github.com/Wad-man/prosa-releases/releases).
+Готовые сборки — в [релизах этого репозитория](https://github.com/Wad-man/prosa/releases).
 
 ## Обновления
 
@@ -69,9 +68,9 @@ ProsaMD проверяет обновления при запуске (тихо,
 У «portable»-сборки (голый `exe` без установщика) автообновления нет — новую
 версию нужно скачать вручную.
 
-Релизы публикуются в отдельном публичном репозитории
-[Wad-man/prosa-releases](https://github.com/Wad-man/prosa-releases): обновления
-доступны всем, а исходники ProsaMD остаются в этом репозитории.
+Релизы и их подписи публикуются в [релизах этого репозитория](https://github.com/Wad-man/prosa/releases)
+(до открытия исходников — в отдельном репозитории
+[Wad-man/prosa-releases](https://github.com/Wad-man/prosa-releases), теперь архивном).
 
 ## Архитектура
 

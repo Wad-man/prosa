@@ -5,14 +5,14 @@
 - `TAURI_SIGNING_PRIVATE_KEY` — содержимое `src-tauri/keys/prosa-updater.key`
   (подпись пакетов обновления; **держите бэкап этого ключа** — без него уже
   установленные версии не смогут обновляться).
-- `RELEASES_REPO_TOKEN` — [fine-grained PAT](https://github.com/settings/personal-access-tokens/new),
-  доступ только к `Wad-man/prosa-releases`, права **Contents: Read and write**
-  (публикация черновика релиза из workflow).
+
+Релизы публикуются в этом же репозитории (`Wad-man/prosa`) штатным
+`GITHUB_TOKEN`; отдельных PAT не нужно.
 
 ## Шаги
 
 1. Поднять версию в трёх файлах: `package.json`, `src-tauri/tauri.conf.json`,
-   `src-tauri/Cargo.toml` (коммит «Bump version to X.Y.Z»).
+   `src-tauri/Cargo.toml` (и `src-tauri/Cargo.lock`; коммит «Bump version to X.Y.Z»).
 2. Запушить в `main`, затем проставить тег:
 
    ```bash
@@ -21,23 +21,60 @@
    ```
 
 3. Workflow [`release.yml`](.github/workflows/release.yml) соберёт подписанные
-   пакеты и создаст **черновик** релиза в
-   [Wad-man/prosa-releases](https://github.com/Wad-man/prosa-releases):
+   пакеты и создаст **черновик** релиза в этом репозитории:
    установщик NSIS + его подпись `.sig` (для NSIS установщик и есть пакет
    обновления), portable exe и `latest.json` (скрипт
    `scripts/make-updater-json.mjs` сверяет тег с версией в конфигах и падает
    при несовпадении).
-4. В черновике заполнить RU/EN заметки и опубликовать. С этого момента
-   приложение видит обновление: `releases/latest/download/latest.json`.
+4. В черновике заполнить RU/EN заметки и опубликовать (RC — обязательно
+   с галкой pre-release). С этого момента приложение видит обновление:
+   `releases/latest/download/latest.json`.
 
 Установленная вручную сборка обновляется при запуске (тихо) или по клику по
 версии в статусной строке. У пользователей версии ≤ 0.1.3 автообновления нет —
 им нужен ручной переход на 0.1.4+.
+
+## История: миграция с prosa-releases (v0.1.8)
+
+До v0.1.8 релизы жили в отдельном публичном репозитории
+[Wad-man/prosa-releases](https://github.com/Wad-man/prosa-releases) — пока
+исходники были приватными, только так обновления были доступны анонимно.
+После открытия кода релизы переехали в основной репозиторий.
+
+v0.1.8 — переходный релиз, опубликованный в **обоих** репозиториях: копии
+≤ 0.1.7 опрашивают старый endpoint в prosa-releases, получают манифест 0.1.8
+и обновляются на версию, которая уже опрашивает основной репозиторий.
+Поэтому prosa-releases **заморожен, но не удалён** — старые установщики и
+portable-сборки в обращении продолжают его опрашивать.
+
+Одноразовая процедура зеркала (уже выполнена для v0.1.8; приведена для
+истории — если бы её пришлось повторять):
+
+```bash
+# 1) опубликовать vX.Y.Z в Wad-man/prosa (обычный стабильный релиз);
+# 2) скачать его ассеты и переопубликовать в prosa-releases КАК ЕСТЬ:
+TMP=$(mktemp -d)
+gh release download vX.Y.Z --repo Wad-man/prosa --dir "$TMP"
+gh release create vX.Y.Z --repo Wad-man/prosa-releases \
+  --title "ProsaMD vX.Y.Z" \
+  --notes "Релизы переехали в Wad-man/prosa. Releases moved to the main repo." \
+  "$TMP"/*
+```
+
+Два критичных условия: `latest.json` берётся из релиза prosa **без пересборки**
+(URL пакета внутри указывает на ассет в prosa — именно так старые клиенты
+переключаются на новый репозиторий), а релиз-зеркало публикуется стабильным
+(не draft и не prerelease) — иначе `releases/latest` его не отдаст и старые
+клиенты не увидят апдейт.
+
+Хвост миграции: секрет Actions `RELEASES_REPO_TOKEN` удалён; сам PAT больше
+не нужен — отозвать на
+[github.com/settings/personal-access-tokens](https://github.com/settings/personal-access-tokens).
 
 ## Локальная проверка без публикации
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
 TAURI_SIGNING_PRIVATE_KEY="$(cat src-tauri/keys/prosa-updater.key)" npx tauri build
-node scripts/make-updater-json.mjs v0.1.4   # сгенерирует latest.json и распечатает URL
+node scripts/make-updater-json.mjs vX.Y.Z   # сгенерирует latest.json и распечатает URL
 ```
