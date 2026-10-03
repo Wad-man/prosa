@@ -501,6 +501,18 @@ body {
   --crepe-shadow-2: var(--shadow-2);
 }
 
+/* Block moving is plugin territory, not core (#15) — the drag grip stays
+   hidden for good. Crepe rebuilds the whole handle widget on every full
+   document replace (file open), re-arming draggable=true on a fresh
+   element, so the one-shot DOM strip at editor creation does not survive;
+   CSS does. The "+" add-block button is the first .operation-item and
+   stays visible. Verified against @milkdown/crepe 7.22.2 — the handle is
+   exactly two .operation-item children (add, grip); re-check this order
+   when upgrading crepe (package.json allows a caret range). */
+.milkdown-block-handle .operation-item:last-child {
+  display: none !important;
+}
+
 /* 80% of the pane, capped so 2K/4K lines don't stretch absurdly;
    on narrow windows fall back to full width minus 24px side margins */
 #visual-editor .milkdown-wrapper,

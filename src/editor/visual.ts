@@ -107,6 +107,30 @@ export class VisualEditor {
   private onChange: (() => void) | null = null;
   private panel: ContextPanel | null = null;
 
+  constructor() {
+    // Block moving left the core (#15): Crepe re-creates the handle widget
+    // on every full document replace (file open), re-arming draggable=true
+    // on a fresh element — a per-element strip cannot survive that. One
+    // capture-phase listener kills every drag session the handle starts,
+    // no matter how often the widget is rebuilt. The grip icon is hidden
+    // via CSS for the same reason (styles.css).
+    //
+    // stopPropagation matters as much as preventDefault: plugin-block binds
+    // its own dragstart on the element, which sets view.dragging — and a
+    // canceled session never receives the dragend that clears it, leaving
+    // stale state for the next (legitimate) drop to trip over.
+    document.addEventListener(
+      'dragstart',
+      (e) => {
+        if (e.target instanceof Element && e.target.closest('.milkdown-block-handle')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      true,
+    );
+  }
+
   async create(root: HTMLElement, defaultValue: string, onChange: () => void): Promise<void> {
     this.root = root;
     this.onChange = onChange;
@@ -165,25 +189,6 @@ export class VisualEditor {
     await this.crepe.create();
     this.crepe.editor.action((ctx) => {
       ctx.get(listenerCtx).markdownUpdated(() => onChange());
-
-      // Block moving is out of the core (owner decision 2026-10-03, #15):
-      // the ideal drag UX needs many deliberate decisions and is plugin
-      // territory, not core. Kill the drag affordance but keep the
-      // add-block button: strip `draggable` (no drag session can start) and
-      // hide the grip icon, which would otherwise advertise dragging. The
-      // handle is a floating overlay appended to document.body — not part of
-      // the editor root — and may mount a tick after create().
-      const stripDrag = (): boolean => {
-        const handle = document.querySelector('.milkdown-block-handle');
-        if (!(handle instanceof HTMLElement)) return false;
-        handle.removeAttribute('draggable');
-        handle.addEventListener('dragstart', (e) => e.preventDefault());
-        const items = handle.querySelectorAll('.operation-item');
-        const grip = items[items.length - 1];
-        if (grip instanceof HTMLElement) grip.style.display = 'none';
-        return true;
-      };
-      if (!stripDrag()) requestAnimationFrame(stripDrag);
     });
     // the right-click formatting panel — the only floating panel left
     this.panel = new ContextPanel();
