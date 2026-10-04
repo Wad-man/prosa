@@ -3,21 +3,14 @@ import type { Ctx } from '@milkdown/kit/ctx';
 import { commandsCtx } from '@milkdown/kit/core';
 import { toggleLinkCommand } from '@milkdown/kit/component/link-tooltip';
 import {
-  blockquoteSchema,
-  bulletListSchema,
-  codeBlockSchema,
-  headingSchema,
-  orderedListSchema,
-  paragraphSchema,
-  setBlockTypeCommand,
   toggleEmphasisCommand,
   toggleInlineCodeCommand,
   toggleStrongCommand,
-  wrapInBlockTypeCommand,
 } from '@milkdown/kit/preset/commonmark';
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm';
 
 import { editorStrings } from './crepe-locale';
+import { applyVisualBlock, blockHotkey, type BlockId } from './actions';
 import { getLang } from '../i18n';
 
 /**
@@ -48,24 +41,6 @@ const ICONS = {
     '<svg viewBox="0 0 24 24"><path d="M9 7H5a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h2c0 2-1 3-3 3"/><path d="M19 7h-4a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h2c0 2-1 3-3 3"/></svg>',
   ul: '<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1" fill="currentColor"/><circle cx="3.5" cy="12" r="1" fill="currentColor"/><circle cx="3.5" cy="18" r="1" fill="currentColor"/></svg>',
   ol: '<svg viewBox="0 0 24 24"><path d="M10 6h11M10 12h11M10 18h11"/><text x="2" y="8" font-size="7" fill="currentColor" stroke="none">1</text><text x="2" y="14.5" font-size="7" fill="currentColor" stroke="none">2</text><text x="2" y="20.5" font-size="7" fill="currentColor" stroke="none">3</text></svg>',
-};
-
-type BlockId = 'text' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'quote' | 'ul' | 'ol' | 'code';
-
-/** Hotkey captions shown in the submenu — the aliases/combos that exist
- * in the product (Windows-only today, so plain Ctrl-spelling is fine). */
-const BLOCK_HOTKEYS: Record<BlockId, string> = {
-  text: 'Ctrl+0',
-  h1: 'Ctrl+1',
-  h2: 'Ctrl+2',
-  h3: 'Ctrl+3',
-  h4: 'Ctrl+4',
-  h5: 'Ctrl+5',
-  h6: 'Ctrl+6',
-  quote: 'Ctrl+Shift+B',
-  ul: 'Ctrl+Alt+8',
-  ol: 'Ctrl+Alt+7',
-  code: 'Ctrl+Alt+C',
 };
 
 export class ContextPanel {
@@ -240,7 +215,7 @@ export class ContextPanel {
         const it = document.createElement('div');
         it.className = 'ctx-item';
         it.setAttribute('role', 'menuitem');
-        it.innerHTML = `<span>${label}</span><span class="ctx-kbd">${BLOCK_HOTKEYS[id]}</span>`;
+        it.innerHTML = `<span>${label}</span><span class="ctx-kbd">${blockHotkey(id)}</span>`;
         suppress(it);
         it.addEventListener('click', () => {
           this.applyBlock(id);
@@ -258,30 +233,9 @@ export class ContextPanel {
     return item;
   }
 
-  /** Stock milkdown commands — same ones Crepe's slash menu runs, so the
-   * semantics (incl. wrap-in for lists/quote, set-type for text and
-   * headings) match the "/" menu exactly and everything is undoable. */
+  /** Block commands live in ./actions — shared with the menu bar (#20). */
   private applyBlock(id: BlockId): void {
-    this.run((ctx) => {
-      const commands = ctx.get(commandsCtx);
-      if (id === 'text') {
-        commands.call(setBlockTypeCommand.key, { nodeType: paragraphSchema.type(ctx) });
-      } else if (id === 'quote') {
-        commands.call(wrapInBlockTypeCommand.key, { nodeType: blockquoteSchema.type(ctx) });
-      } else if (id === 'ul') {
-        commands.call(wrapInBlockTypeCommand.key, { nodeType: bulletListSchema.type(ctx) });
-      } else if (id === 'ol') {
-        commands.call(wrapInBlockTypeCommand.key, { nodeType: orderedListSchema.type(ctx) });
-      } else if (id === 'code') {
-        commands.call(setBlockTypeCommand.key, { nodeType: codeBlockSchema.type(ctx) });
-      } else {
-        const level = Number(id.slice(1));
-        commands.call(setBlockTypeCommand.key, {
-          nodeType: headingSchema.type(ctx),
-          attrs: { level },
-        });
-      }
-    });
+    if (this.crepe) applyVisualBlock(this.crepe, id);
   }
 
   private run(fn: (ctx: Ctx) => void): void {

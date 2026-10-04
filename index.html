@@ -24,20 +24,7 @@
   <body>
     <div id="app" class="empty" data-mode="visual">
       <header id="toolbar" role="toolbar">
-        <div class="tb-group">
-          <button id="btn-open" class="btn" data-tip-pos="start">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg>
-            <span class="btn-label" id="lbl-open"></span>
-          </button>
-          <button id="btn-save" class="btn">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
-            <span class="btn-label" id="lbl-save"></span>
-          </button>
-          <button id="btn-save-as" class="btn">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.5 22H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v9.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10.4 12.6a2 2 0 0 1 3 3L8 21l-4 1 1-4Z"/></svg>
-            <span class="btn-label" id="lbl-saveas"></span>
-          </button>
-        </div>
+        <nav id="menubar" role="menubar"></nav>
         <div class="tb-spacer"></div>
         <div class="tb-group">
           <button id="btn-lang" class="btn btn-icon"><span id="lbl-lang">EN</span></button>
@@ -59,21 +46,23 @@
       </header>
 
       <main id="editor-host">
-        <div id="empty-hint" aria-hidden="true">
-          <div class="eh-inner">
-            <div class="eh-badge">
-              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></svg>
-            </div>
-            <div class="eh-line" id="eh-line"></div>
-            <div class="eh-keys">
-              <span class="eh-key"><kbd id="eh-format-kbd"></kbd><span id="eh-format"></span></span>
-              <span class="eh-key"><kbd>Ctrl+O</kbd><span id="eh-open"></span></span>
-              <span class="eh-key"><kbd>Ctrl+/</kbd><span id="eh-mode"></span></span>
+        <div id="editor-panes">
+          <div id="empty-hint" aria-hidden="true">
+            <div class="eh-inner">
+              <div class="eh-badge">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></svg>
+              </div>
+              <div class="eh-line" id="eh-line"></div>
+              <div class="eh-keys">
+                <span class="eh-key"><kbd id="eh-format-kbd"></kbd><span id="eh-format"></span></span>
+                <span class="eh-key"><kbd>Ctrl+O</kbd><span id="eh-open"></span></span>
+                <span class="eh-key"><kbd>Ctrl+/</kbd><span id="eh-mode"></span></span>
+              </div>
             </div>
           </div>
+          <div id="visual-editor" class="editor-pane"></div>
+          <div id="source-editor" class="editor-pane"></div>
         </div>
-        <div id="visual-editor" class="editor-pane"></div>
-        <div id="source-editor" class="editor-pane"></div>
       </main>
 
       <footer id="statusbar">

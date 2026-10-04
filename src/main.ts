@@ -8,11 +8,30 @@ import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import {
+  readText as readClipboardText,
+  writeText as writeClipboardText,
+} from '@tauri-apps/plugin-clipboard-manager';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { VisualEditor } from './editor/visual';
 import { SourceEditor } from './editor/source';
+import { editorStrings } from './editor/crepe-locale';
+import {
+  sourceSetBlock,
+  sourceToggleMark,
+  sourceUndoRedo,
+  sourceSelectAll,
+  sourceSelectionText,
+  sourceDeleteSelection,
+  sourceInsertText,
+  sourceCurrentBlock,
+} from './editor/md-source';
+import type { BlockId, MarkId } from './editor/actions';
+import { MenuBar, type MenuSection } from './menu';
+import { TocPanel } from './toc';
+import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
 import { applyWebView2DragFix } from './platform/webview2-dnd';
 import { getLang, setLang, t } from './i18n';
 import './styles.css';
@@ -42,18 +61,14 @@ const $ = (id: string): HTMLElement => {
 
 const els = {
   app: $('app'),
-  btnOpen: $('btn-open') as HTMLButtonElement,
-  btnSave: $('btn-save') as HTMLButtonElement,
-  btnSaveAs: $('btn-save-as') as HTMLButtonElement,
+  menubar: $('menubar'),
   btnLang: $('btn-lang') as HTMLButtonElement,
   btnTheme: $('btn-theme') as HTMLButtonElement,
   btnVisual: $('btn-mode-visual') as HTMLButtonElement,
   btnSource: $('btn-mode-source') as HTMLButtonElement,
   modeSwitch: $('mode-switch'),
-  lblOpen: $('lbl-open'),
-  lblSave: $('lbl-save'),
-  lblSaveAs: $('lbl-saveas'),
   lblLang: $('lbl-lang'),
+  editorHost: $('editor-host'),
   visualPane: $('visual-editor'),
   sourcePane: $('source-editor'),
   ehLine: $('eh-line'),
@@ -82,6 +97,8 @@ const els = {
 
 const visual = new VisualEditor();
 let source: SourceEditor | null = null; // lazily created on first switch
+const menuBar = new MenuBar();
+const toc = new TocPanel();
 
 // Belt-and-suspenders alongside the editor change events: only real user input
 // (pointer/keyboard) can mark the doc dirty. Programmatic or async updates —
@@ -138,7 +155,6 @@ function refreshChrome(): void {
   els.stPath.textContent = filePath ?? fileSuggestion ?? t('untitled');
   els.stPath.title = filePath ?? '';
   els.stModified.hidden = !dirty;
-  els.btnSave.disabled = !dirty && filePath !== null;
   updateStats();
   refreshEmptyState();
 }
@@ -220,6 +236,7 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
     suppressChange = false;
     refreshChrome();
     reportDocState();
+    toc.refresh();
   }, 0);
 }
 
@@ -287,6 +304,257 @@ async function saveFile(saveAs: boolean): Promise<void> {
   } catch (err) {
     void message(`${t('saveError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
   }
+}
+
+// ---------- new document (Файл → Создать, Ctrl+N) ----------
+
+// Mirrors the in-app Открыть semantics: the new document replaces this
+// window's content after an unsaved-changes guard. Spawning windows is
+// multi-window territory (plugin #11), not this command's business.
+async function newFile(): Promise<void> {
+  if (!(await confirmLoseChanges())) return;
+  applyLoaded('', null);
+}
+
+// ---------- clipboard (Правка) ----------
+
+// Native clipboard through the Tauri plugin — WebView2 blocks
+// navigator.clipboard/execCommand paste behind a permission the shell never
+// grants (same WebView2 trap class as the drag-and-drop fix). The browser
+// fallback keeps `npm run dev` usable.
+async function readClipboard(): Promise<string | null> {
+  try {
+    return inTauri ? await readClipboardText() : await navigator.clipboard.readText();
+  } catch {
+    if (inTauri) void message(t('clipboardError'), { title: 'ProsaMD', kind: 'error' });
+    return null;
+  }
+}
+
+async function writeClipboard(text: string): Promise<boolean> {
+  if (!text) return false;
+  try {
+    if (inTauri) await writeClipboardText(text);
+    else await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    if (inTauri) void message(t('clipboardError'), { title: 'ProsaMD', kind: 'error' });
+    return false;
+  }
+}
+
+// ---------- mode-aware command dispatch for the menu bar ----------
+
+function editUndoRedo(which: 'undo' | 'redo'): void {
+  if (mode === 'visual') visual.undoRedo(which);
+  else if (source) sourceUndoRedo(source.view, which);
+}
+
+function editSelectAll(): void {
+  if (mode === 'visual') visual.selectAll();
+  else if (source) sourceSelectAll(source.view);
+}
+
+function selectionText(): string {
+  if (mode === 'visual') return visual.selectionText();
+  return source ? sourceSelectionText(source.view) : '';
+}
+
+async function editCopy(): Promise<void> {
+  await writeClipboard(selectionText());
+}
+
+async function editCut(): Promise<void> {
+  if (await writeClipboard(selectionText())) {
+    if (mode === 'visual') visual.deleteSelection();
+    else if (source) sourceDeleteSelection(source.view);
+  }
+}
+
+// Markdown-aware in visual mode (pasted markdown renders), plain in source
+async function editPaste(): Promise<void> {
+  const text = await readClipboard();
+  if (text === null || text === '') return;
+  if (mode === 'visual') visual.insertMarkdown(text);
+  else if (source) sourceInsertText(source.view, text);
+}
+
+function editBlock(id: BlockId): void {
+  if (mode === 'visual') visual.applyBlock(id);
+  else if (source) sourceSetBlock(source.view, id);
+}
+
+function editMark(id: MarkId): void {
+  if (mode === 'visual') visual.toggleMark(id);
+  else if (source) sourceToggleMark(source.view, id);
+}
+
+function currentBlock(): BlockId | null {
+  if (mode === 'visual') return visual.currentBlock();
+  return source ? sourceCurrentBlock(source.view) : null;
+}
+
+function openExternal(url: string): void {
+  if (inTauri) {
+    void openUrl(url).catch((err) => {
+      void message(String(err), { title: 'ProsaMD', kind: 'error' });
+    });
+  } else {
+    window.open(url, '_blank', 'noreferrer');
+  }
+}
+
+// ---------- TOC feature (#21) ----------
+
+function applyTocFeature(): void {
+  toc.setVisible(isFeatureEnabled('toc'));
+  toc.refresh();
+}
+
+function toggleToc(): void {
+  setFeatureEnabled('toc', !isFeatureEnabled('toc')); // listener applies it
+}
+
+let tocTimer: number | undefined;
+function scheduleToc(): void {
+  if (!toc.isVisible()) return;
+  window.clearTimeout(tocTimer);
+  tocTimer = window.setTimeout(() => toc.refresh(), 300);
+}
+
+let tocActiveQueued = false;
+function queueTocActive(): void {
+  if (tocActiveQueued || !toc.isVisible()) return;
+  tocActiveQueued = true;
+  requestAnimationFrame(() => {
+    tocActiveQueued = false;
+    toc.updateActive();
+  });
+}
+
+// ---------- menu bar (#20) ----------
+
+const sep = (): MenuSection['entries'][number] => ({ label: '', separator: true });
+
+function buildMenuSections(): (() => MenuSection)[] {
+  return [
+    (): MenuSection => ({
+      label: t('mFile'),
+      altKey: 'KeyF',
+      entries: [
+        { label: t('newDoc'), hotkey: 'Ctrl+N', action: () => void newFile() },
+        { label: t('open'), hotkey: 'Ctrl+O', action: () => void openFile() },
+        sep(),
+        { label: t('save'), hotkey: 'Ctrl+S', action: () => void saveFile(false) },
+        { label: t('saveAs'), hotkey: 'Ctrl+Shift+S', action: () => void saveFile(true) },
+      ],
+    }),
+    (): MenuSection => ({
+      label: t('mEdit'),
+      altKey: 'KeyE',
+      entries: [
+        { label: t('undo'), hotkey: 'Ctrl+Z', action: () => editUndoRedo('undo') },
+        { label: t('redo'), hotkey: 'Ctrl+Y', action: () => editUndoRedo('redo') },
+        sep(),
+        { label: t('cut'), hotkey: 'Ctrl+X', action: () => void editCut() },
+        { label: t('copy'), hotkey: 'Ctrl+C', action: () => void editCopy() },
+        { label: t('paste'), hotkey: 'Ctrl+V', action: () => void editPaste() },
+        sep(),
+        { label: t('selectAll'), hotkey: 'Ctrl+A', action: () => editSelectAll() },
+      ],
+    }),
+    (): MenuSection => {
+      const s = editorStrings(getLang());
+      // one scan per open (source mode walks the doc to the cursor) — the
+      // checkmarks re-read on the next open, which is when they're visible
+      const current = currentBlock();
+      const block = (id: BlockId, label: string, hotkey?: string) => ({
+        label,
+        hotkey,
+        action: () => editBlock(id),
+        checked: () => current === id,
+      });
+      return {
+        label: t('mParagraph'),
+        altKey: 'KeyP',
+        entries: [
+          block('h1', s.h1, 'Ctrl+1'),
+          block('h2', s.h2, 'Ctrl+2'),
+          block('h3', s.h3, 'Ctrl+3'),
+          block('h4', s.h4, 'Ctrl+4'),
+          block('h5', s.h5, 'Ctrl+5'),
+          block('h6', s.h6, 'Ctrl+6'),
+          block('text', s.text, 'Ctrl+0'),
+          sep(),
+          block('quote', s.quote, 'Ctrl+Shift+B'),
+          block('ul', s.bulletList, 'Ctrl+Alt+8'),
+          block('ol', s.orderedList, 'Ctrl+Alt+7'),
+          block('code', s.codeBlock, 'Ctrl+Alt+C'),
+        ],
+      };
+    },
+    (): MenuSection => {
+      const s = editorStrings(getLang());
+      const mark = (id: MarkId, label: string, hotkey?: string) => ({
+        label,
+        hotkey,
+        action: () => editMark(id),
+      });
+      return {
+        label: t('mFormat'),
+        altKey: 'KeyO',
+        entries: [
+          mark('bold', s.bold, 'Ctrl+B'),
+          mark('italic', s.italic, 'Ctrl+I'),
+          mark('strike', s.strikethrough),
+          mark('code', s.inlineCode, 'Ctrl+E'),
+          sep(),
+          mark('link', s.link, 'Ctrl+K'),
+        ],
+      };
+    },
+    (): MenuSection => ({
+      label: t('mView'),
+      altKey: 'KeyV',
+      entries: [
+        {
+          label: t('modeSource'),
+          hotkey: 'Ctrl+/',
+          action: () => toggleMode(),
+          checked: () => mode === 'source',
+        },
+        sep(),
+        {
+          label: t('themeLight'),
+          action: () => applyTheme('light'),
+          checked: () => document.documentElement.dataset.theme !== 'dark',
+        },
+        {
+          label: t('themeDark'),
+          action: () => applyTheme('dark'),
+          checked: () => document.documentElement.dataset.theme === 'dark',
+        },
+        sep(),
+        {
+          label: t('tocTitle'),
+          hotkey: 'Ctrl+Shift+1',
+          action: () => toggleToc(),
+          checked: () => isFeatureEnabled('toc'),
+        },
+      ],
+    }),
+    (): MenuSection => ({
+      label: t('mHelp'),
+      altKey: 'KeyH',
+      entries: [
+        { label: t('versionTip'), action: () => openAbout() },
+        { label: t('checkUpdates'), action: () => void checkForUpdates(true) },
+        sep(),
+        { label: t('website'), action: () => openExternal('https://prosamd.ru') },
+        { label: t('sourceCode'), action: () => openExternal('https://github.com/Wad-man/prosa') },
+      ],
+    }),
+  ];
 }
 
 // ---------- updates ----------
@@ -377,7 +645,11 @@ function setMode(next: Mode): void {
     const md = getMarkdown();
     suppressChange = true;
     if (next === 'source') {
-      if (source === null) source = new SourceEditor(els.sourcePane, md, markDirty);
+      if (source === null)
+        source = new SourceEditor(els.sourcePane, md, () => {
+          markDirty();
+          scheduleToc();
+        });
       else source.setContent(md);
     } else {
       visual.setMarkdown(md);
@@ -397,6 +669,8 @@ function setMode(next: Mode): void {
   els.app.dataset.mode = mode;
   (mode === 'visual' ? visual.focus() : source?.focus());
   refreshChrome();
+  // heading sources differ per mode (live DOM vs text scan)
+  toc.refresh();
 }
 
 function toggleMode(): void {
@@ -475,10 +749,8 @@ function applyTheme(theme: 'light' | 'dark'): void {
 function applyStaticTexts(): void {
   document.documentElement.lang = getLang();
   document.getElementById('toolbar')?.setAttribute('aria-label', t('toolbar'));
+  els.menubar.setAttribute('aria-label', t('menuBar'));
   els.modeSwitch.setAttribute('aria-label', t('modeToggle'));
-  els.lblOpen.textContent = t('open');
-  els.lblSave.textContent = t('save');
-  els.lblSaveAs.textContent = t('saveAs');
   els.lblLang.textContent = getLang().toUpperCase();
   els.ehLine.textContent = t('emptyDrop');
   els.ehOpen.textContent = t('open').replace('…', '');
@@ -487,9 +759,6 @@ function applyStaticTexts(): void {
   els.ehFormat.textContent = t('formatPanel');
 
   const tip = (el: HTMLElement, text: string): void => el.setAttribute('data-tip', text);
-  tip(els.btnOpen, `${t('open')} · Ctrl+O`);
-  tip(els.btnSave, `${t('save')} · Ctrl+S`);
-  tip(els.btnSaveAs, `${t('saveAs')} · Ctrl+Shift+S`);
   tip(els.btnVisual, `${t('visual')} · Ctrl+/`);
   tip(els.btnSource, `${t('source')} · Ctrl+/`);
   els.btnVisual.setAttribute('aria-label', t('visual'));
@@ -513,6 +782,41 @@ function applyStaticTexts(): void {
   els.ccCancel.textContent = t('cancel');
   els.ccSave.textContent = t('save');
   refreshAboutVersion();
+  // section labels and TOC strings are re-read from the dictionaries at
+  // render time, so a rebuild re-localizes them
+  menuBar.relabel();
+  toc.relabel();
+}
+
+// source-mode aliases mirroring the visual editor's Milkdown keymap
+// (Ctrl+1..6/0, Ctrl+Shift+B, Ctrl+Alt+7/8/C, Ctrl+B/I/E/K); returns true
+// when the combo was consumed. Overlap-free with CodeMirror's own keymaps
+// by construction (they own undo/redo/select-all/buffer combos, not these).
+function sourceHotkey(code: string, shift: boolean, alt: boolean): boolean {
+  if (!source) return false;
+  if (!shift && !alt && /^Digit[0-6]$/.test(code)) {
+    const id = (code === 'Digit0' ? 'text' : `h${Number(code.slice(5))}`) as `h${1 | 2 | 3 | 4 | 5 | 6}`;
+    sourceSetBlock(source.view, id);
+  } else if (shift && !alt && code === 'KeyB') {
+    sourceSetBlock(source.view, 'quote');
+  } else if (!shift && alt && code === 'Digit7') {
+    sourceSetBlock(source.view, 'ol');
+  } else if (!shift && alt && code === 'Digit8') {
+    sourceSetBlock(source.view, 'ul');
+  } else if (!shift && alt && code === 'KeyC') {
+    sourceSetBlock(source.view, 'code');
+  } else if (!shift && !alt && code === 'KeyB') {
+    sourceToggleMark(source.view, 'bold');
+  } else if (!shift && !alt && code === 'KeyI') {
+    sourceToggleMark(source.view, 'italic');
+  } else if (!shift && !alt && code === 'KeyE') {
+    sourceToggleMark(source.view, 'code');
+  } else if (!shift && !alt && code === 'KeyK') {
+    sourceToggleMark(source.view, 'link');
+  } else {
+    return false;
+  }
+  return true;
 }
 
 async function init(): Promise<void> {
@@ -531,8 +835,22 @@ async function init(): Promise<void> {
     true,
   );
 
+  menuBar.mount(els.menubar, buildMenuSections());
+  toc.mount(els.editorHost, {
+    getMode: () => mode,
+    getVisualPane: () => els.visualPane,
+    getSource: () => source,
+  });
+  onFeaturesChanged(() => applyTocFeature());
+  applyTocFeature();
+  // active-heading tracking rides the panes' scroll (capture catches the
+  // inner scrollers — crepe's wrapper, .cm-scroller)
+  els.visualPane.addEventListener('scroll', queueTocActive, true);
+  els.sourcePane.addEventListener('scroll', queueTocActive, true);
+
   applyStaticTexts();
   await visual.create(els.visualPane, '', () => {
+    scheduleToc();
     if (userInteracted) {
       markDirty();
       return;
@@ -543,9 +861,6 @@ async function init(): Promise<void> {
   });
   setMode('visual');
 
-  els.btnOpen.addEventListener('click', () => void openFile());
-  els.btnSave.addEventListener('click', () => void saveFile(false));
-  els.btnSaveAs.addEventListener('click', () => void saveFile(true));
   els.btnVisual.addEventListener('click', () => setMode('visual'));
   els.btnSource.addEventListener('click', () => setMode('source'));
   els.btnLang.addEventListener('click', () => {
@@ -571,6 +886,14 @@ async function init(): Promise<void> {
   });
 
   window.addEventListener('keydown', (e) => {
+    // Alt+F/E/P/O/V/H open the menu sections (physical key — the RU layout
+    // reports Cyrillic in e.key); suppressed while a modal dialog is up
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && activeModalOverlay() === null) {
+      if (menuBar.openByAltKey(e.code)) {
+        e.preventDefault();
+        return;
+      }
+    }
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) {
       const overlay = activeModalOverlay();
@@ -598,6 +921,14 @@ async function init(): Promise<void> {
     } else if (code === 'Slash') {
       e.preventDefault();
       toggleMode();
+    } else if (code === 'KeyN' && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      void newFile();
+    } else if (code === 'Digit1' && e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      toggleToc();
+    } else if (mode === 'source' && sourceHotkey(code, e.shiftKey, e.altKey)) {
+      e.preventDefault();
     }
   });
 

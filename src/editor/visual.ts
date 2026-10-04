@@ -9,12 +9,25 @@ import { commandsCtx } from '@milkdown/kit/core';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import {
   createCodeBlockCommand,
+  toggleLinkCommand,
   turnIntoTextCommand,
   wrapInHeadingCommand,
 } from '@milkdown/kit/preset/commonmark';
 import { $shortcut, replaceAll } from '@milkdown/kit/utils';
 import { crepeLocaleConfigs } from './crepe-locale';
 import { ContextPanel } from './context-panel';
+import {
+  applyVisualBlock,
+  toggleVisualMark,
+  visualUndoRedo,
+  visualSelectAll,
+  visualSelectionText,
+  visualDeleteSelection,
+  visualInsertMarkdown,
+  visualCurrentBlock,
+  type BlockId,
+  type MarkId,
+} from './actions';
 import { getLang } from '../i18n';
 
 /**
@@ -180,6 +193,9 @@ export class VisualEditor {
           'Mod-5': () => call.call(wrapInHeadingCommand.key, 5),
           'Mod-6': () => call.call(wrapInHeadingCommand.key, 6),
           'Mod-Alt-с': () => call.call(createCodeBlockCommand.key),
+          // Typora parity: Ctrl+K toggles a link on the selection (the
+          // letter-key physical-keyCode fallback covers non-Latin layouts)
+          'Mod-k': () => call.call(toggleLinkCommand.key),
         };
       }),
     );
@@ -225,5 +241,41 @@ export class VisualEditor {
   focus(): void {
     const el = this.root?.querySelector('.ProseMirror');
     if (el instanceof HTMLElement) el.focus();
+  }
+
+  // ---------- command surface for the menu bar (#20) ----------
+  // Thin pass-throughs to ./actions so callers (menu, hotkeys) never touch
+  // the crepe instance directly; no-ops before the first create().
+
+  applyBlock(id: BlockId): void {
+    if (this.crepe) applyVisualBlock(this.crepe, id);
+  }
+
+  toggleMark(id: MarkId): void {
+    if (this.crepe) toggleVisualMark(this.crepe, id);
+  }
+
+  undoRedo(which: 'undo' | 'redo'): void {
+    if (this.crepe) visualUndoRedo(this.crepe, which);
+  }
+
+  selectAll(): void {
+    if (this.crepe) visualSelectAll(this.crepe);
+  }
+
+  selectionText(): string {
+    return this.crepe ? visualSelectionText(this.crepe) : '';
+  }
+
+  deleteSelection(): void {
+    if (this.crepe) visualDeleteSelection(this.crepe);
+  }
+
+  insertMarkdown(md: string): void {
+    if (this.crepe) visualInsertMarkdown(this.crepe, md);
+  }
+
+  currentBlock(): BlockId | null {
+    return this.crepe ? visualCurrentBlock(this.crepe) : null;
   }
 }
