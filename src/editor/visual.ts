@@ -9,10 +9,13 @@ import { commandsCtx } from '@milkdown/kit/core';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import {
   createCodeBlockCommand,
-  toggleLinkCommand,
   turnIntoTextCommand,
   wrapInHeadingCommand,
 } from '@milkdown/kit/preset/commonmark';
+// the link-tooltip component's command (opens the input tooltip) — NOT the
+// commonmark preset's `toggleLinkCommand`, which is a parameterized
+// toggleMark(link, payload) and throws without an href payload
+import { toggleLinkCommand } from '@milkdown/kit/component/link-tooltip';
 import { $shortcut, replaceAll } from '@milkdown/kit/utils';
 import { crepeLocaleConfigs } from './crepe-locale';
 import { ContextPanel, type PanelClipboardActions } from './context-panel';

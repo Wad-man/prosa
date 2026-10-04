@@ -202,14 +202,37 @@ export function sourceSetBlock(view: EditorView, id: BlockId): void {
 function toggleFence(view: EditorView): void {
   const { from, to } = lineRange(view);
   const doc = view.state.doc;
+  const isFence = (n: number) => /^\s*(```|~~~)/.test(doc.line(n).text);
   if (insideFence(view)) {
-    // remove the fence pair around the selection: the nearest ``` lines
-    // above `from` and below `to`
+    // remove the fence pair around the selection. Ctrl+Alt+C leaves the
+    // caret ON the opening ``` line — a naive nearest-match walk pairs that
+    // boundary line with itself and dispatches overlapping changes (K2);
+    // resolve which pair the boundary belongs to instead.
     let startLine = doc.lineAt(from).number;
-    while (startLine > 1 && !/^\s*(```|~~~)/.test(doc.line(startLine).text)) startLine--;
     let endLine = doc.lineAt(to).number;
-    while (endLine < doc.lines && !/^\s*(```|~~~)/.test(doc.line(endLine).text)) endLine++;
-    if (/^\s*(```|~~~)/.test(doc.line(startLine).text) && /^\s*(```|~~~)/.test(doc.line(endLine).text)) {
+    if (isFence(startLine)) {
+      let closing = startLine + 1;
+      while (closing <= doc.lines && !isFence(closing)) closing++;
+      if (closing <= doc.lines) {
+        // this line is the opening of the pair closing below
+        endLine = closing;
+      } else {
+        let opening = startLine - 1;
+        while (opening > 0 && !isFence(opening)) opening--;
+        if (opening === 0) {
+          // a stray fence marker with no pair — nothing to toggle
+          view.focus();
+          return;
+        }
+        // this line is the closing of the pair opened above
+        endLine = startLine;
+        startLine = opening;
+      }
+    } else {
+      while (startLine > 1 && !isFence(startLine)) startLine--;
+      while (endLine < doc.lines && !isFence(endLine)) endLine++;
+    }
+    if (endLine > startLine && isFence(startLine) && isFence(endLine)) {
       if (endLine === startLine + 1) {
         // empty fence body — both lines go in one change (no overlap)
         view.dispatch({ changes: [{ from: doc.line(startLine).from, to: doc.line(endLine).to }] });
