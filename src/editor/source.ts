@@ -1,6 +1,7 @@
 import { EditorView, basicSetup } from 'codemirror';
-import { EditorState } from '@codemirror/state';
+import { EditorState, Prec } from '@codemirror/state';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { keymap } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
@@ -45,6 +46,23 @@ export class SourceEditor {
       state: EditorState.create({
         doc,
         extensions: [
+          // Ctrl+/ switches modes at the app level (window keydown in
+          // main.ts), but basicSetup's default keymap binds the same Mod-/ to
+          // toggleComment — and lang-markdown's block comment tokens are
+          // `<!-- -->`, so every switch from source mode silently wrapped the
+          // cursor line in HTML comments. Same class of collision for Ctrl+I:
+          // defaultKeymap runs selectParentSyntax first, which expands the
+          // selection before the app's italic alias (sourceHotkey) reads it.
+          // CM's keymap fires before the window listener (bubbling), so
+          // swallow both here with the highest precedence; returning true
+          // marks the key handled for CodeMirror while the app-level
+          // handlers still run.
+          Prec.high(
+            keymap.of([
+              { key: 'Mod-/', run: () => true },
+              { key: 'Mod-i', run: () => true },
+            ]),
+          ),
           basicSetup,
           syntaxHighlighting(highlightStyle),
           EditorView.lineWrapping,

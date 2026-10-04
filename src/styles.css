@@ -305,6 +305,21 @@ body {
   [data-tip-pos='end']:focus-visible::after {
     transform: translateY(0);
   }
+
+  /* statusbar buttons sit at the window bottom-left — the bubble goes up
+     and anchors to the button's left edge: centered would stick out past
+     the window border and get clipped */
+  [data-tip-pos='up-start']::after {
+    top: auto;
+    bottom: calc(100% + 8px);
+    left: 0;
+    transform: translateY(2px);
+  }
+
+  [data-tip-pos='up-start']:hover::after,
+  [data-tip-pos='up-start']:focus-visible::after {
+    transform: translateY(0);
+  }
 }
 
 /* ---------- segmented mode switch (icon toggle pill) ---------- */
@@ -794,7 +809,25 @@ body {
 #visual-editor .ProseMirror > h3:first-child,
 #visual-editor .ProseMirror > h4:first-child,
 #visual-editor .ProseMirror > h5:first-child,
-#visual-editor .ProseMirror > h6:first-child {
+#visual-editor .ProseMirror > h6:first-child,
+/* While the caret is a plain selection, prosemirror-virtual-cursor (Crepe's
+   cursor feature) and the gap-cursor render a widget AT DOC POSITION 0 —
+   an absolute-positioned first DOM child of .ProseMirror. :first-child is
+   DOM-order based, so the heading stops matching the rule above and its
+   top margin jumps in the moment text gets selected. Keep the first block
+   flush whenever one of those widgets precedes it. */
+#visual-editor .ProseMirror > .prosemirror-virtual-cursor:first-child + h1,
+#visual-editor .ProseMirror > .prosemirror-virtual-cursor:first-child + h2,
+#visual-editor .ProseMirror > .prosemirror-virtual-cursor:first-child + h3,
+#visual-editor .ProseMirror > .prosemirror-virtual-cursor:first-child + h4,
+#visual-editor .ProseMirror > .prosemirror-virtual-cursor:first-child + h5,
+#visual-editor .ProseMirror > .prosemirror-virtual-cursor:first-child + h6,
+#visual-editor .ProseMirror > .ProseMirror-gapcursor:first-child + h1,
+#visual-editor .ProseMirror > .ProseMirror-gapcursor:first-child + h2,
+#visual-editor .ProseMirror > .ProseMirror-gapcursor:first-child + h3,
+#visual-editor .ProseMirror > .ProseMirror-gapcursor:first-child + h4,
+#visual-editor .ProseMirror > .ProseMirror-gapcursor:first-child + h5,
+#visual-editor .ProseMirror > .ProseMirror-gapcursor:first-child + h6 {
   margin-top: 0;
 }
 
@@ -1139,6 +1172,52 @@ body {
   min-width: 0;
 }
 
+/* outline (sidebar) show/hide toggle */
+.st-toc {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 3px;
+  background: none;
+  color: var(--fg-3);
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color var(--t-2) var(--ease);
+  flex: none;
+}
+
+.st-toc .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.st-toc:hover,
+.st-toc:focus-visible {
+  color: var(--fg);
+}
+
+/* pressed = the outline sidebar is visible: the pane fills in (and the
+   whole icon takes the accent color) */
+.st-toc .st-toc-pane {
+  opacity: 0;
+  transition: opacity var(--t-2) var(--ease);
+}
+
+.st-toc[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+.st-toc[aria-pressed='true'] .st-toc-pane {
+  opacity: 1;
+}
+
+.st-toc[aria-pressed='true']:hover,
+.st-toc[aria-pressed='true']:focus-visible {
+  color: var(--accent);
+}
+
 #st-path {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1231,6 +1310,13 @@ body {
     opacity: 0;
     transform: translateY(6px) scale(0.98);
   }
+}
+
+/* the dialog card is the initial focus target (tabindex=-1): programmatic
+   focus must not draw the global focus outline — Tab moves to real controls */
+.modal[tabindex='-1']:focus,
+.modal[tabindex='-1']:focus-visible {
+  outline: none;
 }
 
 .modal-x {
@@ -1361,6 +1447,75 @@ body {
 
 .modal-about .modal-btn {
   margin-top: 22px;
+}
+
+/* --- hotkeys dialog --- */
+
+/* wide enough to show the full list without scrolling on typical
+   landscape screens; the max-height cap keeps small windows safe */
+.modal-hotkeys {
+  width: min(720px, calc(100vw - 64px));
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 96px);
+}
+
+.hotkeys-title {
+  margin: 2px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding-right: 36px; /* clear of the × button */
+}
+
+.hotkeys-body {
+  margin-top: 14px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 40px;
+  align-content: start;
+  padding: 0 6px 10px 0; /* right: scrollbar clearance */
+}
+
+.hk-group {
+  min-width: 0;
+}
+
+.hk-group h3 {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-3);
+}
+
+.hk-group:first-child h3 {
+  margin-top: 0;
+}
+
+.hk-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2.5px 0;
+  font-size: 13px;
+}
+
+/* long labels wrap instead of ellipsizing mid-word; the hotkey column
+   keeps a fixed right edge */
+.hk-row span {
+  color: var(--fg-2);
+  min-width: 0;
+}
+
+.hk-kbd {
+  flex: none;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
 }
 
 /* --- close confirmation --- */

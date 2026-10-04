@@ -11,7 +11,7 @@ import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm';
 
 import { editorStrings } from './crepe-locale';
 import { applyVisualBlock, blockHotkey, type BlockId } from './actions';
-import { getLang } from '../i18n';
+import { getLang, t } from '../i18n';
 
 /**
  * Right-click formatting panel (owner decision 2026-10-03, after HTML
@@ -35,6 +35,9 @@ import { getLang } from '../i18n';
  */
 
 const ICONS = {
+  copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  cut: '<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></svg>',
+  paste: '<svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>',
   link: '<svg viewBox="0 0 24 24"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5"/></svg>',
   code: '<svg viewBox="0 0 24 24"><path d="m8 7-5 5 5 5"/><path d="m16 7 5 5-5 5"/></svg>',
   quote:
@@ -43,16 +46,26 @@ const ICONS = {
   ol: '<svg viewBox="0 0 24 24"><path d="M10 6h11M10 12h11M10 18h11"/><text x="2" y="8" font-size="7" fill="currentColor" stroke="none">1</text><text x="2" y="14.5" font-size="7" fill="currentColor" stroke="none">2</text><text x="2" y="20.5" font-size="7" fill="currentColor" stroke="none">3</text></svg>',
 };
 
+/** Clipboard actions for the panel's Копировать/Вырезать/Вставить row —
+ * injected from main.ts so the panel stays decoupled from app state. */
+export interface PanelClipboardActions {
+  copy(): void;
+  cut(): void;
+  paste(): void;
+}
+
 export class ContextPanel {
   private crepe: Crepe | null = null;
   private root: HTMLElement | null = null;
   private panel: HTMLElement | null = null;
   private submenu: HTMLElement | null = null;
   private closeTimer: number | undefined;
+  private clipboard: PanelClipboardActions | null = null;
 
-  mount(crepe: Crepe, root: HTMLElement): void {
+  mount(crepe: Crepe, root: HTMLElement, clipboard?: PanelClipboardActions): void {
     this.crepe = crepe;
     this.root = root;
+    this.clipboard = clipboard ?? null;
     // document-level so the block handle («+», a body-level overlay in
     // the left gutter) also opens our panel instead of the native menu
     document.addEventListener('contextmenu', this.onContextMenu);
@@ -69,6 +82,7 @@ export class ContextPanel {
     this.close();
     this.crepe = null;
     this.root = null;
+    this.clipboard = null;
   }
 
   private close = (): void => {
@@ -83,8 +97,8 @@ export class ContextPanel {
    * buttons themselves (pointerdown-prevented, selection kept). */
   private onPointerDown = (e: PointerEvent): void => {
     if (!this.panel) return;
-    const t = e.target instanceof Node ? e.target : null;
-    if (this.panel.contains(t) || this.submenu?.contains(t)) return;
+    const node = e.target instanceof Node ? e.target : null;
+    if (this.panel.contains(node) || this.submenu?.contains(node)) return;
     this.close();
   };
 
@@ -117,9 +131,10 @@ export class ContextPanel {
   private onContextMenu = (e: MouseEvent): void => {
     // our panel replaces the native menu inside the editor (and on the
     // block handle overlay) only — everywhere else the native menu stays
-    const t = e.target instanceof Element ? e.target : null;
-    if (!t) return;
-    if (!this.root?.contains(t) && !t.closest('.milkdown-block-handle')) return;
+    // (named `target` — `t` is the i18n translator here)
+    const target = e.target instanceof Element ? e.target : null;
+    if (!target) return;
+    if (!this.root?.contains(target) && !target.closest('.milkdown-block-handle')) return;
     e.preventDefault();
     this.close();
     const s = editorStrings(getLang());
@@ -131,6 +146,21 @@ export class ContextPanel {
     panel.className = 'prosa-ctx-panel';
     panel.setAttribute('role', 'menu');
     panel.setAttribute('aria-label', s.paragraph);
+
+    // clipboard row first — the native menu this panel replaces had
+    // Copy/Cut/Paste, and without it right-click copying was impossible
+    if (this.clipboard) {
+      const cb = this.clipboard;
+      const clip = row();
+      if (hasSel) {
+        clip.append(
+          btn(t('copy'), 'Ctrl+C', ICONS.copy, () => cb.copy()),
+          btn(t('cut'), 'Ctrl+X', ICONS.cut, () => cb.cut()),
+        );
+      }
+      clip.append(btn(t('paste'), 'Ctrl+V', ICONS.paste, () => cb.paste()));
+      panel.append(clip, sep());
+    }
 
     if (hasSel) {
       const inline = row();

@@ -80,6 +80,7 @@ const els = {
   stModified: $('st-modified'),
   stCount: $('st-count'),
   stVersion: $('st-version') as HTMLButtonElement,
+  stToc: $('st-toc') as HTMLButtonElement,
   aboutOverlay: $('about-overlay'),
   aboutModal: document.querySelector('#about-overlay .modal') as HTMLElement,
   aboutClose: $('about-close') as HTMLButtonElement,
@@ -93,6 +94,11 @@ const els = {
   ccDontSave: $('cc-dont-save') as HTMLButtonElement,
   ccCancel: $('cc-cancel') as HTMLButtonElement,
   ccSave: $('cc-save') as HTMLButtonElement,
+  hotkeysOverlay: $('hotkeys-overlay'),
+  hotkeysModal: document.querySelector('#hotkeys-overlay .modal') as HTMLElement,
+  hotkeysClose: $('hotkeys-close') as HTMLButtonElement,
+  hotkeysTitle: $('hotkeys-title'),
+  hotkeysBody: $('hotkeys-body'),
 };
 
 const visual = new VisualEditor();
@@ -409,6 +415,9 @@ function openExternal(url: string): void {
 function applyTocFeature(): void {
   toc.setVisible(isFeatureEnabled('toc'));
   toc.refresh();
+  // the statusbar toggle reflects the same feature flag (setFeatureEnabled
+  // above fires the cross-listener event that lands here)
+  els.stToc.setAttribute('aria-pressed', String(isFeatureEnabled('toc')));
 }
 
 function toggleToc(): void {
@@ -548,6 +557,7 @@ function buildMenuSections(): (() => MenuSection)[] {
       altKey: 'KeyH',
       entries: [
         { label: t('versionTip'), action: () => openAbout() },
+        { label: t('hotkeys'), action: () => openHotkeys() },
         { label: t('checkUpdates'), action: () => void checkForUpdates(true) },
         sep(),
         { label: t('website'), action: () => openExternal('https://prosamd.ru') },
@@ -684,6 +694,7 @@ let modalReturnFocus: HTMLElement | null = null;
 function activeModalOverlay(): HTMLElement | null {
   if (!els.aboutOverlay.hidden) return els.aboutOverlay;
   if (!els.closeOverlay.hidden) return els.closeOverlay;
+  if (!els.hotkeysOverlay.hidden) return els.hotkeysOverlay;
   return null;
 }
 
@@ -724,7 +735,67 @@ function refreshAboutVersion(): void {
 
 function openAbout(): void {
   refreshAboutVersion();
-  showModal(els.aboutOverlay, els.aboutClose);
+  // focus the dialog card, not the × button: a keyboard-opened dialog would
+  // otherwise show the close button as hovered (focus-visible tooltip/outline)
+  showModal(els.aboutOverlay, els.aboutModal);
+}
+
+// ---------- hotkeys dialog ----------
+
+/**
+ * Builds the shortcuts list from the live menu sections — the menu is the
+ * single source of truth, so a new hotkey shows up here automatically.
+ * Sections with no hotkey-carrying entries are skipped; the Alt-accelerators
+ * (menu opening) are listed first as their own group.
+ */
+function buildHotkeysBody(): void {
+  const body = els.hotkeysBody;
+  body.replaceChildren();
+  const sections = buildMenuSections().map((make) => make());
+
+  const menu = document.createElement('section');
+  menu.className = 'hk-group';
+  const menuTitle = document.createElement('h3');
+  menuTitle.textContent = t('menuBar');
+  menu.append(menuTitle);
+  for (const s of sections) {
+    if (!s.altKey) continue;
+    menu.append(hkRow(s.label, `Alt+${s.altKey.replace('Key', '')}`));
+  }
+  body.append(menu);
+
+  for (const s of sections) {
+    const group = document.createElement('section');
+    group.className = 'hk-group';
+    const title = document.createElement('h3');
+    title.textContent = s.label;
+    group.append(title);
+    let rows = 0;
+    for (const entry of s.entries) {
+      if (entry.separator || !entry.hotkey) continue;
+      group.append(hkRow(entry.label, entry.hotkey));
+      rows++;
+    }
+    if (rows > 0) body.append(group);
+  }
+}
+
+function hkRow(label: string, hotkey: string): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'hk-row';
+  const what = document.createElement('span');
+  what.textContent = label;
+  const keys = document.createElement('kbd');
+  keys.className = 'hk-kbd';
+  keys.textContent = hotkey;
+  row.append(what, keys);
+  return row;
+}
+
+function openHotkeys(): void {
+  els.hotkeysTitle.textContent = t('hotkeys');
+  buildHotkeysBody();
+  showModal(els.hotkeysOverlay, els.hotkeysModal);
 }
 
 // ---------- window close guard ----------
@@ -771,6 +842,8 @@ function applyStaticTexts(): void {
   els.stPath.textContent = filePath ?? t('untitled');
   els.stVersion.title = t('versionTip');
   els.stVersion.setAttribute('aria-label', t('versionTip'));
+  tip(els.stToc, `${t('tocTitle')} · Ctrl+Shift+1`);
+  els.stToc.setAttribute('aria-label', `${t('tocTitle')} · Ctrl+Shift+1`);
 
   els.aboutModal.setAttribute('aria-label', t('versionTip'));
   els.aboutDesc.textContent = t('aboutDesc');
@@ -778,6 +851,8 @@ function applyStaticTexts(): void {
   els.aboutCheck.textContent = t('checkUpdates');
   els.aboutClose.setAttribute('aria-label', t('closeTip'));
   tip(els.aboutClose, t('closeTip'));
+  els.hotkeysClose.setAttribute('aria-label', t('closeTip'));
+  tip(els.hotkeysClose, t('closeTip'));
   els.ccDontSave.textContent = t('dontSave');
   els.ccCancel.textContent = t('cancel');
   els.ccSave.textContent = t('save');
@@ -790,8 +865,10 @@ function applyStaticTexts(): void {
 
 // source-mode aliases mirroring the visual editor's Milkdown keymap
 // (Ctrl+1..6/0, Ctrl+Shift+B, Ctrl+Alt+7/8/C, Ctrl+B/I/E/K); returns true
-// when the combo was consumed. Overlap-free with CodeMirror's own keymaps
-// by construction (they own undo/redo/select-all/buffer combos, not these).
+// when the combo was consumed. NOT overlap-free with CodeMirror's keymaps:
+// defaultKeymap also binds Mod-/ (toggleComment) and Mod-i
+// (selectParentSyntax) — both are swallowed in source.ts with a
+// high-precedence keymap so they can't fire before these aliases run.
 function sourceHotkey(code: string, shift: boolean, alt: boolean): boolean {
   if (!source) return false;
   if (!shift && !alt && /^Digit[0-6]$/.test(code)) {
@@ -849,16 +926,26 @@ async function init(): Promise<void> {
   els.sourcePane.addEventListener('scroll', queueTocActive, true);
 
   applyStaticTexts();
-  await visual.create(els.visualPane, '', () => {
-    scheduleToc();
-    if (userInteracted) {
-      markDirty();
-      return;
-    }
-    // update without real user input behind it: not dirty, but the stats
-    // and the empty-state hint must still track the actual content
-    scheduleStats();
-  });
+  await visual.create(
+    els.visualPane,
+    '',
+    () => {
+      scheduleToc();
+      if (userInteracted) {
+        markDirty();
+        return;
+      }
+      // update without real user input behind it: not dirty, but the stats
+      // and the empty-state hint must still track the actual content
+      scheduleStats();
+    },
+    // the right-click panel's clipboard row shares the Edit-menu commands
+    {
+      copy: () => void editCopy(),
+      cut: () => void editCut(),
+      paste: () => void editPaste(),
+    },
+  );
   setMode('visual');
 
   els.btnVisual.addEventListener('click', () => setMode('visual'));
@@ -951,6 +1038,8 @@ async function init(): Promise<void> {
   // About dialog: the version in the statusbar opens it; the update check
   // that used to live there moved into the dialog
   els.stVersion.addEventListener('click', () => openAbout());
+  // statusbar outline toggle — same code path as View → Outline
+  els.stToc.addEventListener('click', () => toggleToc());
   els.aboutClose.addEventListener('click', () => hideModal(els.aboutOverlay));
   els.aboutCheck.addEventListener('click', () => {
     hideModal(els.aboutOverlay);
@@ -958,6 +1047,13 @@ async function init(): Promise<void> {
   });
   els.aboutOverlay.addEventListener('click', (e) => {
     if (e.target === els.aboutOverlay) hideModal(els.aboutOverlay);
+  });
+
+  // hotkeys dialog shares the modal mechanics (Escape/Tab trap come from
+  // the central keydown handler via activeModalOverlay)
+  els.hotkeysClose.addEventListener('click', () => hideModal(els.hotkeysOverlay));
+  els.hotkeysOverlay.addEventListener('click', (e) => {
+    if (e.target === els.hotkeysOverlay) hideModal(els.hotkeysOverlay);
   });
   for (const link of els.aboutLinks) {
     link.addEventListener('click', (e) => {

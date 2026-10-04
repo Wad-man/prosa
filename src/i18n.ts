@@ -69,6 +69,7 @@ const strings = {
     tocEmpty: 'Заголовков нет',
     website: 'Веб-сайт',
     sourceCode: 'Исходный код',
+    hotkeys: 'Горячие клавиши',
   },
   en: {
     open: 'Open…',
@@ -136,6 +137,7 @@ const strings = {
     tocEmpty: 'No headings yet',
     website: 'Website',
     sourceCode: 'Source code',
+    hotkeys: 'Keyboard Shortcuts',
   },
 } as const;
 

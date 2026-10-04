@@ -17,6 +17,14 @@
 // unaffected — they get the real object. Scoped to the Tauri WebView2 shell;
 // plain browsers keep native behaviour. No wry release fixes this yet
 // (checked through wry 0.57.0, 2026-10-03).
+//
+// Scoped since 0.1.8-rc.2: only DataTransfers handed out by drag events (the
+// patched DragEvent.dataTransfer getter below marks them in a WeakSet) get the
+// shadow treatment. Copy/cut events reach their DataTransfer through the
+// untouched ClipboardEvent.clipboardData getter, stay unmarked and write to
+// the real OS clipboard — the previous global shadow had silenced Ctrl+C
+// entirely (prosemirror/CodeMirror preventDefault the native copy and write
+// via setData) and made Ctrl+X delete the text without copying it.
 
 export function applyWebView2DragFix(): void {
   if (!('__TAURI_INTERNALS__' in window)) return;
@@ -34,6 +42,12 @@ export function applyWebView2DragFix(): void {
   };
 
   const real = {
+    setData: Object.getOwnPropertyDescriptor(proto, 'setData')?.value as
+      | ((this: DataTransfer, format: string, data: string) => void)
+      | undefined,
+    clearData: Object.getOwnPropertyDescriptor(proto, 'clearData')?.value as
+      | ((this: DataTransfer, format?: string) => void)
+      | undefined,
     getData: Object.getOwnPropertyDescriptor(proto, 'getData')?.value as
       | ((this: DataTransfer, format: string) => string)
       | undefined,
@@ -41,11 +55,26 @@ export function applyWebView2DragFix(): void {
     effectAllowed: Object.getOwnPropertyDescriptor(proto, 'effectAllowed'),
   };
 
+  // drag-event DataTransfers — see the header note; copy/cut stay unmarked.
+  // Note the shadow applies to the WHOLE drag lifecycle: the getter below
+  // also marks the REAL object handed out on dragover/dragenter/drop, not
+  // just the dragstart synthetic — only during those phases, never for
+  // clipboard events.
+  const dragData = new WeakSet<DataTransfer>();
+
   proto.setData = function (this: DataTransfer, format: string, data: string): void {
+    if (!dragData.has(this) && real.setData) {
+      real.setData.call(this, format, data);
+      return;
+    }
     store(this)[String(format).toLowerCase()] = String(data);
   };
 
   proto.clearData = function (this: DataTransfer, format?: string): void {
+    if (!dragData.has(this) && real.clearData) {
+      real.clearData.call(this, format);
+      return;
+    }
     if (format === undefined) shadow.delete(this);
     else delete store(this)[String(format).toLowerCase()];
   };
@@ -81,6 +110,10 @@ export function applyWebView2DragFix(): void {
         return shadow.get(this)?.['effectallowed'] ?? real.effectAllowed!.get!.call(this);
       },
       set(this: DataTransfer, v: string): void {
+        if (!dragData.has(this)) {
+          real.effectAllowed!.set!.call(this, v);
+          return;
+        }
         store(this)['effectallowed'] = v;
       },
       configurable: true,
@@ -98,6 +131,8 @@ export function applyWebView2DragFix(): void {
   // out a detached synthetic DataTransfer: handlers see the full API (backed
   // by the shadow store above), the engine sees nothing. dragover/drop keep
   // the real object — reads there are harmless and carry real drop data.
+  // Every object that passes through here is marked as drag-related, which
+  // is what scopes the setData/clearData shadow above.
   const dtDesc = Object.getOwnPropertyDescriptor(DragEvent.prototype, 'dataTransfer');
   if (dtDesc?.get) {
     const synthetic = new WeakMap<DragEvent, DataTransfer>();
@@ -109,9 +144,12 @@ export function applyWebView2DragFix(): void {
             dt = new DataTransfer();
             synthetic.set(this, dt);
           }
+          dragData.add(dt);
           return dt;
         }
-        return dtDesc.get!.call(this);
+        const dt = dtDesc.get!.call(this);
+        if (dt) dragData.add(dt);
+        return dt;
       },
       configurable: true,
     });

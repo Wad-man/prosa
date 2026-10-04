@@ -67,6 +67,9 @@
 
       <footer id="statusbar">
         <div class="st-left">
+          <button id="st-toc" class="st-toc" type="button" data-tip-pos="up-start" aria-pressed="false">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path class="st-toc-pane" d="M9.5 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4.5z" fill="currentColor" stroke="none"/><path d="M9.5 4v16"/></svg>
+          </button>
           <span id="st-modified" class="st-mod" hidden></span>
           <span id="st-path"></span>
         </div>
@@ -78,7 +81,9 @@
     </div>
 
     <div id="about-overlay" class="modal-overlay" hidden>
-      <div class="modal modal-about" role="dialog" aria-modal="true">
+      <!-- tabindex=-1: the dialog card itself takes the initial focus, so the
+           close button is never "pre-hovered" (focus-visible tooltip) on open -->
+      <div class="modal modal-about" role="dialog" aria-modal="true" tabindex="-1">
         <button id="about-close" class="modal-x" type="button">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
@@ -102,6 +107,18 @@
           <button id="cc-cancel" class="modal-btn" type="button"></button>
           <button id="cc-save" class="modal-btn modal-btn-primary" type="button"></button>
         </div>
+      </div>
+    </div>
+
+    <div id="hotkeys-overlay" class="modal-overlay" hidden>
+      <!-- content is rebuilt from the live menu sections on every open, so
+           the list can never drift from what the menu actually offers -->
+      <div class="modal modal-hotkeys" role="dialog" aria-modal="true" aria-labelledby="hotkeys-title" tabindex="-1">
+        <button id="hotkeys-close" class="modal-x" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="hotkeys-title" id="hotkeys-title"></h2>
+        <div class="hotkeys-body" id="hotkeys-body"></div>
       </div>
     </div>
 

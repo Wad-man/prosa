@@ -15,7 +15,7 @@ import {
 } from '@milkdown/kit/preset/commonmark';
 import { $shortcut, replaceAll } from '@milkdown/kit/utils';
 import { crepeLocaleConfigs } from './crepe-locale';
-import { ContextPanel } from './context-panel';
+import { ContextPanel, type PanelClipboardActions } from './context-panel';
 import {
   applyVisualBlock,
   toggleVisualMark,
@@ -119,6 +119,7 @@ export class VisualEditor {
   private root: HTMLElement | null = null;
   private onChange: (() => void) | null = null;
   private panel: ContextPanel | null = null;
+  private panelClipboard: PanelClipboardActions | null = null;
 
   constructor() {
     // Block moving left the core (#15): Crepe re-creates the handle widget
@@ -144,9 +145,16 @@ export class VisualEditor {
     );
   }
 
-  async create(root: HTMLElement, defaultValue: string, onChange: () => void): Promise<void> {
+  async create(
+    root: HTMLElement,
+    defaultValue: string,
+    onChange: () => void,
+    panelClipboard?: PanelClipboardActions,
+  ): Promise<void> {
     this.root = root;
     this.onChange = onChange;
+    // carried across rebuilds (language switch re-creates the panel too)
+    if (panelClipboard) this.panelClipboard = panelClipboard;
     // a rebuild (language switch) remounts everything — clean the old panel first
     this.panel?.destroy();
     const locale = crepeLocaleConfigs(getLang());
@@ -208,7 +216,7 @@ export class VisualEditor {
     });
     // the right-click formatting panel — the only floating panel left
     this.panel = new ContextPanel();
-    this.panel.mount(this.crepe, root);
+    this.panel.mount(this.crepe, root, this.panelClipboard ?? undefined);
   }
 
   getMarkdown(): string {
