@@ -142,7 +142,7 @@ function pluralRu(n: number, one: string, few: string, many: string): string {
 function statsText(words: number, chars: number): string {
   const ru = getLang() === 'ru';
   const fmt = (n: number): string => n.toLocaleString(ru ? 'ru-RU' : 'en-US');
-  const wordsLabel = ru ? pluralRu(words, 'слово', 'слова', 'слов') : t('words');
+  const wordsLabel = ru ? pluralRu(words, 'слово', 'слова', 'слов') : words === 1 ? t('word') : t('words');
   const parts = [`${fmt(words)} ${wordsLabel}`, `${fmt(chars)} ${t('chars')}`];
   if (words > 0) parts.push(`${Math.ceil(words / 200)} ${t('minShort')}`);
   return parts.join(' · ');

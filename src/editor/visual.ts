@@ -1,9 +1,9 @@
 import { Crepe } from '@milkdown/crepe';
 import '@milkdown/crepe/theme/common/style.css';
 import '@milkdown/crepe/theme/frame.css';
-import { EditorView } from '@codemirror/view';
+import { EditorView, keymap } from '@codemirror/view';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import type { Extension } from '@codemirror/state';
+import { Prec, type Extension } from '@codemirror/state';
 import { tags as t } from '@lezer/highlight';
 import { commandsCtx } from '@milkdown/kit/core';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
@@ -110,6 +110,12 @@ const codeBlockTheme: Extension = [
       { tag: t.strikethrough, textDecoration: 'line-through' },
     ]),
   ),
+  // Ctrl+/ is the app-wide mode toggle (main.ts window handler). basicSetup
+  // binds Mod-/ to toggleComment inside code blocks, so a caret there used
+  // to BOTH flip the mode and inject a line comment into the code — the
+  // same double-fire the source editor swallows (source.ts). Swallow it
+  // here too; the window handler still performs the flip.
+  Prec.high(keymap.of([{ key: 'Mod-/', run: () => true }])),
 ];
 
 /**
