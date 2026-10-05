@@ -1,0 +1,41 @@
+# Dependabot: еженедельные PR на обновление зависимостей (npm, cargo,
+# GitHub Actions). Репозиторий публичный — бесплатно и без секретов.
+# Гейт владельца: PR мержится только после его решения; minor/patch
+# сгруппированы, чтобы не тонуть в PR-ах.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "deps"
+    labels: ["dependencies"]
+    groups:
+      npm-minor-patch:
+        update-types: ["version-update:minor", "version-update:patch"]
+
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "deps"
+    labels: ["dependencies"]
+    groups:
+      cargo-minor-patch:
+        update-types: ["version-update:minor", "version-update:patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies"]
+    groups:
+      actions-updates:
+        update-types: ["version-update:minor", "version-update:patch"]

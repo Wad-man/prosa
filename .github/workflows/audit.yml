@@ -1,0 +1,48 @@
+name: Security audit
+
+# Еженедельный аудит зависимостей: npm audit (фронтенд) + cargo audit
+# (Rust-бэкенд). Секретов не требует. Падение -> issue "deps: ..." в этом
+# репозитории (одна, с дедупликацией) + красный прогон; Dependabot параллельно
+# предлагает PR с обновлениями (см. dependabot.yml).
+on:
+  schedule:
+    - cron: "41 6 * * 1" # понедельник 06:41 UTC (10:41 MSK)
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: npm audit (frontend)
+        run: npm audit --audit-level=high
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+      - name: cargo audit (Rust backend)
+        run: cargo audit --file src-tauri/Cargo.lock
+
+  alert:
+    if: failure()
+    needs: audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          TITLE="deps: уязвимости в зависимостях (security audit)"
+          BODY="Еженедельный security audit упал — в зависимостях есть уязвимости уровня high+.\n\nПрогон: ${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID}\n\nДальше: глянуть отчёт в логе, поднять зависимости (PR от Dependabot или вручную), при критичном — горячий релиз по RELEASING.md."
+          open=$(gh issue list -R "$REPO" --state open --json number --jq \
+            ".[] | select(.title == \"$TITLE\") | .number" | head -1)
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$(printf '%b' "$BODY")"
+          else
+            gh issue create -R "$REPO" --title "$TITLE" --body "$(printf '%b' "$BODY")" --label "dependencies"
+          fi
