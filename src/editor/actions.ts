@@ -1,7 +1,9 @@
 import type { Crepe } from '@milkdown/crepe';
+import type { Ctx } from '@milkdown/kit/ctx';
 import { commandsCtx, editorViewCtx, parserCtx } from '@milkdown/kit/core';
-import { Slice } from '@milkdown/kit/prose/model';
-import { selectAll, deleteSelection } from '@milkdown/kit/prose/commands';
+import { Slice, type NodeType } from '@milkdown/kit/prose/model';
+import { Selection } from '@milkdown/kit/prose/state';
+import { selectAll, deleteSelection, lift } from '@milkdown/kit/prose/commands';
 import { undoCommand, redoCommand } from '@milkdown/kit/plugin/history';
 import { toggleLinkCommand } from '@milkdown/kit/component/link-tooltip';
 import {
@@ -9,6 +11,7 @@ import {
   bulletListSchema,
   codeBlockSchema,
   headingSchema,
+  listItemSchema,
   orderedListSchema,
   paragraphSchema,
   setBlockTypeCommand,
@@ -50,17 +53,70 @@ export function blockHotkey(id: BlockId): string {
   return BLOCK_HOTKEYS[id];
 }
 
+/** A caret parked at a doc boundary (typical right after a full document
+ * replace) resolves at depth 0, where ancestor walks find nothing. Resolve
+ * it to the nearest real text cursor first — every block-level helper below
+ * must reason about a position INSIDE a block. */
+function resolved$from(ctx: Ctx) {
+  const selection = ctx.get(editorViewCtx).state.selection;
+  return selection.$from.depth === 0 ? Selection.near(selection.$from).$from : selection.$from;
+}
+
+/** Depth of the nearest ancestor (incl. the selection's own block) whose
+ * type name is in `names`; 0 when there is none. Drives the toggle logic:
+ * "am I inside X at all" — not "is X the innermost container" (a quote
+ * wrapping a list must still toggle the quote off, #28). */
+function ancestorDepth(ctx: Ctx, names: string[]): number {
+  const $from = resolved$from(ctx);
+  for (let depth = $from.depth; depth > 0; depth--) {
+    if (names.includes($from.node(depth).type.name)) return depth;
+  }
+  return 0;
+}
+
+/** Lift the selected block one structural level (out of a quote/list), the
+ * prosemirror `lift` command — mirrors the source mode's "strip one marker
+ * per press" semantics. */
+function liftSelection(ctx: Ctx): void {
+  const view = ctx.get(editorViewCtx);
+  lift(view.state, view.dispatch);
+  view.focus();
+}
+
+/** Convert the nearest enclosing list to `listType` in place (ul ↔ ol). */
+function setListType(ctx: Ctx, listType: NodeType): void {
+  const view = ctx.get(editorViewCtx);
+  const depth = ancestorDepth(ctx, ['bullet_list', 'ordered_list']);
+  if (depth === 0) return;
+  view.dispatch(view.state.tr.setNodeMarkup(resolved$from(ctx).before(depth), listType));
+  view.focus();
+}
+
 export function applyVisualBlock(crepe: Crepe, id: BlockId): void {
   crepe.editor.action((ctx) => {
     const commands = ctx.get(commandsCtx);
     if (id === 'text') {
-      commands.call(setBlockTypeCommand.key, { nodeType: paragraphSchema.type(ctx) });
+      // Ctrl+0: a block inside a quote/list steps out one level first (the
+      // source mode strips one marker per press); headings become plain
+      // paragraphs; inside a code block it is a no-op, like the source mode
+      if (ancestorDepth(ctx, ['blockquote', 'bullet_list', 'ordered_list']) > 0) {
+        liftSelection(ctx);
+      } else if (visualCurrentBlock(crepe) !== 'code') {
+        commands.call(setBlockTypeCommand.key, { nodeType: paragraphSchema.type(ctx) });
+      }
     } else if (id === 'quote') {
-      commands.call(wrapInBlockTypeCommand.key, { nodeType: blockquoteSchema.type(ctx) });
-    } else if (id === 'ul') {
-      commands.call(wrapInBlockTypeCommand.key, { nodeType: bulletListSchema.type(ctx) });
-    } else if (id === 'ol') {
-      commands.call(wrapInBlockTypeCommand.key, { nodeType: orderedListSchema.type(ctx) });
+      if (ancestorDepth(ctx, ['blockquote']) > 0) liftSelection(ctx);
+      else commands.call(wrapInBlockTypeCommand.key, { nodeType: blockquoteSchema.type(ctx) });
+    } else if (id === 'ul' || id === 'ol') {
+      const listType = (id === 'ul' ? bulletListSchema : orderedListSchema).type(ctx);
+      const other = id === 'ul' ? 'ol' : 'ul';
+      if (visualCurrentBlock(crepe) === id) {
+        liftSelection(ctx); // same type again → unwrap
+      } else if (visualCurrentBlock(crepe) === other) {
+        setListType(ctx, listType); // ul ↔ ol converts in place
+      } else {
+        commands.call(wrapInBlockTypeCommand.key, { nodeType: listType });
+      }
     } else if (id === 'code') {
       commands.call(setBlockTypeCommand.key, { nodeType: codeBlockSchema.type(ctx) });
     } else {
@@ -134,11 +190,84 @@ export function visualInsertMarkdown(crepe: Crepe, md: string): void {
   });
 }
 
+/** Ctrl+D: delete the selection, or the whole top-level block at the caret
+ * (Obsidian's line-delete). Deleting the document's last block would
+ * violate the schema, so it degrades to clearing the block. */
+export function visualDeleteBlock(crepe: Crepe): void {
+  crepe.editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    const { selection, tr } = view.state;
+    if (!selection.empty) {
+      view.dispatch(tr.deleteSelection().scrollIntoView());
+    } else {
+      const $from = resolved$from(ctx);
+      const from = $from.before(1);
+      const to = $from.after(1);
+      const paragraph = paragraphSchema.type(ctx).create();
+      view.dispatch(tr.replaceWith(from, to, paragraph).scrollIntoView());
+    }
+    view.focus();
+  });
+}
+
+/** Ctrl+L: toggle the task checkbox of the current list item; a non-list
+ * block turns into an unchecked task item (Obsidian semantics). The gfm
+ * preset models tasks as a `checked` attr on the regular list_item. */
+export function visualToggleTask(crepe: Crepe): void {
+  crepe.editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    const { tr } = view.state;
+    const $from = resolved$from(ctx);
+    for (let depth = $from.depth; depth > 0; depth--) {
+      if ($from.node(depth).type.name !== 'list_item') continue;
+      const node = $from.node(depth);
+      const checked = node.attrs.checked == null ? true : !node.attrs.checked;
+      view.dispatch(tr.setNodeMarkup($from.before(depth), undefined, { checked }));
+      view.focus();
+      return;
+    }
+    // not in a list yet — wrap into an unchecked task item
+    const range = $from.blockRange();
+    if (!range) return;
+    const bulletList = bulletListSchema.type(ctx);
+    const listItem = listItemSchema.type(ctx);
+    view.dispatch(
+      tr.wrap(range, [
+        { type: bulletList },
+        { type: listItem, attrs: { checked: false } },
+      ]),
+    );
+    view.focus();
+  });
+}
+
+/** Ctrl+Shift+N: strip the inline marks (bold/italic/strike/code/links) off
+ * the selection — Telegram/Word "Normal" semantics. With a bare caret the
+ * whole current top-level block is cleaned. */
+export function visualClearFormatting(crepe: Crepe): void {
+  crepe.editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    const { selection, tr } = view.state;
+    let from: number;
+    let to: number;
+    if (selection.empty) {
+      const $from = resolved$from(ctx);
+      from = $from.before(1);
+      to = $from.after(1);
+    } else {
+      from = selection.from;
+      to = selection.to;
+    }
+    view.dispatch(tr.removeMark(from, to));
+    view.focus();
+  });
+}
+
 /** Block type at the cursor — drives the checkmarks of the Paragraph menu. */
 export function visualCurrentBlock(crepe: Crepe): BlockId | null {
   let current: BlockId | null = null;
   crepe.editor.action((ctx) => {
-    const { $from } = ctx.get(editorViewCtx).state.selection;
+    const $from = resolved$from(ctx);
     for (let depth = $from.depth; depth > 0; depth--) {
       const node = $from.node(depth);
       const name = node.type.name;

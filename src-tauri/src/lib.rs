@@ -84,6 +84,19 @@ fn focus_window(app: &AppHandle, label: &str) -> Option<()> {
     Some(())
 }
 
+/// Show every window that is still hidden because its frontend never got
+/// far enough to call show() (crashed/slow JS) — a window must never stay
+/// invisible forever. Runs once, a few seconds into the app's life.
+fn show_fallback(app: &AppHandle, delay: std::time::Duration) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(delay);
+        for window in handle.webview_windows().values() {
+            let _ = window.show();
+        }
+    });
+}
+
 /// One document per window: every window is an isolated editor instance, so
 /// window state never has to be shared.
 fn create_doc_window(app: &AppHandle, path: &str) -> tauri::Result<()> {
@@ -97,12 +110,16 @@ fn create_doc_window(app: &AppHandle, path: &str) -> tauri::Result<()> {
     )
     .title("ProsaMD")
     .inner_size(1100.0, 780.0)
-    .min_inner_size(520.0, 400.0);
+    .min_inner_size(520.0, 400.0)
+    // hidden until the frontend painted its first real frame (#34): an
+    // immediately visible window flashes white, then an empty shell
+    .visible(false);
     // Tauri's native drag-drop handler must stay off for in-page HTML5
     // drag-and-drop (block handles) — same as the main window config
     #[cfg(windows)]
     let builder = builder.drag_and_drop(false);
     let window = builder.build()?;
+    show_fallback(app, std::time::Duration::from_secs(3));
     // Windows denies foreground to a window created by an already-running
     // background process: the document would open behind the user's current
     // app (issue #5). A brief topmost toggle forces the activation that
@@ -171,6 +188,12 @@ fn open_doc_external(app: &AppHandle, state: &Docs, path: &str) {
 pub fn run() {
     let builder = tauri::Builder::default()
         .manage(Docs::default())
+        .setup(|app| {
+            // the main window starts hidden (visible: false in the config,
+            // #34) — if its frontend never calls show(), reveal it anyway
+            show_fallback(app.handle(), std::time::Duration::from_secs(3));
+            Ok(())
+        })
         // drop document state of closed windows
         .on_window_event(|window, event| {
             if matches!(event, WindowEvent::Destroyed) {

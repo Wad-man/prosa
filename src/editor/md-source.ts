@@ -261,6 +261,65 @@ function toggleFence(view: EditorView): void {
   view.focus();
 }
 
+// ---------- line-level and task commands (#35 aliases) ----------
+
+/** Ctrl+D: delete the lines covered by the selection (Obsidian semantics). */
+export function sourceDeleteLines(view: EditorView): void {
+  const { from, to } = lineRange(view);
+  view.dispatch({
+    changes: { from, to },
+    selection: { anchor: from },
+    scrollIntoView: true,
+  });
+  view.focus();
+}
+
+/** Ctrl+L: toggle the `[ ]`/`[x]` marker of the caret's line — a plain list
+ * item becomes an unchecked task, any other line becomes `- [ ]` + line. */
+export function sourceToggleTask(view: EditorView): void {
+  const line = view.state.doc.lineAt(view.state.selection.main.head);
+  const toggled = line.text.replace(
+    /^(\s*)(?:([-*+])\s+)?(?:\[([ xX])\]\s+)?/,
+    (full, ws: string, bullet: string | undefined, mark: string | undefined) => {
+      if (mark !== undefined) {
+        const next = mark === ' ' ? 'x' : ' ';
+        return `${ws}${bullet ?? '-'} [${next}] `;
+      }
+      if (bullet !== undefined) return `${ws}${bullet} [ ] `;
+      return `${ws}- [ ] ${full.slice(ws.length)}`;
+    },
+  );
+  if (toggled !== line.text) {
+    view.dispatch({ changes: { from: line.from, to: line.to, insert: toggled } });
+  }
+  view.focus();
+}
+
+/** Ctrl+Shift+N: strip inline mark tokens (bold/italic/strike/code/links)
+ * off the selected text, or the caret's whole line. Repeats until stable so
+ * nested marks (`***x***`) fully unwrap. */
+export function sourceClearFormatting(view: EditorView): void {
+  const { from, to } = lineRange(view);
+  const original = view.state.sliceDoc(from, to);
+  let text = original;
+  let prev: string;
+  do {
+    prev = text;
+    text = text
+      .replace(/\*\*([\s\S]+?)\*\*/g, '$1')
+      .replace(/__([\s\S]+?)__/g, '$1')
+      .replace(/\*([\s\S]+?)\*/g, '$1')
+      .replace(/_([^_]+?)_/g, '$1')
+      .replace(/~~([\s\S]+?)~~/g, '$1')
+      .replace(/`([^`]+?)`/g, '$1')
+      .replace(/\[([\s\S]*?)\]\([^)]*\)/g, '$1');
+  } while (text !== prev);
+  if (text !== original) {
+    view.dispatch({ changes: { from, to, insert: text } });
+  }
+  view.focus();
+}
+
 /** Block type at the cursor — drives the checkmarks of the Paragraph menu. */
 export function sourceCurrentBlock(view: EditorView): BlockId | null {
   if (insideFence(view)) return 'code';

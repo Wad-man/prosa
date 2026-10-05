@@ -22,7 +22,7 @@
     </script>
   </head>
   <body>
-    <div id="app" class="empty" data-mode="visual">
+    <div id="app" class="empty" data-mode="visual" data-pending>
       <header id="toolbar" role="toolbar">
         <nav id="menubar" role="menubar"></nav>
         <div class="tb-spacer"></div>
@@ -70,7 +70,7 @@
           <button id="st-toc" class="st-toc" type="button" data-tip-pos="up-start" aria-pressed="false">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path class="st-toc-pane" d="M9.5 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4.5z" fill="currentColor" stroke="none"/><path d="M9.5 4v16"/></svg>
           </button>
-          <span id="st-modified" class="st-mod" hidden></span>
+          <span id="st-modified" class="st-mod" data-tip-pos="up-start" hidden></span>
           <span id="st-path"></span>
         </div>
         <div class="st-right">

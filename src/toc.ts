@@ -40,6 +40,11 @@ export class TocPanel {
   private entries: TocEntry[] = [];
   private activeIndex = -1;
   private flashTimer: number | undefined;
+  // #36: [hidden] lands only after the close transition finished
+  private closeTimer: number | undefined;
+  // #30: skip button rebuilds when the headings did not change — mode
+  // switches used to recreate every .toc-item (and its listeners) for nothing
+  private renderedSig = '';
 
   mount(host: HTMLElement, ctx: TocContext): void {
     this.ctx = ctx;
@@ -70,12 +75,36 @@ export class TocPanel {
     this.render(); // placeholder text is localized too
   }
 
+  /** Show/hide with a width animation (#36): the `is-open` class drives a
+   * width transition (styles.css), while the `hidden` attribute — which
+   * would kill the transition mid-flight — is set only after the close
+   * animation finished. A timer backs the transitionend (and covers
+   * prefers-reduced-motion, where no transition fires). `inert` drops the
+   * closing panel from the tab order immediately. */
   setVisible(visible: boolean): void {
-    this.panel?.toggleAttribute('hidden', !visible);
+    const panel = this.panel;
+    if (!panel) return;
+    const open = panel.classList.contains('is-open');
+    if (visible === open) return;
+    window.clearTimeout(this.closeTimer);
+    if (visible) {
+      panel.hidden = false;
+      panel.inert = false;
+      // reflow so the transition plays from width 0, not from display:none
+      void panel.offsetWidth;
+      panel.classList.add('is-open');
+    } else {
+      panel.classList.remove('is-open');
+      panel.inert = true;
+      this.closeTimer = window.setTimeout(() => {
+        if (!panel.classList.contains('is-open')) panel.hidden = true;
+      }, 260);
+    }
   }
 
   isVisible(): boolean {
-    return this.panel?.hidden !== true;
+    const panel = this.panel;
+    return panel !== null && panel.classList.contains('is-open');
   }
 
   /**
@@ -122,6 +151,11 @@ export class TocPanel {
 
   private render(): void {
     if (!this.list) return;
+    // same headings as the last render — the buttons (and their listeners)
+    // stay; only the active highlight may still change (#30)
+    const sig = this.entries.map((e) => `${e.level}|${e.text}`).join('\n');
+    if (sig === this.renderedSig) return;
+    this.renderedSig = sig;
     this.list.replaceChildren();
     if (this.entries.length === 0) {
       const empty = document.createElement('div');

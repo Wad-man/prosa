@@ -519,15 +519,32 @@ body {
   overflow: hidden;
 }
 
+/* ---------- outline sidebar with animated reveal (#36) ----------
+   Width animates 0 ↔ 248px on the outer panel (overflow hidden) while the
+   inner children keep a fixed width, so the text never rewraps mid-flight.
+   `hidden` is applied by toc.ts only after the close transition ends. */
 #toc-panel {
   flex: none;
-  width: 248px;
+  width: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-sunk);
   border-right: 1px solid var(--border);
   overflow: hidden;
-  transition: background-color var(--t-2) var(--ease), border-color var(--t-2) var(--ease);
+  transition: width var(--t-2) var(--ease), background-color var(--t-2) var(--ease),
+    border-color var(--t-2) var(--ease);
+}
+
+#toc-panel.is-open {
+  width: 249px; /* 248 content + 1px border */
+}
+
+#toc-panel:not(.is-open) {
+  border-right-color: transparent;
+}
+
+#toc-panel > * {
+  width: 248px; /* inner fixed width — no text squeeze during the flight */
 }
 
 #toc-panel[hidden] {
@@ -637,6 +654,32 @@ body {
 
 #app.empty[data-mode='visual'] #empty-hint {
   display: block;
+}
+
+/* while the initial file is in flight the "drop a file" hint would lie —
+   a quiet spinner stands in until the content lands (#34) */
+#app[data-pending] #empty-hint {
+  display: none;
+}
+
+#app[data-pending] #editor-panes::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--fg) 22%, transparent);
+  border-top-color: transparent;
+  animation: app-loading 0.8s linear infinite;
+}
+
+@keyframes app-loading {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 #empty-hint .eh-inner {
@@ -1226,11 +1269,19 @@ body {
 }
 
 .st-mod {
+  position: relative; /* anchors the tooltip and the hover hit-area */
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--accent);
   flex: none;
+}
+
+/* the 7px dot is a hard hover target — an invisible overlay grows it (#31) */
+.st-mod::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
 }
 
 .st-mod[hidden] {

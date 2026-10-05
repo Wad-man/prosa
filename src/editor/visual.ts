@@ -28,6 +28,9 @@ import {
   visualDeleteSelection,
   visualInsertMarkdown,
   visualCurrentBlock,
+  visualDeleteBlock,
+  visualToggleTask,
+  visualClearFormatting,
   type BlockId,
   type MarkId,
 } from './actions';
@@ -290,6 +293,20 @@ export class VisualEditor {
 
   insertMarkdown(md: string): void {
     if (this.crepe) visualInsertMarkdown(this.crepe, md);
+  }
+
+  // ---------- line-level commands for the #35 hotkey aliases ----------
+
+  deleteBlock(): void {
+    if (this.crepe) visualDeleteBlock(this.crepe);
+  }
+
+  toggleTask(): void {
+    if (this.crepe) visualToggleTask(this.crepe);
+  }
+
+  clearFormatting(): void {
+    if (this.crepe) visualClearFormatting(this.crepe);
   }
 
   currentBlock(): BlockId | null {

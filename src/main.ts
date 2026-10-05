@@ -27,8 +27,12 @@ import {
   sourceDeleteSelection,
   sourceInsertText,
   sourceCurrentBlock,
+  sourceDeleteLines,
+  sourceToggleTask,
+  sourceClearFormatting,
 } from './editor/md-source';
 import type { BlockId, MarkId } from './editor/actions';
+import { splitFrontMatter } from './frontmatter';
 import { MenuBar, type MenuSection } from './menu';
 import { TocPanel } from './toc';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
@@ -121,9 +125,31 @@ let dirty = false;
 let suppressChange = false;
 let statsTimer: number | undefined;
 
-function getMarkdown(): string {
-  if (mode === 'visual') return visual.getMarkdown();
-  return source?.getContent() ?? '';
+// ---------- lossless round-trip bookkeeping (#33, #29) ----------
+// The visual mode reserializes markdown (table padding etc.), so byte
+// fidelity needs more than getMarkdown():
+// - frontMatter: the raw YAML block carved out of the visual editor's body
+//   (which would otherwise chew it into hr + headings);
+// - savedRaw: the exact bytes of the last load/save — an unedited document
+//   writes them back verbatim instead of a reserialization;
+// - baseline: the editors' current serialized form right after load/save;
+//   content returning to it means "not dirty" (a full Ctrl+Z undoes the
+//   dirty flag too) and restores the raw-bytes passthrough on save;
+// - editedSinceSave: any real user edit since load/save — keeps the
+//   passthrough honest across mode switches (a switched-but-unedited doc
+//   still saves its original bytes).
+let frontMatter: string | null = null;
+let savedRaw = '';
+let baseline = '';
+let editedSinceSave = false;
+let dirtyCheckTimer: number | undefined;
+
+/** The document as a file: front-matter + the active editor's content. In
+ * the source mode that is the raw text itself; in the visual mode the body
+ * is Crepe's serialization with the front-matter block re-attached. */
+function currentFullText(): string {
+  if (mode === 'source') return source?.getContent() ?? '';
+  return (frontMatter ?? '') + visual.getMarkdown();
 }
 
 function fileName(): string {
@@ -149,7 +175,7 @@ function statsText(words: number, chars: number): string {
 }
 
 function refreshEmptyState(): void {
-  els.app.classList.toggle('empty', getMarkdown().trim() === '');
+  els.app.classList.toggle('empty', currentFullText().trim() === '');
 }
 
 function refreshChrome(): void {
@@ -167,7 +193,7 @@ function refreshChrome(): void {
 
 let statsPending = '';
 function scheduleStats(): void {
-  statsPending = getMarkdown();
+  statsPending = currentFullText();
   window.clearTimeout(statsTimer);
   statsTimer = window.setTimeout(() => {
     const md = statsPending.trim();
@@ -184,6 +210,7 @@ function updateStats(): void {
 
 function markDirty(): void {
   if (suppressChange) return;
+  editedSinceSave = true;
   if (!dirty) {
     dirty = true;
     refreshChrome();
@@ -191,6 +218,23 @@ function markDirty(): void {
   } else {
     scheduleStats();
   }
+  scheduleDirtyCheck();
+}
+
+// #29: a full undo back to the last saved state is not a change — once
+// edits settle, content equal to the baseline clears the dirty flag (and
+// the title dot) and re-arms the raw-bytes passthrough for the next save.
+function scheduleDirtyCheck(): void {
+  window.clearTimeout(dirtyCheckTimer);
+  dirtyCheckTimer = window.setTimeout(() => {
+    if (!dirty || suppressChange) return;
+    if (currentFullText() === baseline) {
+      dirty = false;
+      editedSinceSave = false;
+      refreshChrome();
+      reportDocState();
+    }
+  }, 350);
 }
 
 // Keep the Rust side in sync with this window's document state — it routes
@@ -201,14 +245,14 @@ function reportDocState(): void {
   void invoke('report_doc_state', {
     path: filePath,
     dirty,
-    empty: getMarkdown().trim() === '',
+    empty: currentFullText().trim() === '',
   }).catch(() => {});
 }
 
 // An untouched untitled document — a newly opened file can take its place
 // instead of spawning a window.
 function pristine(): boolean {
-  return filePath === null && !dirty && getMarkdown().trim() === '';
+  return filePath === null && !dirty && currentFullText().trim() === '';
 }
 
 // Open a file in this window while it is still pristine; otherwise hand it
@@ -232,14 +276,22 @@ async function confirmLoseChanges(): Promise<boolean> {
 
 function applyLoaded(text: string, path: string | null, suggestedName?: string): void {
   suppressChange = true;
-  if (mode === 'visual') visual.setMarkdown(text);
+  savedRaw = text;
+  // the visual editor must not see the front-matter block (#33); the raw
+  // source view keeps it as part of the file text
+  const { frontMatter: fm, body } = splitFrontMatter(text);
+  frontMatter = fm;
+  if (mode === 'visual') visual.setMarkdown(body);
   else source?.setContent(text);
   filePath = path;
   fileSuggestion = path === null ? (suggestedName ?? null) : null;
   dirty = false;
+  editedSinceSave = false;
+  window.clearTimeout(dirtyCheckTimer);
   // let programmatic editor updates land before unmasking change events
   window.setTimeout(() => {
     suppressChange = false;
+    baseline = currentFullText();
     refreshChrome();
     reportDocState();
     toc.refresh();
@@ -293,7 +345,11 @@ async function openFile(): Promise<void> {
 
 async function saveFile(saveAs: boolean): Promise<void> {
   if (!inTauri) return;
-  const md = getMarkdown();
+  const current = currentFullText();
+  // #33: a document whose content never left the last loaded/saved state
+  // writes the original bytes back — no visual-mode reserialization, so
+  // table padding and front-matter fences survive byte-for-byte
+  const md = !editedSinceSave || current === baseline ? savedRaw : current;
   let path = filePath;
   if (path === null || saveAs) {
     const defaultName = filePath === null ? (fileSuggestion ?? `${t('untitled')}.md`) : fileName();
@@ -303,8 +359,12 @@ async function saveFile(saveAs: boolean): Promise<void> {
   }
   try {
     await writeTextFile(path, md);
+    savedRaw = md;
+    baseline = current;
     filePath = path;
     dirty = false;
+    editedSinceSave = false;
+    window.clearTimeout(dirtyCheckTimer);
     refreshChrome();
     reportDocState();
   } catch (err) {
@@ -395,6 +455,23 @@ function editMark(id: MarkId): void {
   else if (source) sourceToggleMark(source.view, id);
 }
 
+// ---------- line-level commands (#35 aliases: Obsidian / Word / Telegram) ----------
+
+function editDeleteLine(): void {
+  if (mode === 'visual') visual.deleteBlock();
+  else if (source) sourceDeleteLines(source.view);
+}
+
+function editToggleTask(): void {
+  if (mode === 'visual') visual.toggleTask();
+  else if (source) sourceToggleTask(source.view);
+}
+
+function editClearFormatting(): void {
+  if (mode === 'visual') visual.clearFormatting();
+  else if (source) sourceClearFormatting(source.view);
+}
+
 function currentBlock(): BlockId | null {
   if (mode === 'visual') return visual.currentBlock();
   return source ? sourceCurrentBlock(source.view) : null;
@@ -470,6 +547,7 @@ function buildMenuSections(): (() => MenuSection)[] {
         { label: t('paste'), hotkey: 'Ctrl+V', action: () => void editPaste() },
         sep(),
         { label: t('selectAll'), hotkey: 'Ctrl+A', action: () => editSelectAll() },
+        { label: t('deleteLine'), hotkey: 'Ctrl+D', action: () => editDeleteLine() },
       ],
     }),
     (): MenuSection => {
@@ -495,10 +573,16 @@ function buildMenuSections(): (() => MenuSection)[] {
           block('h6', s.h6, 'Ctrl+6'),
           block('text', s.text, 'Ctrl+0'),
           sep(),
-          block('quote', s.quote, 'Ctrl+Shift+B'),
-          block('ul', s.bulletList, 'Ctrl+Alt+8'),
+          block('quote', s.quote, 'Ctrl+Shift+B / Ctrl+Shift+Q'),
+          block('ul', s.bulletList, 'Ctrl+Alt+8 / Ctrl+Shift+L'),
           block('ol', s.orderedList, 'Ctrl+Alt+7'),
           block('code', s.codeBlock, 'Ctrl+Alt+C'),
+          sep(),
+          {
+            label: t('taskToggle'),
+            hotkey: 'Ctrl+L',
+            action: () => editToggleTask(),
+          },
         ],
       };
     },
@@ -515,10 +599,11 @@ function buildMenuSections(): (() => MenuSection)[] {
         entries: [
           mark('bold', s.bold, 'Ctrl+B'),
           mark('italic', s.italic, 'Ctrl+I'),
-          mark('strike', s.strikethrough),
-          mark('code', s.inlineCode, 'Ctrl+E'),
+          mark('strike', s.strikethrough, 'Ctrl+Shift+X'),
+          mark('code', s.inlineCode, 'Ctrl+E / Ctrl+Shift+M'),
           sep(),
           mark('link', s.link, 'Ctrl+K'),
+          { label: t('clearFormat'), hotkey: 'Ctrl+Shift+N', action: () => editClearFormatting() },
         ],
       };
     },
@@ -652,9 +737,10 @@ function setMode(next: Mode): void {
   if (next === mode && source !== null) {
     // still normalize UI classes on early calls
   } else if (next !== mode) {
-    const md = getMarkdown();
+    const md = currentFullText();
     suppressChange = true;
     if (next === 'source') {
+      // the raw view shows the whole file — front-matter included
       if (source === null)
         source = new SourceEditor(els.sourcePane, md, () => {
           markDirty();
@@ -662,7 +748,11 @@ function setMode(next: Mode): void {
         });
       else source.setContent(md);
     } else {
-      visual.setMarkdown(md);
+      // leaving the raw view: re-split, the front-matter may have been
+      // edited (or removed) as plain text
+      const { frontMatter: fm, body } = splitFrontMatter(md);
+      frontMatter = fm;
+      visual.setMarkdown(body);
     }
     mode = next;
     window.setTimeout(() => {
@@ -844,6 +934,9 @@ function applyStaticTexts(): void {
   els.stVersion.setAttribute('aria-label', t('versionTip'));
   tip(els.stToc, `${t('tocTitle')} · Ctrl+Shift+1`);
   els.stToc.setAttribute('aria-label', `${t('tocTitle')} · Ctrl+Shift+1`);
+  // #31: the 7px modified dot gets a name on hover
+  tip(els.stModified, t('unsaved'));
+  els.stModified.setAttribute('aria-label', t('unsaved'));
 
   els.aboutModal.setAttribute('aria-label', t('versionTip'));
   els.aboutDesc.textContent = t('aboutDesc');
@@ -913,6 +1006,29 @@ async function init(): Promise<void> {
   );
 
   menuBar.mount(els.menubar, buildMenuSections());
+  // #28: the stock Milkdown keymap binds Ctrl+Shift+B / Ctrl+Alt+8 / 7 to
+  // plain wrap commands (quote-in-quote, list no-op on repeat), and Ctrl+0
+  // to a plain "turn into text" that ignores quote/list nesting. Capture-
+  // phase interception runs before prosemirror's keymap and routes the four
+  // combos through the same toggle-aware commands the menu uses.
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (mode !== 'visual' || activeModalOverlay() !== null) return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const { code, shiftKey, altKey } = e;
+      let block: BlockId | null = null;
+      if (code === 'KeyB' && shiftKey && !altKey) block = 'quote';
+      else if (code === 'Digit8' && altKey && !shiftKey) block = 'ul';
+      else if (code === 'Digit7' && altKey && !shiftKey) block = 'ol';
+      else if (code === 'Digit0' && !shiftKey && !altKey) block = 'text';
+      if (!block) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      editBlock(block);
+    },
+    true,
+  );
   toc.mount(els.editorHost, {
     getMode: () => mode,
     getVisualPane: () => els.visualPane,
@@ -957,10 +1073,12 @@ async function init(): Promise<void> {
     // Crepe bakes its feature strings in at construction — rebuild the
     // visual editor so its menus/tooltips follow the new language (undo
     // history resets; a rare action, accepted). Works in source mode too:
-    // the hidden editor rebuilds with the current content.
-    const md = getMarkdown();
+    // the hidden editor rebuilds with the current content (front-matter
+    // carved back out — Crepe must not see it, #33).
+    const { frontMatter: fm, body } = splitFrontMatter(currentFullText());
+    frontMatter = fm;
     suppressChange = true;
-    void visual.rebuild(md).then(() => {
+    void visual.rebuild(body).then(() => {
       if (mode === 'visual') visual.focus();
       window.setTimeout(() => {
         suppressChange = false;
@@ -999,6 +1117,8 @@ async function init(): Promise<void> {
     // software-remapped layout (Dvorak etc.) gets the physical key, an
     // accepted trade-off
     const code = e.code;
+    // editor-touching aliases are dead while a modal dialog is up
+    const modalOpen = activeModalOverlay() !== null;
     if (code === 'KeyS') {
       e.preventDefault();
       void saveFile(e.shiftKey);
@@ -1014,6 +1134,35 @@ async function init(): Promise<void> {
     } else if (code === 'Digit1' && e.shiftKey && !e.altKey) {
       e.preventDefault();
       toggleToc();
+    } else if (modalOpen === false && code === 'KeyW' && !e.shiftKey && !e.altKey) {
+      // Ctrl+W goes through the OS close path — the unsaved-changes guard
+      // (onCloseRequested) intercepts it exactly like the × button
+      e.preventDefault();
+      void currentWindow?.close().catch(() => {});
+    } else if (modalOpen === false && code === 'KeyD' && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      editDeleteLine();
+    } else if (modalOpen === false && code === 'KeyL' && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      editToggleTask();
+    } else if (modalOpen === false && code === 'KeyN' && e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      editClearFormatting();
+    } else if (modalOpen === false && code === 'KeyX' && e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      editMark('strike');
+    } else if (modalOpen === false && code === 'KeyM' && e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      editMark('code');
+    } else if (modalOpen === false && code === 'KeyL' && e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      editBlock('ul');
+    } else if (modalOpen === false && code === 'KeyQ' && e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      editBlock('quote');
+    } else if (modalOpen === false && code === 'Period' && e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      editBlock('quote');
     } else if (mode === 'source' && sourceHotkey(code, e.shiftKey, e.altKey)) {
       e.preventDefault();
     }
@@ -1106,6 +1255,16 @@ async function init(): Promise<void> {
       }
     }
 
+    // #34: the primary content has landed and will paint in this frame —
+    // reveal the window now (it starts hidden, see tauri.conf.json/lib.rs,
+    // so the white WebView2 flash and the empty-shell frame never show).
+    // The Rust fallback timer shows it even if this script never runs.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        void currentWindow?.show().catch(() => {});
+      }),
+    );
+
     // version shown in the statusbar opens the About dialog
     void getVersion()
       .then((v) => {
@@ -1121,6 +1280,10 @@ async function init(): Promise<void> {
       window.setTimeout(() => void checkForUpdates(false), 3000);
     }
   }
+
+  // #34: the initial file (if any) has been applied — the honest empty
+  // state may replace the pending loader
+  delete els.app.dataset.pending;
 }
 
 // The Rust side routes a file opened outside any window here when this window
