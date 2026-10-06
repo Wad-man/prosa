@@ -5,7 +5,9 @@ import { EditorView, keymap } from '@codemirror/view';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { Prec, type Extension } from '@codemirror/state';
 import { tags as t } from '@lezer/highlight';
-import { commandsCtx } from '@milkdown/kit/core';
+import { commandsCtx, remarkStringifyOptionsCtx, schemaCtx, SchemaReady } from '@milkdown/kit/core';
+import type { MilkdownPlugin } from '@milkdown/kit/ctx';
+import type { NodeType } from '@milkdown/kit/prose/model';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import {
   createCodeBlockCommand,
@@ -120,6 +122,63 @@ const codeBlockTheme: Extension = [
   // here too; the window handler still performs the flip.
   Prec.high(keymap.of([{ key: 'Mod-/', run: () => true }])),
 ];
+
+/**
+ * #33 (lossless round-trip): a plain `| - |` table column is `null`-aligned
+ * in mdast, but three stock layers each coerce that null into an explicit
+ * `'left'`, and the file then saves as `| :- |` — an alignment it never
+ * declared:
+ *
+ *  1. the gfm cell schema defaults the `alignment` attr to `'left'`;
+ *  2. `toDOM` writes `style="text-align: left"` for a null cell
+ *     (`value || 'left'`);
+ *  3. the milkdown clipboard plugin round-trips every plain-text paste
+ *     through PM → DOM → PM, and the DOM parse rule reads that fabricated
+ *     style back as an explicit `'left'`.
+ *
+ * Patching the node specs at registration time cannot work — Crepe's gfm
+ * registrations land after any `use()`d plugin's sync phase — so this runs
+ * right after SchemaReady and adjusts the built NodeTypes directly: a null
+ * default, a DOM render that skips the style for unaligned cells, and a DOM
+ * parse that keeps `'left'` only when the markup carries a real
+ * `text-align`. Milkdown builds its paste-side DOM parsers/serializers per
+ * event, so the patched specs are picked up live.
+ */
+const tableAlignmentFix: MilkdownPlugin = (ctx) => {
+  return async () => {
+    await ctx.wait(SchemaReady);
+    const schema = ctx.get(schemaCtx);
+    for (const name of ['table_header', 'table_cell'] as const) {
+      const type = schema.nodes[name] as
+        | (NodeType & { attrs: Record<string, { default: unknown }> })
+        | undefined;
+      if (!type) continue;
+
+      type.attrs.alignment.default = null;
+
+      const origToDOM = type.spec.toDOM;
+      if (origToDOM) {
+        type.spec.toDOM = (node) => {
+          const spec = origToDOM(node) as [string, Record<string, unknown>, ...unknown[]];
+          if (node.attrs.alignment == null && spec?.[1]?.style) delete spec[1].style;
+          return spec;
+        };
+      }
+
+      type.spec.parseDOM = type.spec.parseDOM?.map((rule) => ({
+        ...rule,
+        getAttrs: (dom: HTMLElement) => {
+          const base = rule.getAttrs ? rule.getAttrs(dom) : null;
+          if (!base || typeof base !== 'object') return base ?? null;
+          if (base.alignment === 'left' && !dom.style?.textAlign) {
+            return { ...base, alignment: null };
+          }
+          return base;
+        },
+      }));
+    }
+  };
+};
 
 /**
  * Visual mode: Milkdown (Crepe) — live WYSIWYG rendering of the whole document.
@@ -245,6 +304,14 @@ export class VisualEditor {
         };
       }),
     );
+    // `bullet: '-'` keeps `-`-marked lists byte-identical on save (the
+    // serializer default is `*`, which flips every dash marker); a sibling
+    // list written with `*` still serializes as `*` — the serializer picks
+    // the "other" bullet for adjacent lists so they cannot merge
+    this.crepe.editor.config((ctx) => {
+      ctx.update(remarkStringifyOptionsCtx, (options) => ({ ...options, bullet: '-' as const }));
+    });
+    this.crepe.editor.use(tableAlignmentFix);
     // only real document changes count as edits: a DOM-wide mutation observer
     // would misread focus/cursor/block-handle widget mutations as edits
     this.crepe.editor.use(listener);
