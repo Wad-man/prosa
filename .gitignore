@@ -12,6 +12,9 @@ src-tauri/keys/*.key
 # Local machine config (proxy workaround etc.)
 .npmrc
 
+# AI agent workspace (skills of the "Editorial Board", local like .zcode/)
+.agents/
+
 # Binary installers not part of the source
 *.dmg
 *.exe

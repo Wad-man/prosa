@@ -327,7 +327,7 @@ body {
 .seg {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   padding: 3px;
   background: color-mix(in srgb, var(--fg) 7%, transparent);
   border-radius: var(--r-pill);
@@ -338,15 +338,20 @@ body {
   top: 3px;
   bottom: 3px;
   left: 3px;
-  width: calc(50% - 3px);
+  width: calc((100% - 6px) / 3);
   background: var(--bg-raised);
   border-radius: var(--r-pill);
   box-shadow: var(--shadow-1);
   transition: transform var(--t-2) var(--ease);
 }
 
-.seg[data-active='source'] .seg-thumb {
+/* #66: three segments — reading · live preview · source */
+.seg[data-active='visual'] .seg-thumb {
   transform: translateX(100%);
+}
+
+.seg[data-active='source'] .seg-thumb {
+  transform: translateX(200%);
 }
 
 .seg-btn {
@@ -652,7 +657,8 @@ body {
   z-index: 5;
 }
 
-#app.empty[data-mode='visual'] #empty-hint {
+#app.empty[data-mode='visual'] #empty-hint,
+#app.empty[data-mode='reading'] #empty-hint {
   display: block;
 }
 
@@ -842,10 +848,102 @@ body {
    the marker is contenteditable=false, so pointer + hover just say
    "clickable" without stealing any editing affordance. */
 #visual-editor .ProseMirror sup[data-type='footnote_reference'] {
+  color: var(--accent);
   cursor: pointer;
 }
 #visual-editor .ProseMirror sup[data-type='footnote_reference']:hover {
   text-decoration: underline;
+}
+
+/* #64: footnote definitions set as notes — smaller, muted, a hanging
+   number column (dt) with the text (dd) aligned after it, and a "↩" back
+   to the reference painted after the text (visual.ts handles the clicks).
+   Pure CSS on the stock DOM: the nodeView rebuilds the dl on every
+   transaction, so classes or injected nodes would not survive. */
+#visual-editor .ProseMirror dl[data-type='footnote_definition'] {
+  display: grid;
+  /* the text column shrinks to its content, so the "↩" sits right after a
+     short note and at the line end of a wrapped one */
+  grid-template-columns: minmax(1.25em, auto) minmax(0, max-content) auto;
+  justify-content: start;
+  column-gap: 0.5em;
+  align-items: baseline;
+  margin: 0 0 1.1em;
+  font-size: 0.85em;
+  color: var(--fg-2);
+}
+#visual-editor .ProseMirror dl[data-type='footnote_definition'] > dt {
+  grid-column: 1;
+  color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+#visual-editor .ProseMirror dl[data-type='footnote_definition'] > dd {
+  grid-column: 2;
+  min-width: 0;
+  margin: 0;
+}
+#visual-editor .ProseMirror dl[data-type='footnote_definition']::after {
+  content: '↩';
+  grid-column: 3;
+  grid-row: 1;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+#visual-editor .ProseMirror dl[data-type='footnote_definition'] > dt:hover,
+#visual-editor .ProseMirror dl[data-type='footnote_definition']:hover::after {
+  color: var(--accent);
+}
+#visual-editor .ProseMirror dl[data-type='footnote_definition'] p {
+  line-height: 1.6;
+  margin: 0 0 0.5em;
+}
+#visual-editor .ProseMirror dl[data-type='footnote_definition'] p:last-child {
+  margin-bottom: 0;
+}
+
+/* ---------- #66: reading mode ----------
+   The same visual editor with `editable` off (visual.ts setReadonly). The
+   editing affordances go: block handle, link tooltips, the caret inside
+   code blocks (their CodeMirror already refuses edits). */
+#app[data-mode='reading'] .milkdown-block-handle,
+#app[data-mode='reading'] .milkdown-link-preview,
+#app[data-mode='reading'] .milkdown-link-edit,
+#app[data-mode='reading'] .milkdown-slash-menu {
+  display: none !important;
+}
+#app[data-mode='reading'] #visual-editor .milkdown-code-block .cm-content {
+  caret-color: transparent;
+}
+#app[data-mode='reading'] #visual-editor .ProseMirror a[href] {
+  cursor: pointer;
+}
+
+/* #64/#66: in the reading mode the footnote definitions gather at the end
+   of the document, Obsidian-style (the live preview keeps them in place).
+   Moved by flex `order` only — ProseMirror owns the DOM, nodes must not be
+   moved. Flex items don't collapse margins, so the block rhythm is
+   restored by hand: where a block with a large top margin follows
+   (headings, decorated blocks), the previous block drops its bottom margin
+   — the larger of the two is exactly what block flow would have kept; a
+   footnote definition between them in the DOM is skipped over. */
+#app[data-mode='reading'] #visual-editor .ProseMirror {
+  display: flex;
+  flex-direction: column;
+}
+#app[data-mode='reading'] #visual-editor .ProseMirror > :is(
+  :has(+ :is(h1, h2, h3, h4, h5, h6, blockquote, pre, hr, .milkdown-code-block, .milkdown-table-block)),
+  :has(+ dl[data-type='footnote_definition'] + :is(h1, h2, h3, h4, h5, h6, blockquote, pre, hr, .milkdown-code-block, .milkdown-table-block))
+) {
+  margin-bottom: 0;
+}
+#app[data-mode='reading'] #visual-editor .ProseMirror > dl[data-type='footnote_definition'] {
+  order: 1;
+}
+#app[data-mode='reading'] #visual-editor .ProseMirror > dl[data-type='footnote_definition']:first-of-type {
+  margin-top: 2em;
+  padding-top: 1.25em;
+  border-top: 1px solid var(--border);
 }
 
 /* #64: one-shot landing highlight for footnote jumps. The overlay is

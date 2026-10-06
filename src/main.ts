@@ -46,7 +46,15 @@ import './styles.css';
 // HTML5 drag-and-drop survives inside the WebView2 shell (see module comment).
 applyWebView2DragFix();
 
-type Mode = 'visual' | 'source';
+// #66: three modes, Obsidian-style — reading (the visual editor made
+// non-editable), live preview (the visual editor) and source code. Reading
+// and live preview share one VisualEditor instance: switching between them
+// only flips `editable`, the document is never re-parsed.
+type Mode = 'reading' | 'visual' | 'source';
+const MODE_CYCLE: Mode[] = ['reading', 'visual', 'source'];
+
+/** The pane a mode renders in — reading lives in the visual pane. */
+const paneOf = (m: Mode): 'visual' | 'source' => (m === 'source' ? 'source' : 'visual');
 
 const MD_FILTER = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] }];
 const MD_PATH_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
@@ -70,6 +78,7 @@ const els = {
   menubar: $('menubar'),
   btnLang: $('btn-lang') as HTMLButtonElement,
   btnTheme: $('btn-theme') as HTMLButtonElement,
+  btnReading: $('btn-mode-reading') as HTMLButtonElement,
   btnVisual: $('btn-mode-visual') as HTMLButtonElement,
   btnSource: $('btn-mode-source') as HTMLButtonElement,
   modeSwitch: $('mode-switch'),
@@ -285,7 +294,7 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
   // source view keeps it as part of the file text
   const { frontMatter: fm, body } = splitFrontMatter(text);
   frontMatter = fm;
-  if (mode === 'visual') visual.setMarkdown(body);
+  if (paneOf(mode) === 'visual') visual.setMarkdown(body);
   else source?.setContent(text);
   filePath = path;
   fileSuggestion = path === null ? (suggestedName ?? null) : null;
@@ -434,19 +443,23 @@ async function writeClipboardRich(html: string, plain: string): Promise<boolean>
 }
 
 // ---------- mode-aware command dispatch for the menu bar ----------
+// #66: the reading mode shares the visual editor but is read-only — the
+// selection/copy commands work there, every editing command is a no-op
+// (ProseMirror's `editable: false` only blocks DOM input, not dispatched
+// commands, so the guard must live here).
 
 function editUndoRedo(which: 'undo' | 'redo'): void {
   if (mode === 'visual') visual.undoRedo(which);
-  else if (source) sourceUndoRedo(source.view, which);
+  else if (mode === 'source' && source) sourceUndoRedo(source.view, which);
 }
 
 function editSelectAll(): void {
-  if (mode === 'visual') visual.selectAll();
+  if (paneOf(mode) === 'visual') visual.selectAll();
   else if (source) sourceSelectAll(source.view);
 }
 
 function selectionText(): string {
-  if (mode === 'visual') return visual.selectionText();
+  if (paneOf(mode) === 'visual') return visual.selectionText();
   return source ? sourceSelectionText(source.view) : '';
 }
 
@@ -454,7 +467,7 @@ function selectionText(): string {
 // native Ctrl+C path already did — this unifies the menu and right-click
 // panel with it); the source mode is raw markdown by nature
 function copyPayload(): string {
-  if (mode === 'visual') return visual.selectionMarkdown() || selectionText();
+  if (paneOf(mode) === 'visual') return visual.selectionMarkdown() || selectionText();
   return selectionText();
 }
 
@@ -463,6 +476,7 @@ async function editCopy(): Promise<void> {
 }
 
 async function editCut(): Promise<void> {
+  if (mode === 'reading') return;
   if (await writeClipboard(copyPayload())) {
     if (mode === 'visual') visual.deleteSelection();
     else if (source) sourceDeleteSelection(source.view);
@@ -486,38 +500,38 @@ async function editPaste(): Promise<void> {
   const text = await readClipboard();
   if (text === null || text === '') return;
   if (mode === 'visual') visual.insertMarkdown(text);
-  else if (source) sourceInsertText(source.view, text);
+  else if (mode === 'source' && source) sourceInsertText(source.view, text);
 }
 
 function editBlock(id: BlockId): void {
   if (mode === 'visual') visual.applyBlock(id);
-  else if (source) sourceSetBlock(source.view, id);
+  else if (mode === 'source' && source) sourceSetBlock(source.view, id);
 }
 
 function editMark(id: MarkId): void {
   if (mode === 'visual') visual.toggleMark(id);
-  else if (source) sourceToggleMark(source.view, id);
+  else if (mode === 'source' && source) sourceToggleMark(source.view, id);
 }
 
 // ---------- line-level commands (#35 aliases: Obsidian / Word / Telegram) ----------
 
 function editDeleteLine(): void {
   if (mode === 'visual') visual.deleteBlock();
-  else if (source) sourceDeleteLines(source.view);
+  else if (mode === 'source' && source) sourceDeleteLines(source.view);
 }
 
 function editToggleTask(): void {
   if (mode === 'visual') visual.toggleTask();
-  else if (source) sourceToggleTask(source.view);
+  else if (mode === 'source' && source) sourceToggleTask(source.view);
 }
 
 function editClearFormatting(): void {
   if (mode === 'visual') visual.clearFormatting();
-  else if (source) sourceClearFormatting(source.view);
+  else if (mode === 'source' && source) sourceClearFormatting(source.view);
 }
 
 function currentBlock(): BlockId | null {
-  if (mode === 'visual') return visual.currentBlock();
+  if (paneOf(mode) === 'visual') return visual.currentBlock();
   return source ? sourceCurrentBlock(source.view) : null;
 }
 
@@ -656,12 +670,14 @@ function buildMenuSections(): (() => MenuSection)[] {
       label: t('mView'),
       altKey: 'KeyV',
       entries: [
-        {
-          label: t('modeSource'),
-          hotkey: 'Ctrl+/',
-          action: () => toggleMode(),
-          checked: () => mode === 'source',
-        },
+        // #66: Ctrl+/ cycles reading → live preview → source; the three
+        // entries below pick a mode directly
+        { label: t('modeCycle'), hotkey: 'Ctrl+/', action: () => toggleMode() },
+        ...MODE_CYCLE.map((m) => ({
+          label: t(m),
+          action: () => setMode(m),
+          checked: () => mode === m,
+        })),
         sep(),
         {
           label: t('themeLight'),
@@ -779,9 +795,10 @@ async function checkForUpdates(manual: boolean): Promise<void> {
 }
 
 function setMode(next: Mode): void {
-  if (next === mode && source !== null) {
-    // still normalize UI classes on early calls
-  } else if (next !== mode) {
+  // reading ↔ live preview stays in the same pane and instance: no content
+  // hand-over, no re-parse — the document (and its dirty state) is untouched.
+  // Same-mode calls still normalize the UI classes below.
+  if (paneOf(next) !== paneOf(mode)) {
     const md = currentFullText();
     suppressChange = true;
     if (next === 'source') {
@@ -799,27 +816,38 @@ function setMode(next: Mode): void {
       frontMatter = fm;
       visual.setMarkdown(body);
     }
-    mode = next;
     window.setTimeout(() => {
       suppressChange = false;
     }, 0);
   }
-  els.visualPane.classList.toggle('active', mode === 'visual');
+  mode = next;
+  visual.setReadonly(mode === 'reading');
+  els.visualPane.classList.toggle('active', paneOf(mode) === 'visual');
   els.sourcePane.classList.toggle('active', mode === 'source');
-  els.btnVisual.classList.toggle('active', mode === 'visual');
-  els.btnSource.classList.toggle('active', mode === 'source');
-  els.btnVisual.setAttribute('aria-selected', String(mode === 'visual'));
-  els.btnSource.setAttribute('aria-selected', String(mode === 'source'));
+  const buttons: [HTMLButtonElement, Mode][] = [
+    [els.btnReading, 'reading'],
+    [els.btnVisual, 'visual'],
+    [els.btnSource, 'source'],
+  ];
+  for (const [btn, m] of buttons) {
+    btn.classList.toggle('active', mode === m);
+    btn.setAttribute('aria-selected', String(mode === m));
+  }
   els.modeSwitch.dataset.active = mode;
   els.app.dataset.mode = mode;
-  (mode === 'visual' ? visual.focus() : source?.focus());
+  if (mode === 'visual') visual.focus();
+  else if (mode === 'source') source?.focus();
+  // reading: no caret anywhere — and ProseMirror only mirrors a read-only
+  // selection (mouse drag, Ctrl+A) when focus is not parked on some other
+  // element such as the mode button that was just clicked
+  else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   refreshChrome();
   // heading sources differ per mode (live DOM vs text scan)
   toc.refresh();
 }
 
 function toggleMode(): void {
-  setMode(mode === 'visual' ? 'source' : 'visual');
+  setMode(MODE_CYCLE[(MODE_CYCLE.indexOf(mode) + 1) % MODE_CYCLE.length]);
 }
 
 // ---------- modals ----------
@@ -987,8 +1015,10 @@ function applyStaticTexts(): void {
   els.ehFormat.textContent = t('formatPanel');
 
   const tip = (el: HTMLElement, text: string): void => el.setAttribute('data-tip', text);
+  tip(els.btnReading, `${t('reading')} · Ctrl+/`);
   tip(els.btnVisual, `${t('visual')} · Ctrl+/`);
   tip(els.btnSource, `${t('source')} · Ctrl+/`);
+  els.btnReading.setAttribute('aria-label', t('reading'));
   els.btnVisual.setAttribute('aria-label', t('visual'));
   els.btnSource.setAttribute('aria-label', t('source'));
   tip(els.btnTheme, t('themeTip'));
@@ -1097,7 +1127,7 @@ async function init(): Promise<void> {
     true,
   );
   toc.mount(els.editorHost, {
-    getMode: () => mode,
+    getMode: () => paneOf(mode),
     getVisualPane: () => els.visualPane,
     getSource: () => source,
   });
@@ -1131,6 +1161,7 @@ async function init(): Promise<void> {
   );
   setMode('visual');
 
+  els.btnReading.addEventListener('click', () => setMode('reading'));
   els.btnVisual.addEventListener('click', () => setMode('visual'));
   els.btnSource.addEventListener('click', () => setMode('source'));
   els.btnLang.addEventListener('click', () => {
@@ -1232,10 +1263,32 @@ async function init(): Promise<void> {
     } else if (modalOpen === false && code === 'Period' && e.shiftKey && !e.altKey) {
       e.preventDefault();
       editBlock('quote');
+    } else if (modalOpen === false && mode === 'reading' && code === 'KeyA' && !e.shiftKey && !e.altKey) {
+      // #66: the read-only view gets no keymap from ProseMirror — the
+      // native Ctrl+A would select the whole window chrome; select the
+      // document instead (Ctrl+C then copies it as markdown, #47)
+      e.preventDefault();
+      editSelectAll();
     } else if (mode === 'source' && sourceHotkey(code, e.shiftKey, e.altKey)) {
       e.preventDefault();
     }
   });
+
+  // #66: links are live in the reading mode (Obsidian) — a plain click on
+  // an external link opens it in the system browser; without this the
+  // non-editable view would let the WebView itself navigate away from the
+  // document. Internal `#` anchors are visual.ts's business (#59).
+  els.visualPane.addEventListener(
+    'click',
+    (e) => {
+      if (mode !== 'reading') return;
+      const a = (e.target as Element | null)?.closest?.('.ProseMirror a[href]') as HTMLAnchorElement | null;
+      if (!a || a.getAttribute('href')?.startsWith('#')) return;
+      e.preventDefault();
+      if (/^(https?|mailto):$/.test(a.protocol)) openExternal(a.href);
+    },
+    true,
+  );
 
   // files dragged from the OS: plain HTML5 drop (Tauri's native drag-drop
   // handler is off — see openDroppedFile)

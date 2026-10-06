@@ -85,7 +85,7 @@ export class ContextPanel {
     this.clipboard = null;
   }
 
-  private close = (): void => {
+  close = (): void => {
     window.clearTimeout(this.closeTimer);
     this.panel?.remove();
     this.submenu?.remove();
@@ -135,6 +135,9 @@ export class ContextPanel {
     const target = e.target instanceof Element ? e.target : null;
     if (!target) return;
     if (!this.root?.contains(target) && !target.closest('.milkdown-block-handle')) return;
+    // #66: a formatting panel has nothing to do in the read-only (reading)
+    // mode — the native menu (Copy) stays, as everywhere outside the editor
+    if (this.crepe?.readonly) return;
     e.preventDefault();
     this.close();
     const s = editorStrings(getLang());

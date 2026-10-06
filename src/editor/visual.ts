@@ -725,6 +725,8 @@ export class VisualEditor {
   private onChange: (() => void) | null = null;
   private panel: ContextPanel | null = null;
   private panelClipboard: PanelClipboardActions | null = null;
+  // #66: the reading mode — this same instance with `editable` off
+  private readonly = false;
 
   // The link-edit tooltip's own Escape handler sits on its <input> (and stops
   // propagation there), but after Ctrl+K the focus can remain in the editor —
@@ -758,7 +760,8 @@ export class VisualEditor {
   // Code convention — a plain click keeps editing the link text: the caret
   // lands there on mousedown, which preventDefault on click doesn't touch).
   // Outside the body (the link tooltip's preview anchor) a plain click
-  // follows. Targets use the GFM slug; duplicate headings get our `-#k`
+  // follows — and so does a plain click anywhere in the reading mode (#66:
+  // nothing to edit there). Targets use the GFM slug; duplicate headings get our `-#k`
   // suffixes, so a GitHub-style `#slug-1` falls back to the second heading
   // with that slug (GitHub numbers duplicates 1, 2, … starting at the second).
   private anchorClickHandler = (e: MouseEvent) => {
@@ -766,7 +769,7 @@ export class VisualEditor {
     if (!anchor) return;
     e.preventDefault();
     const inEditorBody = anchor.closest('.ProseMirror') !== null;
-    if (inEditorBody && !e.ctrlKey && !e.metaKey) return;
+    if (inEditorBody && !this.readonly && !e.ctrlKey && !e.metaKey) return;
     let id = '';
     try {
       id = decodeURIComponent(anchor.hash.slice(1));
@@ -792,10 +795,17 @@ export class VisualEditor {
   // data-label) but nothing is clickable. Obsidian-style navigation: a plain
   // click on the reference jumps to its definition — the marker is
   // contenteditable=false, so a plain click has no editing meaning to steal.
-  // The way back is Ctrl/Cmd+click on the definition's dt label (the dt IS
-  // editable — a plain click there must keep placing the caret): it scrolls
-  // to the first reference of that label. Labels are matched by iteration,
-  // not an attribute selector — a footnote label may contain quotes.
+  // The way back (owner follow-up: Ctrl+click on the label was invisible) is
+  // a plain click on the definition's number (dt) or on the "↩" that CSS
+  // paints after it (`dl::after`, styles.css): it scrolls to the first
+  // reference of that label. The dt is not editable content — it is the
+  // node's toDOM mirror of the label outside the contentDOM (dd), so a plain
+  // click there steals nothing in the live preview either. The arrow is a
+  // pseudo-element (the nodeView rebuilds the dl on every transaction, so no
+  // DOM can be injected there): its clicks land on the dl itself, told apart
+  // from gap clicks by lying past the dd's right edge. A missing definition
+  // or reference is a silent no-op. Labels are matched by iteration, not an
+  // attribute selector — a footnote label may contain quotes.
   private footnoteClickHandler = (e: MouseEvent) => {
     const target = e.target as Element | null;
     const byLabel = (sel: string, label: string): Element | null =>
@@ -810,16 +820,18 @@ export class VisualEditor {
       if (def) this.flashTarget(def);
       return;
     }
-    if (e.ctrlKey || e.metaKey) {
-      const dt = target?.closest?.('dl[data-type="footnote_definition"] > dt');
-      if (dt) {
-        e.preventDefault();
-        const dl = dt.closest('dl[data-type="footnote_definition"]');
-        const back = byLabel('sup[data-type="footnote_reference"]', dl?.getAttribute('data-label') ?? '');
-        back?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        if (back) this.flashTarget(back);
-      }
+    const dl = target?.closest?.('dl[data-type="footnote_definition"]');
+    if (!dl || !target) return;
+    let onBack = target.closest('dl[data-type="footnote_definition"] > dt')?.parentElement === dl;
+    if (!onBack && target === dl) {
+      const dd = dl.querySelector(':scope > dd');
+      onBack = dd !== null && e.clientX >= dd.getBoundingClientRect().right;
     }
+    if (!onBack) return;
+    e.preventDefault();
+    const back = byLabel('sup[data-type="footnote_reference"]', dl.getAttribute('data-label') ?? '');
+    back?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (back) this.flashTarget(back);
   };
 
   // #64: the landing-point highlight. The footnote definition's DOM is
@@ -1094,6 +1106,8 @@ export class VisualEditor {
     // only real document changes count as edits: a DOM-wide mutation observer
     // would misread focus/cursor/block-handle widget mutations as edits
     this.crepe.editor.use(listener);
+    // #66: a rebuild (language switch) in the reading mode stays read-only
+    this.crepe.setReadonly(this.readonly);
     await this.crepe.create();
     this.crepe.editor.action((ctx) => {
       ctx.get(listenerCtx).markdownUpdated(() => {
@@ -1144,6 +1158,20 @@ export class VisualEditor {
   focus(): void {
     const el = this.root?.querySelector('.ProseMirror');
     if (el instanceof HTMLElement) el.focus();
+  }
+
+  /**
+   * #66: the reading mode. Crepe's own switch flips ProseMirror's `editable`
+   * prop (view.setProps) and keeps its components (image/list/table/code
+   * views) in sync with it. A props update is not a transaction — the
+   * document, the undo history and the change listener stay untouched, so a
+   * mode switch never marks the file dirty.
+   */
+  setReadonly(on: boolean): void {
+    if (this.readonly === on) return;
+    this.readonly = on;
+    this.crepe?.setReadonly(on);
+    this.panel?.close();
   }
 
   // ---------- command surface for the menu bar (#20) ----------
