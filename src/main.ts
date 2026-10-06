@@ -831,10 +831,10 @@ function moveModalFocus(overlay: HTMLElement, e: KeyboardEvent): void {
   const focusable = modalFocusables(overlay);
   if (focusable.length < 2) return;
   const backward = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
-  const index = focusable.indexOf(document.activeElement as HTMLElement);
+  const index = focusable.findIndex((el) => el === document.activeElement);
   const next =
     index === -1
-      ? focusable[0]
+      ? focusable[backward ? focusable.length - 1 : 0]
       : focusable[(index + (backward ? -1 : 1) + focusable.length) % focusable.length];
   e.preventDefault();
   next.focus();
@@ -1129,7 +1129,7 @@ async function init(): Promise<void> {
         hideModal(overlay);
       } else if (e.key === 'Tab') {
         trapTabKey(overlay, e);
-      } else if (e.key.startsWith('Arrow')) {
+      } else if (e.key.startsWith('Arrow') && !e.shiftKey && !e.altKey) {
         moveModalFocus(overlay, e);
       }
       return;

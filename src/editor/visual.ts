@@ -139,10 +139,13 @@ const codeBlockTheme: Extension = [
  * Patching the node specs at registration time cannot work — Crepe's gfm
  * registrations land after any `use()`d plugin's sync phase — so this runs
  * right after SchemaReady and adjusts the built NodeTypes directly: a null
- * default, a DOM render that skips the style for unaligned cells, and a DOM
- * parse that keeps `'left'` only when the markup carries a real
- * `text-align`. Milkdown builds its paste-side DOM parsers/serializers per
- * event, so the patched specs are picked up live.
+ * default (both the live one and NodeType's cached `defaultAttrs`, which
+ * `createAndFill()` with no attrs — new tables, added columns — reads),
+ * a DOM render that skips the style for unaligned cells, and a DOM parse
+ * that keeps `'left'` only when the markup carries a real `text-align`.
+ * `DOMParser.fromSchema`/`DOMSerializer.fromSchema` cache on the schema at
+ * first use and capture the toDOM reference then, so the patch drops those
+ * caches to stay in effect even if something built them earlier.
  */
 const tableAlignmentFix: MilkdownPlugin = (ctx) => {
   return async () => {
@@ -150,11 +153,17 @@ const tableAlignmentFix: MilkdownPlugin = (ctx) => {
     const schema = ctx.get(schemaCtx);
     for (const name of ['table_header', 'table_cell'] as const) {
       const type = schema.nodes[name] as
-        | (NodeType & { attrs: Record<string, { default: unknown }> })
+        | (NodeType & {
+            attrs: Record<string, { default: unknown }>;
+            defaultAttrs: Record<string, unknown> | null;
+          })
         | undefined;
       if (!type) continue;
 
       type.attrs.alignment.default = null;
+      if (type.defaultAttrs) {
+        type.defaultAttrs = { ...type.defaultAttrs, alignment: null };
+      }
 
       const origToDOM = type.spec.toDOM;
       if (origToDOM) {
@@ -177,6 +186,12 @@ const tableAlignmentFix: MilkdownPlugin = (ctx) => {
         },
       }));
     }
+    // fromSchema() caches its parser/serializer (with the captured toDOM)
+    // on the schema at first use — drop whatever may already be there
+    delete (schema as unknown as { cached: Record<string, unknown> }).cached
+      ?.domParser;
+    delete (schema as unknown as { cached: Record<string, unknown> }).cached
+      ?.domSerializer;
   };
 };
 
@@ -202,9 +217,12 @@ export class VisualEditor {
   // (observed in Chromium/WebView2 — the nested event dies in the capture
   // phase), while a timeout-scheduled one dispatches cleanly.
   private escapeLinkTooltip = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape') return;
+    if (e.key !== 'Escape' || e.isComposing) return;
     const tooltip = this.root?.querySelector('.milkdown-link-edit[data-show="true"]');
     if (!tooltip || tooltip.contains(document.activeElement)) return;
+    // only when the editor surface itself has focus: a modal dialog opened
+    // on top (About, hotkeys) must keep Escape for itself
+    if (!this.root?.contains(document.activeElement)) return;
     const input = tooltip.querySelector('input');
     if (!input) return;
     e.preventDefault();
