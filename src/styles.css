@@ -828,9 +828,14 @@ body {
 /* #53: an inline hardbreak carries a plain "\n" into and out of the file
    (Shift+Enter, Obsidian/Typora-style). Stock renders that span as a space —
    make it a real line break; the hard flavor (`\` + newline from files)
-   keeps its stock <br>. */
+   keeps its stock <br>. The span's DOM carries a literal space child (Crepe
+   toDOM), and a block box builds its own strut: without zeroing the
+   line-height every soft break renders as a DOUBLE line gap (56px vs 28px,
+   QA typography rc.4). line-height: 0 collapses the strut and the space's
+   inline box while display: block keeps the break itself. */
 #visual-editor .ProseMirror span[data-type='hardbreak'][data-is-inline='true'] {
   display: block;
+  line-height: 0;
 }
 
 /* --- typography ---
