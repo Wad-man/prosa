@@ -210,12 +210,11 @@ export class VisualEditor {
   // The link-edit tooltip's own Escape handler sits on its <input> (and stops
   // propagation there), but after Ctrl+K the focus can remain in the editor —
   // there Escape dies and the tooltip stays open. Catch it before the editor
-  // and route it into the input, so the component's own cancel path runs
-  // (hides the tooltip, resets state, drops the outside-click listener).
-  // The re-dispatch must be deferred: a keydown dispatched synchronously
-  // inside another keydown's listener never reaches the input's own handlers
-  // (observed in Chromium/WebView2 — the nested event dies in the capture
-  // phase), while a timeout-scheduled one dispatches cleanly.
+  // and hand it to the input: focusing the input first both lets the
+  // component's own cancel path run on the re-dispatched key and makes this
+  // same listener ignore that synthetic key (the tooltip-contains-focus
+  // guard) — re-dispatching without the focus change loops forever, as the
+  // capture listener keeps eating its own event.
   private escapeLinkTooltip = (e: KeyboardEvent) => {
     if (e.key !== 'Escape' || e.isComposing) return;
     const tooltip = this.root?.querySelector('.milkdown-link-edit[data-show="true"]');
@@ -227,12 +226,8 @@ export class VisualEditor {
     if (!input) return;
     e.preventDefault();
     e.stopPropagation();
-    window.setTimeout(() => {
-      // the editor can be rebuilt (language switch) before the timeout
-      // fires — the component it belonged to is gone, nothing to close
-      if (!input.isConnected) return;
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
-    });
+    input.focus();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
   };
 
   constructor() {
@@ -328,9 +323,14 @@ export class VisualEditor {
     // `bullet: '-'` keeps `-`-marked lists byte-identical on save (the
     // serializer default is `*`, which flips every dash marker); a sibling
     // list written with `*` still serializes as `*` — the serializer picks
-    // the "other" bullet for adjacent lists so they cannot merge
+    // the "other" bullet for adjacent lists so they cannot merge.
+    // `rule: '-'` keeps `---` thematic breaks from turning into `***`.
     this.crepe.editor.config((ctx) => {
-      ctx.update(remarkStringifyOptionsCtx, (options) => ({ ...options, bullet: '-' as const }));
+      ctx.update(remarkStringifyOptionsCtx, (options) => ({
+        ...options,
+        bullet: '-' as const,
+        rule: '-' as const,
+      }));
     });
     this.crepe.editor.use(tableAlignmentFix);
     // only real document changes count as edits: a DOM-wide mutation observer

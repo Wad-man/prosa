@@ -825,8 +825,9 @@ function trapTabKey(overlay: HTMLElement, e: KeyboardEvent): void {
 }
 
 // native Windows dialogs move focus between buttons with arrow keys — mirror
-// that; with a single focusable (the hotkeys dialog) arrows stay native so
-// they keep scrolling the list
+// that; with a single focusable (the hotkeys dialog) arrows stay native
+// (with focus on the dialog card they are a no-op — the scrollable list is a
+// descendant, not an ancestor, so keyboard scrolling needs the wheel)
 function moveModalFocus(overlay: HTMLElement, e: KeyboardEvent): void {
   const focusable = modalFocusables(overlay);
   if (focusable.length < 2) return;
