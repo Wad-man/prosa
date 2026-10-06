@@ -133,6 +133,28 @@ export class VisualEditor {
   private panel: ContextPanel | null = null;
   private panelClipboard: PanelClipboardActions | null = null;
 
+  // The link-edit tooltip's own Escape handler sits on its <input> (and stops
+  // propagation there), but after Ctrl+K the focus can remain in the editor —
+  // there Escape dies and the tooltip stays open. Catch it before the editor
+  // and route it into the input, so the component's own cancel path runs
+  // (hides the tooltip, resets state, drops the outside-click listener).
+  // The re-dispatch must be deferred: a keydown dispatched synchronously
+  // inside another keydown's listener never reaches the input's own handlers
+  // (observed in Chromium/WebView2 — the nested event dies in the capture
+  // phase), while a timeout-scheduled one dispatches cleanly.
+  private escapeLinkTooltip = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    const tooltip = this.root?.querySelector('.milkdown-link-edit[data-show="true"]');
+    if (!tooltip || tooltip.contains(document.activeElement)) return;
+    const input = tooltip.querySelector('input');
+    if (!input) return;
+    e.preventDefault();
+    e.stopPropagation();
+    window.setTimeout(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+    });
+  };
+
   constructor() {
     // Block moving left the core (#15): Crepe re-creates the handle widget
     // on every full document replace (file open), re-arming draggable=true
@@ -165,6 +187,10 @@ export class VisualEditor {
   ): Promise<void> {
     this.root = root;
     this.onChange = onChange;
+    // re-registering on rebuild (language switch) is a no-op for the extra
+    // listener: remove first, then add
+    document.removeEventListener('keydown', this.escapeLinkTooltip, true);
+    document.addEventListener('keydown', this.escapeLinkTooltip, true);
     // carried across rebuilds (language switch re-creates the panel too)
     if (panelClipboard) this.panelClipboard = panelClipboard;
     // a rebuild (language switch) remounts everything — clean the old panel first
