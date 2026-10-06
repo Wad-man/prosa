@@ -247,8 +247,10 @@ const lineBreaksFix: MilkdownPlugin = (ctx) => {
         })
       | undefined;
     if (hardbreak) {
-      // `create()` computes missing attrs from the live attrs map,
-      // `createAndFill()` reads the cached defaults — patch both
+      // `create()` fills missing attrs from the cached `defaultAttrs` (and
+      // from the live attrs map only for keys present in the passed object),
+      // `createAndFill()` reads the cache — patch the map, the cache, and the
+      // spec so every construction path sees the soft default
       hardbreak.attrs.isInline.default = true;
       if (hardbreak.defaultAttrs) {
         hardbreak.defaultAttrs = { ...hardbreak.defaultAttrs, isInline: true };
@@ -476,31 +478,56 @@ const makeLinkReferenceFix = (getDefinitions: () => Map<string, string>): Milkdo
     const stockSerializer = ctx.get(serializerCtx);
     ctx.set(serializerCtx, (content: ProseNode) => {
       const markdown = stockSerializer(content);
-      const definitions = getDefinitions();
-      if (definitions.size === 0) return markdown;
-      // only the whole document carries its definitions block back —
-      // partial copies and ranged serializations stay fragment-clean
-      const view = ctx.get(editorViewCtx);
-      if (!content.eq(view.state.doc)) return markdown;
-      return `${markdown.replace(/\s+$/, '')}\n\n${[...definitions.values()].join('\n')}\n`;
+      // only the whole document is normalized and carries its definitions
+      // block back — partial copies and ranged serializations stay untouched.
+      // The view does not exist yet while the editor state boots (the listener
+      // plugin already serializes during EditorState.create): without the
+      // guard those early serializations would crash reading view.state
+      const view = ctx.get(editorViewCtx) as { state?: { doc: ProseNode } } | undefined;
+      // the slice holds a throwing placeholder until the real view mounts
+      if (!view || typeof view !== 'object' || !view.state || !content.eq(view.state.doc)) {
+        return markdown;
+      }
+      const body = markdown.replace(/\s+$/, '');
+      const defs = [...getDefinitions().values()];
+      if (defs.length === 0) return body ? `${body}\n` : '';
+      return body
+        ? `${body}\n\n${defs.join('\n')}\n`
+        : `${defs.join('\n')}\n`;
     });
   };
 };
 
-/** A link reference definition, outside code fences/indented code (#55). */
+/**
+ * A link reference definition, outside code fences/indented code (#55).
+ * Footnote definitions `[^id]: …` are a different mdast node (Crepe keeps
+ * them in the model) and must NOT match — without the `^` guard they would
+ * be re-emitted by the serializer on top of their own stock serialization,
+ * duplicating on every edit/save cycle (review B1).
+ */
 const DEFINITION_LINE =
-  /^ {0,3}\[((?:\\.|[^\\[\]])+)\]:\s*(?:<[^<>]*>|\S+)\s*(?:"[^"]*"|'[^']*'|\([^)]*\))?\s*$/;
+  /^ {0,3}\[(?!\^)((?:\\.|[^\\[\]])+)\]:\s*(?:<[^<>]*>|\S+)\s*(?:"[^"]*"|'[^']*'|\([^)]*\))?\s*$/;
+
+/** Lines after which a definition may START (CommonMark: a definition cannot interrupt a paragraph). */
+const DEF_CONTEXT_LINE = /^ {0,3}(?:#{1,6}\s|=+\s*$|(-{3,}|\*{3,}|_{3,})\s*$)/;
 
 /** See makeLinkReferenceFix: capture definition lines from raw markdown. */
 function captureDefinitions(markdown: string, store: Map<string, string>, reset: boolean): void {
   if (reset) store.clear();
   let fence: { marker: string; length: number } | null = null;
+  // a definition can only start the line flow: at the document start, after
+  // a blank line, another definition, or a block that closes a paragraph
+  // (heading / setext underline / thematic break / closing fence). A
+  // definition-looking line continuing a paragraph, list item or table row
+  // is plain text there — capturing it would duplicate it on save (review M1)
+  let defAllowed = true;
   for (const line of markdown.split(/\r?\n/)) {
     const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
     if (fence) {
       // a closing fence is the fence marker alone, at least as long as the opener
       if (fenceMatch && fenceMatch[1][0] === fence.marker && fenceMatch[1].length >= fence.length && line.trim() === fenceMatch[1]) {
         fence = null;
+        defAllowed = true;
       }
       continue;
     }
@@ -508,12 +535,19 @@ function captureDefinitions(markdown: string, store: Map<string, string>, reset:
       fence = { marker: fenceMatch[1][0], length: fenceMatch[1].length };
       continue;
     }
+    if (line.trim() === '') {
+      defAllowed = true;
+      continue;
+    }
     if (/^ {4,}/.test(line)) continue; // indented code block content
-    const match = DEFINITION_LINE.exec(line);
-    if (!match) continue;
-    // CommonMark identifier normalization; first definition wins, as in remark
-    const key = match[1].trim().toLowerCase().replace(/\s+/g, ' ');
-    if (!store.has(key)) store.set(key, line.trim());
+    const match = defAllowed && DEFINITION_LINE.exec(line);
+    if (match) {
+      // CommonMark identifier normalization; first definition wins, as in remark
+      const key = match[1].trim().toLowerCase().replace(/\s+/g, ' ');
+      if (!store.has(key)) store.set(key, line.trim());
+      continue;
+    }
+    defAllowed = DEF_CONTEXT_LINE.test(line);
   }
 }
 
@@ -554,17 +588,40 @@ export class VisualEditor {
 
   // #59 (internal anchors): headings already carry auto-IDs (the stock
   // sync-heading-id plugin assigns them on every doc change and heading toDOM
-  // writes them into the DOM), but a click on `[text](#id)` followed the href
-  // out of the app (WebView shells it to the system browser). Capture-phase
-  // interception turns `#`-links into in-document scrolling. Caret placement
-  // survives: it happens on mousedown, this only cancels the navigation.
-  // Only `#`-links are taken — external links keep their behavior.
+  // writes them into the DOM), but nothing intercepted `[text](#id)` clicks —
+  // the WebView shelled them out to the system browser. This capture-phase
+  // handler always cancels the navigation for `#`-links; inside the editor
+  // body it only FOLLOWS the anchor on Ctrl/Cmd+click (Typora/Obsidian/VS
+  // Code convention — a plain click keeps editing the link text: the caret
+  // lands there on mousedown, which preventDefault on click doesn't touch).
+  // Outside the body (the link tooltip's preview anchor) a plain click
+  // follows. Targets use the GFM slug; duplicate headings get our `-#k`
+  // suffixes, so a GitHub-style `#slug-1` falls back to the second heading
+  // with that slug (GitHub numbers duplicates 1, 2, … starting at the second).
   private anchorClickHandler = (e: MouseEvent) => {
     const anchor = (e.target as Element | null)?.closest?.('a[href^="#"]') as HTMLAnchorElement | null;
     if (!anchor) return;
     e.preventDefault();
-    const id = decodeURIComponent(anchor.hash.slice(1));
-    const target = id ? this.root?.querySelector(`[id="${CSS.escape(id)}"]`) : null;
+    const inEditorBody = anchor.closest('.ProseMirror') !== null;
+    if (inEditorBody && !e.ctrlKey && !e.metaKey) return;
+    let id = '';
+    try {
+      id = decodeURIComponent(anchor.hash.slice(1));
+    } catch {
+      return; // malformed percent-encoding — nothing to scroll to
+    }
+    if (!id || !this.root) return;
+    let target: Element | null = this.root.querySelector(`[id="${CSS.escape(id)}"]`);
+    if (!target) {
+      const gh = /^(.*)-(\d+)$/.exec(id);
+      if (gh) {
+        const duplicates = [...this.root.querySelectorAll('[id]')].filter(
+          (el) => el.id === gh[1] || el.id.startsWith(`${gh[1]}-#`),
+        );
+        // gh[2] = 1 means the SECOND heading with the slug (GitHub numbers from the second occurrence)
+        target = duplicates[Number(gh[2])] ?? null;
+      }
+    }
     target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -576,13 +633,26 @@ export class VisualEditor {
     captureDefinitions(markdown, this.definitions, reset);
   }
 
-  // #55: see create(); code blocks (Crepe's code-mirror feature) paste raw —
-  // definition-looking lines there are content, not definitions
+  // #55: see create(); code blocks (Crepe's code-mirror feature) and the
+  // component input fields (image caption, link tooltip) paste raw —
+  // definition-looking lines there are content, not definitions. Rich-text
+  // pastes (text/html from browsers/mail/word) go down the HTML path and
+  // their plain-text shadow is not markdown to scan either.
   private pasteCaptureHandler = (e: ClipboardEvent) => {
     const target = e.target as Element | null;
-    if (target?.closest?.('.cm-editor, pre, code')) return;
-    const text = e.clipboardData?.getData('text/plain');
-    if (text) captureDefinitions(text, this.definitions, false);
+    if (target?.closest?.('.cm-editor, pre, code, input, textarea')) return;
+    const data = e.clipboardData;
+    if (!data) return;
+    const types = Array.from(data.types ?? []);
+    if (types.includes('text/html')) return;
+    const text = data.getData('text/plain');
+    if (!text) return;
+    const before = this.definitions.size;
+    captureDefinitions(text, this.definitions, false);
+    // a definitions-only paste changes nothing in the model (they are
+    // consumed invisibly), so the change listener never fires and the save
+    // would write the untouched raw bytes back, dropping them — mark edited
+    if (this.definitions.size > before) this.onChange?.();
   };
 
   constructor() {
@@ -708,8 +778,10 @@ export class VisualEditor {
         node.textContent
           .trim()
           .toLowerCase()
-          .replace(/[^\p{L}\p{N}\s_-]/gu, '')
-          .replace(/\s+/g, '-'),
+          // GFM slug shape: drop punctuation (keep letters/digits/marks),
+          // then every whitespace character becomes its own dash
+          .replace(/[^\p{L}\p{N}\p{M}\s_-]/gu, '')
+          .replace(/\s/g, '-'),
       );
     });
     this.crepe.editor.use(tableAlignmentFix);
@@ -797,6 +869,9 @@ export class VisualEditor {
   }
 
   insertMarkdown(md: string): void {
+    // menu/right-panel paste goes through the parser directly (not the
+    // clipboard event), so definitions in it are captured here too (#55)
+    captureDefinitions(md, this.definitions, false);
     if (this.crepe) visualInsertMarkdown(this.crepe, md);
   }
 
