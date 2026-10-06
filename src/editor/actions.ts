@@ -1,6 +1,6 @@
 import type { Crepe } from '@milkdown/crepe';
 import type { Ctx } from '@milkdown/kit/ctx';
-import { commandsCtx, editorViewCtx, parserCtx, schemaCtx, serializerCtx } from '@milkdown/kit/core';
+import { commandsCtx, editorViewCtx, parserCtx } from '@milkdown/kit/core';
 import { Slice, type NodeType } from '@milkdown/kit/prose/model';
 import { Selection } from '@milkdown/kit/prose/state';
 import { selectAll, deleteSelection, lift } from '@milkdown/kit/prose/commands';
@@ -164,9 +164,10 @@ export function visualSelectionText(crepe: Crepe): string {
   return text;
 }
 
-/** Markdown of the current selection ('' when collapsed) — the exact
- * serialization the clipboard plugin uses for native Ctrl+C (#47), so the
- * menu/right-click "Copy" carries markdown formatting, like Obsidian. */
+/** Markdown of the current selection ('' when collapsed) — byte-identical to
+ * what the native Ctrl+C path produces: the same registered
+ * clipboardTextSerializer prop the clipboard plugin serves (its plain-text
+ * fast path keeps asterisks and line breaks untouched, #47). */
 export function visualSelectionMarkdown(crepe: Crepe): string {
   let md = '';
   crepe.editor.action((ctx) => {
@@ -174,9 +175,13 @@ export function visualSelectionMarkdown(crepe: Crepe): string {
     const { from, to } = view.state.selection;
     if (from === to) return;
     const slice = view.state.selection.content();
-    const doc = ctx.get(schemaCtx).topNodeType.createAndFill(undefined, slice.content);
-    if (!doc) return;
-    md = ctx.get(serializerCtx)(doc);
+    try {
+      // review note: someProp returns the plugin's serializer; absent one,
+      // md stays '' and the caller falls back to plain selection text
+      md = view.someProp('clipboardTextSerializer', (f) => f(slice, view)) ?? '';
+    } catch {
+      md = '';
+    }
   });
   return md;
 }
