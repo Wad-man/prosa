@@ -210,6 +210,9 @@ export class VisualEditor {
     e.preventDefault();
     e.stopPropagation();
     window.setTimeout(() => {
+      // the editor can be rebuilt (language switch) before the timeout
+      // fires — the component it belonged to is gone, nothing to close
+      if (!input.isConnected) return;
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
     });
   };
