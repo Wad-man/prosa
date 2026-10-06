@@ -11,6 +11,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   readText as readClipboardText,
   writeText as writeClipboardText,
+  writeHtml as writeClipboardHtml,
 } from '@tauri-apps/plugin-clipboard-manager';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -33,6 +34,7 @@ import {
 } from './editor/md-source';
 import type { BlockId, MarkId } from './editor/actions';
 import { splitFrontMatter } from './frontmatter';
+import { markdownToHtml } from './markdown-html';
 import { MenuBar, type MenuSection } from './menu';
 import { TocPanel } from './toc';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
@@ -411,6 +413,26 @@ async function writeClipboard(text: string): Promise<boolean> {
   }
 }
 
+// #63: two-flavor write — text/html for Word/mailers with the markdown
+// source as the plain-text fallback; the browser branch mirrors the plugin
+// (Chromium packs both MIME flavors into the OS clipboard)
+async function writeClipboardRich(html: string, plain: string): Promise<boolean> {
+  try {
+    if (inTauri) await writeClipboardHtml(html, plain);
+    else
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([plain], { type: 'text/plain' }),
+        }),
+      ]);
+    return true;
+  } catch {
+    if (inTauri) void message(t('clipboardError'), { title: 'ProsaMD', kind: 'error' });
+    return false;
+  }
+}
+
 // ---------- mode-aware command dispatch for the menu bar ----------
 
 function editUndoRedo(which: 'undo' | 'redo'): void {
@@ -445,6 +467,18 @@ async function editCut(): Promise<void> {
     if (mode === 'visual') visual.deleteSelection();
     else if (source) sourceDeleteSelection(source.view);
   }
+}
+
+// #63 «Копировать для Word»: rich-text flavor of the selection — or the whole
+// document when nothing is selected. Ctrl+C stays markdown-only (#47); the
+// HTML is built from the markdown source, so it matches what the visual mode
+// renders, and skips front-matter (YAML has no Word meaning; the plain-text
+// fallback keeps it)
+async function editCopyForWord(): Promise<void> {
+  const md = copyPayload() || currentFullText();
+  if (!md.trim()) return;
+  const { body } = splitFrontMatter(md);
+  await writeClipboardRich(markdownToHtml(body), md);
 }
 
 // Markdown-aware in visual mode (pasted markdown renders), plain in source
@@ -555,6 +589,7 @@ function buildMenuSections(): (() => MenuSection)[] {
         { label: t('cut'), hotkey: 'Ctrl+X', action: () => void editCut() },
         { label: t('copy'), hotkey: 'Ctrl+C', action: () => void editCopy() },
         { label: t('paste'), hotkey: 'Ctrl+V', action: () => void editPaste() },
+        { label: t('copyForWord'), action: () => void editCopyForWord() },
         sep(),
         { label: t('selectAll'), hotkey: 'Ctrl+A', action: () => editSelectAll() },
         { label: t('deleteLine'), hotkey: 'Ctrl+D', action: () => editDeleteLine() },

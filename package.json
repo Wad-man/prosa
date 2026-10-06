@@ -30,7 +30,12 @@
     "@tauri-apps/plugin-opener": "^2.7.0",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.13.1",
-    "codemirror": "^6.0.2"
+    "codemirror": "^6.0.2",
+    "rehype-stringify": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "unified": "^11.0.5"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
