@@ -19,7 +19,7 @@ import {
 // commonmark preset's `toggleLinkCommand`, which is a parameterized
 // toggleMark(link, payload) and throws without an href payload
 import { toggleLinkCommand } from '@milkdown/kit/component/link-tooltip';
-import { $shortcut, replaceAll } from '@milkdown/kit/utils';
+import { $remark, $shortcut, replaceAll } from '@milkdown/kit/utils';
 import { crepeLocaleConfigs } from './crepe-locale';
 import { ContextPanel, type PanelClipboardActions } from './context-panel';
 import {
@@ -298,6 +298,153 @@ const lineBreaksFix: MilkdownPlugin = (ctx) => {
 };
 
 /**
+ * #53 follow-up (owner report 2026-10-06, "вставляется лишний обратный
+ * слеш"): a GitHub-style hard break — two spaces before the newline — was
+ * rewritten into the backslash form on every visual round-trip. Both are
+ * valid CommonMark hard breaks, but the bytes change and the backslash is
+ * visible noise in the file.
+ *
+ * The flavor is preserved end to end:
+ *
+ *  - a remark plugin (breakFlavorTagger, registered before Crepe's own
+ *    $remark plugins, so it sees the tree first) slices the source at each
+ *    break node's position: a slice starting with `\` is the backslash
+ *    flavor, one starting with spaces is the two-space flavor. The tag goes
+ *    onto `node.data` — the same channel the stock hardbreak parse runner
+ *    already reads (`node.data.isInline`);
+ *  - the parse runner (patched below, SchemaReady manner) carries the flavor
+ *    into a `twoSpace` attr; the serializer runner puts it back onto the
+ *    mdast break node as a `twoSpace` prop;
+ *  - a custom `handlers.break` in remark-stringify (forwarded through
+ *    remarkStringifyOptionsCtx — verified: remark-stringify passes handlers
+ *    to mdast-util-to-markdown verbatim) renders the two-space form. The
+ *    no-unconditional-eol fallback (setext/table contexts) mirrors the stock
+ *    handler's space degradation.
+ *
+ * Soft breaks (plain `\n`, Shift+Enter) keep their text-node path; the DOM
+ * round-trip carries the flavor through a `data-twospace` attribute.
+ */
+const breakFlavorTagger = $remark('prosa-break-flavor', () => () => {
+  return (tree: unknown, file: { value?: unknown }) => {
+    const source = typeof file?.value === 'string' ? file.value : '';
+    const walk = (node: unknown): void => {
+      if (node && typeof node === 'object' && 'type' in node) {
+        const n = node as {
+          type: string;
+          children?: unknown[];
+          data?: Record<string, unknown>;
+          position?: { start?: { offset?: number }; end?: { offset?: number } };
+        };
+        if (n.type === 'break' && n.position) {
+          const start = n.position.start?.offset;
+          const end = n.position.end?.offset;
+          const slice = start != null && end != null ? source.slice(start, end) : '';
+          const flavor = slice.startsWith(' ') ? 'twospace' : 'backslash';
+          n.data = { ...n.data, hardBreakFlavor: flavor };
+        }
+        n.children?.forEach(walk);
+      }
+    };
+    walk(tree);
+  };
+});
+
+const hardBreakFlavorFix: MilkdownPlugin = (ctx) => {
+  return async () => {
+    await ctx.wait(SchemaReady);
+    const schema = ctx.get(schemaCtx);
+    const hardbreak = schema.nodes.hardbreak as
+      | (NodeType & {
+          attrs: Record<string, { default: unknown; hasDefault?: boolean; validate?: (value: unknown) => void }>;
+          defaultAttrs: Record<string, unknown> | null;
+          spec: {
+            attrs?: Record<string, unknown>;
+            parseDOM?: { tag?: string; getAttrs?: (dom: HTMLElement) => Record<string, unknown> | null | false }[];
+            parseMarkdown?: {
+              match: (node: unknown) => boolean;
+              runner: (
+                state: { addNode: (type: unknown, attrs?: unknown) => unknown },
+                node: { data?: { isInline?: boolean; hardBreakFlavor?: string } },
+                type: unknown,
+              ) => void;
+            };
+            toMarkdown?: {
+              match: (node: unknown) => boolean;
+              runner: (
+                state: { addNode: (type: string, value?: unknown, children?: unknown, props?: Record<string, unknown>) => unknown },
+                node: { attrs: Record<string, unknown> },
+              ) => void;
+            };
+            toDOM?: (node: { attrs: Record<string, unknown> }) => unknown;
+          };
+        })
+      | undefined;
+    if (!hardbreak) return;
+
+    hardbreak.spec.attrs = { ...hardbreak.spec.attrs, twoSpace: { default: false, validate: 'boolean' } };
+    hardbreak.attrs.twoSpace = { hasDefault: true, default: false };
+    if (hardbreak.defaultAttrs) {
+      hardbreak.defaultAttrs = { ...hardbreak.defaultAttrs, twoSpace: false };
+    }
+
+    const parse = hardbreak.spec.parseMarkdown!;
+    hardbreak.spec.parseMarkdown = {
+      ...parse,
+      runner: (state, node, type) => {
+        state.addNode(type, {
+          isInline: Boolean(node.data?.isInline),
+          twoSpace: node.data?.hardBreakFlavor === 'twospace',
+        });
+      },
+    };
+
+    const toMarkdown = hardbreak.spec.toMarkdown!;
+    hardbreak.spec.toMarkdown = {
+      ...toMarkdown,
+      runner: (state, node) => {
+        if (node.attrs.isInline) {
+          state.addNode('text', undefined, '\n');
+        } else if (node.attrs.twoSpace) {
+          state.addNode('break', undefined, undefined, { twoSpace: true });
+        } else {
+          state.addNode('break');
+        }
+      },
+    };
+
+    // carry the flavor through the clipboard PM→DOM→PM round-trip
+    const stockToDOM = hardbreak.spec.toDOM;
+    if (stockToDOM) {
+      hardbreak.spec.toDOM = (node) => {
+        const spec = stockToDOM(node) as [string, Record<string, unknown>, ...unknown[]];
+        if (node.attrs.twoSpace && Array.isArray(spec) && spec[1]) {
+          spec[1]['data-twospace'] = 'true';
+        }
+        return spec;
+      };
+    }
+    hardbreak.spec.parseDOM = hardbreak.spec.parseDOM?.map((rule) =>
+      rule.tag === 'br'
+        ? {
+            ...rule,
+            // `isInline: false` is lineBreaksFix's pin (a DOM `<br>` is the
+            // hard flavor; without it the new default would soften every
+            // break on the clipboard round-trip) — keep it AND read the
+            // two-space flavor back
+            getAttrs: (dom: HTMLElement) => ({
+              isInline: false,
+              twoSpace: dom.getAttribute('data-twospace') === 'true',
+            }),
+          }
+        : rule,
+    );
+
+    delete (schema as unknown as { cached: Record<string, unknown> }).cached?.domParser;
+    delete (schema as unknown as { cached: Record<string, unknown> }).cached?.domSerializer;
+  };
+};
+
+/**
  * #54 (image round-trip, critical): Crepe's image-block design destroys image
  * metadata by construction. Its parse runner reads `caption` from the mdast
  * `title` (null for `![alt](url)` without a title → PM rejects null for a
@@ -551,6 +698,22 @@ function captureDefinitions(markdown: string, store: Map<string, string>, reset:
   }
 }
 
+/** mdast-util-to-markdown's patternInScope, inlined for the break handler. */
+function patternInScope(
+  stack: string[],
+  pattern: { inConstruct?: string | string[] | null; notInConstruct?: string | string[] | null },
+): boolean {
+  return listInScope(stack, pattern.inConstruct, true) && !listInScope(stack, pattern.notInConstruct, false);
+}
+
+function listInScope(stack: string[], list: string | string[] | null | undefined, none: boolean): boolean {
+  if (!list || list.length === 0) return none;
+  for (const item of Array.isArray(list) ? list : [list]) {
+    if (stack.includes(item)) return true;
+  }
+  return false;
+}
+
 /**
  * Visual mode: Milkdown (Crepe) — live WYSIWYG rendering of the whole document.
  * Source-on-focus (Typora-style raw markdown under the cursor) is a roadmap
@@ -773,6 +936,34 @@ export class VisualEditor {
         ...options,
         bullet: '-' as const,
         rule: '-' as const,
+        // #53 follow-up: two-space hard breaks keep their form (the handler
+        // reads the `twoSpace` prop the serializer runner put on the break
+        // node; everything else degrades exactly like the stock handler).
+        // Mirrors mdast-util-to-markdown's hardBreak: where an unconditional
+        // eol is not allowed (setext/table cells), a break degrades to a
+        // space — patternInScope inlined below.
+        handlers: {
+          ...(options.handlers ?? {}),
+          break(node: { twoSpace?: boolean }, _parent: unknown, rawState: unknown, rawInfo: unknown): string {
+            if (!node.twoSpace) return '\\\n';
+            const state = rawState as {
+              stack: string[];
+              unsafe: { character: string; before?: string | null; after?: string | null; inConstruct?: string | string[] | null; notInConstruct?: string | string[] | null }[];
+            };
+            const info = rawInfo as { before: string };
+            for (const pattern of state.unsafe) {
+              if (
+                pattern.character === '\n' &&
+                !pattern.before &&
+                !pattern.after &&
+                patternInScope(state.stack, pattern)
+              ) {
+                return /[\t ]/.test(info.before) ? '' : ' ';
+              }
+            }
+            return '  \n';
+          },
+        },
       }));
       ctx.update(headingIdGenerator.key, () => (node: ProseNode) =>
         node.textContent
@@ -786,8 +977,12 @@ export class VisualEditor {
     });
     this.crepe.editor.use(tableAlignmentFix);
     this.crepe.editor.use(lineBreaksFix);
+    this.crepe.editor.use(hardBreakFlavorFix);
     this.crepe.editor.use(imagesFix);
     this.crepe.editor.use(makeLinkReferenceFix(() => this.definitions));
+    // registered before Crepe's own $remark plugins: it must see break nodes
+    // with their pristine positions to detect the source flavor
+    this.crepe.editor.use(breakFlavorTagger);
     // only real document changes count as edits: a DOM-wide mutation observer
     // would misread focus/cursor/block-handle widget mutations as edits
     this.crepe.editor.use(listener);
