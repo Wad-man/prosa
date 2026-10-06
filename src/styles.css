@@ -825,6 +825,14 @@ body {
   color: var(--fg-3);
 }
 
+/* #53: an inline hardbreak carries a plain "\n" into and out of the file
+   (Shift+Enter, Obsidian/Typora-style). Stock renders that span as a space —
+   make it a real line break; the hard flavor (`\` + newline from files)
+   keeps its stock <br>. */
+#visual-editor .ProseMirror span[data-type='hardbreak'][data-is-inline='true'] {
+  display: block;
+}
+
 /* --- typography ---
    Vertical rhythm (see TYPOGRAPHY.md): the base line is 16px × 1.75 = 28px.
    Plain block gap (p) 0.95em; decorated blocks (quote/code/table) 1.25em;

@@ -5,9 +5,10 @@ import { EditorView, keymap } from '@codemirror/view';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { Prec, type Extension } from '@codemirror/state';
 import { tags as t } from '@lezer/highlight';
-import { commandsCtx, remarkStringifyOptionsCtx, schemaCtx, SchemaReady } from '@milkdown/kit/core';
+import { commandsCtx, remarkStringifyOptionsCtx, schemaCtx, SchemaReady, SerializerReady, serializerCtx, editorViewCtx } from '@milkdown/kit/core';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
-import type { NodeType } from '@milkdown/kit/prose/model';
+import type { NodeType, Node as ProseNode } from '@milkdown/kit/prose/model';
+import { headingIdGenerator } from '@milkdown/kit/preset/commonmark';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import {
   createCodeBlockCommand,
@@ -197,6 +198,326 @@ const tableAlignmentFix: MilkdownPlugin = (ctx) => {
 };
 
 /**
+ * #53 (Obsidian/Typora-style line breaks, owner spec 2026-10-06): Enter is a
+ * paragraph (a blank line in the file), Shift+Enter is a plain `\n` inside
+ * it. Two stock constructs write anything else into the file:
+ *
+ *  1. the paragraph serializer emits a literal `<br />` html node for an
+ *     EMPTY paragraph — the `remark-preserve-empty-line` plugin ships inside
+ *     the default `commonmark` array Crepe uses, and the serializer emits
+ *     the placeholder whenever that plugin is injected. So an empty line
+ *     typed with a double Enter (and the trailing paragraph the trailing
+ *     plugin appends after a code block/table) saved as `<br />`;
+ *  2. Shift+Enter inserts a hardbreak with `isInline: false`, which
+ *     serializes as `\` + newline (a CommonMark hard break).
+ *
+ * The soft flavor already exists in milkdown 7.22: a hardbreak with
+ * `isInline: true` serializes back as a text `\n` — that is how plain `\n`
+ * from existing files survives today. This patch runs right after
+ * SchemaReady, in the tableAlignmentFix manner:
+ *
+ *  - flip the `isInline` default, so the stock Shift-Enter command
+ *    (`type.create()` with no attrs) produces the soft flavor. Parsed nodes
+ *    carry their explicit attrs, so `\`+`\n` from existing files keeps
+ *    round-tripping as the hard flavor;
+ *  - pin the DOM rule for a PASTED `<br>` tag to the hard flavor. Without
+ *    attrs that rule would now inherit the new default, and a soft break
+ *    inside a table cell would serialize as a raw newline, splitting the
+ *    table row apart; the hard flavor degrades to a space there — the
+ *    stock, safe behavior;
+ *  - wrap the paragraph serializer: an empty paragraph serializes as an
+ *    empty mdast paragraph (a blank line), never as the `<br />`
+ *    placeholder. The parse direction stays stock, so files already saved
+ *    with `<br />` by earlier builds still open as empty paragraphs.
+ *
+ * The serializer dispatch reads `spec.toMarkdown` off the live NodeType
+ * specs at serialization time, so these spec patches apply to every later
+ * save; the DOM-parse cache is dropped because parseDOM rules are captured
+ * when DOMParser.fromSchema first builds (same as tableAlignmentFix).
+ */
+const lineBreaksFix: MilkdownPlugin = (ctx) => {
+  return async () => {
+    await ctx.wait(SchemaReady);
+    const schema = ctx.get(schemaCtx);
+
+    const hardbreak = schema.nodes.hardbreak as
+      | (NodeType & {
+          attrs: Record<string, { default: unknown }>;
+          defaultAttrs: Record<string, unknown> | null;
+        })
+      | undefined;
+    if (hardbreak) {
+      // `create()` computes missing attrs from the live attrs map,
+      // `createAndFill()` reads the cached defaults — patch both
+      hardbreak.attrs.isInline.default = true;
+      if (hardbreak.defaultAttrs) {
+        hardbreak.defaultAttrs = { ...hardbreak.defaultAttrs, isInline: true };
+      }
+      hardbreak.spec.parseDOM = hardbreak.spec.parseDOM?.map((rule) =>
+        rule.tag === 'br' ? { ...rule, getAttrs: () => ({ isInline: false }) } : rule,
+      );
+    }
+
+    const paragraph = schema.nodes.paragraph as
+      | (NodeType & {
+          spec: {
+            toMarkdown?: {
+              match: (node: unknown) => boolean;
+              runner: (
+                state: { openNode: (type: string) => unknown; closeNode: () => unknown },
+                node: { childCount: number },
+              ) => void;
+            };
+          };
+        })
+      | undefined;
+    const stockToMarkdown = paragraph?.spec.toMarkdown;
+    if (paragraph && stockToMarkdown) {
+      paragraph.spec.toMarkdown = {
+        ...stockToMarkdown,
+        runner: (state, node) => {
+          if (node.childCount === 0) {
+            state.openNode('paragraph');
+            state.closeNode();
+            return;
+          }
+          stockToMarkdown.runner(state, node);
+        },
+      };
+    }
+
+    // DOMParser captures parseDOM rules when first built — drop whatever may
+    // already be cached so the pinned `<br>` rule takes effect
+    delete (schema as unknown as { cached: Record<string, unknown> }).cached
+      ?.domParser;
+    delete (schema as unknown as { cached: Record<string, unknown> }).cached
+      ?.domSerializer;
+  };
+};
+
+/**
+ * #54 (image round-trip, critical): Crepe's image-block design destroys image
+ * metadata by construction. Its parse runner reads `caption` from the mdast
+ * `title` (null for `![alt](url)` without a title → PM rejects null for a
+ * string attr → the parser's addNode catches the RangeError and silently
+ * DROPS the image — several images in a document, only titled ones survive),
+ * and it stashes the block's UI resize `ratio` IN THE ALT TEXT
+ * (`Number(node.alt || 1)`), while the serializer writes alt back as
+ * `ratio.toFixed(2)` — every save rewrites `![alt](…)` into `![1.00](…)`.
+ *
+ * This patch runs right after SchemaReady, in the tableAlignmentFix manner:
+ *
+ *  - give image-block a real `alt` attr (added post-build: the live attrs map
+ *    + `Attribute` instance + the cached `defaultAttrs`, which `create()`
+ *    reads on the map and `createAndFill()` on the cache);
+ *  - parse runner: null-guard title/alt, keep the caption↔title mapping
+ *    (that's the component's UX: the caption input edits the title), ratio
+ *    starts at 1 — UI state no longer leaks into the file through alt;
+ *  - serializer: alt is the alt, title only when a caption exists;
+ *  - the stock inline `image` node has the same null crash (`title` and
+ *    `alt` come straight from mdast where they are null when absent), and
+ *    its DOM parse rule fabricates `title` from `alt` on the clipboard
+ *    PM→DOM→PM round-trip — both patched here too.
+ *
+ * The parser/serializer dispatch read the specs off the live NodeTypes at
+ * operation time, so these runners apply to every later parse/serialization
+ * (same guarantee lineBreaksFix relies on).
+ */
+const imagesFix: MilkdownPlugin = (ctx) => {
+  return async () => {
+    await ctx.wait(SchemaReady);
+    const schema = ctx.get(schemaCtx);
+
+    type Patchable = NodeType & {
+      attrs: Record<string, { default: unknown; hasDefault?: boolean; validate?: (value: unknown) => void }>;
+      defaultAttrs: Record<string, unknown> | null;
+      spec: {
+        attrs?: Record<string, unknown>;
+        parseDOM?: { tag?: string; getAttrs?: (dom: HTMLElement) => Record<string, unknown> | null | false }[];
+        parseMarkdown?: {
+          match: (node: unknown) => boolean;
+          runner: (
+            state: { addNode: (type: unknown, attrs?: unknown) => unknown; openNode: (type: string) => unknown; closeNode: () => unknown },
+            node: { url?: unknown; alt?: unknown; title?: unknown },
+            type: unknown,
+          ) => void;
+        };
+        toMarkdown?: {
+          match: (node: unknown) => boolean;
+          runner: (
+            state: { addNode: (type: string, value?: unknown, children?: unknown, props?: Record<string, unknown>) => unknown; openNode: (type: string) => unknown; closeNode: () => unknown },
+            node: { attrs: Record<string, unknown> },
+          ) => void;
+        };
+      };
+    };
+    const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+    const imageBlock = schema.nodes['image-block'] as Patchable | undefined;
+    if (imageBlock) {
+      imageBlock.spec.attrs = { ...imageBlock.spec.attrs, alt: { default: '', validate: 'string' } };
+      // prosemirror-model keeps its Attribute class private — the shape it
+      // reads (hasDefault/default; validate is optional and every writer of
+      // this attr is below) is all that's needed; `isRequired` stays absent,
+      // which `hasRequiredAttrs` treats as "has a default" — correct here
+      imageBlock.attrs.alt = { hasDefault: true, default: '' };
+      if (imageBlock.defaultAttrs) {
+        imageBlock.defaultAttrs = { ...imageBlock.defaultAttrs, alt: '' };
+      }
+
+      const parse = imageBlock.spec.parseMarkdown!;
+      imageBlock.spec.parseMarkdown = {
+        ...parse,
+        runner: (state, node, type) => {
+          state.addNode(type, {
+            src: asString(node.url),
+            caption: asString(node.title),
+            ratio: 1,
+            alt: asString(node.alt),
+          });
+        },
+      };
+
+      const toMarkdown = imageBlock.spec.toMarkdown!;
+      imageBlock.spec.toMarkdown = {
+        ...toMarkdown,
+        runner: (state, node) => {
+          state.openNode('paragraph');
+          state.addNode('image', undefined, undefined, {
+            title: (node.attrs.caption as string) || null,
+            url: node.attrs.src,
+            alt: (node.attrs.alt as string) || '',
+          });
+          state.closeNode();
+        },
+      };
+
+      imageBlock.spec.parseDOM = imageBlock.spec.parseDOM?.map((rule) =>
+        rule.tag === 'img[data-type="image-block"]'
+          ? {
+              ...rule,
+              getAttrs: (dom: HTMLElement) => {
+                const base = rule.getAttrs?.(dom);
+                if (!base || typeof base !== 'object') return base ?? null;
+                return { ...base, alt: dom.getAttribute('alt') || '' };
+              },
+            }
+          : rule,
+      );
+    }
+
+    const image = schema.nodes['image'] as Patchable | undefined;
+    if (image) {
+      const parse = image.spec.parseMarkdown!;
+      image.spec.parseMarkdown = {
+        ...parse,
+        runner: (state, node, type) => {
+          state.addNode(type, {
+            src: asString(node.url),
+            alt: asString(node.alt),
+            title: asString(node.title),
+          });
+        },
+      };
+      // `title || alt` fabricates a title for every DOM image without one —
+      // after the clipboard round-trip the save would write `![alt](url "alt")`
+      image.spec.parseDOM = image.spec.parseDOM?.map((rule) =>
+        rule.tag === 'img[src]'
+          ? {
+              ...rule,
+              getAttrs: (dom: HTMLElement) => ({
+                src: dom.getAttribute('src') || '',
+                alt: dom.getAttribute('alt') || '',
+                title: dom.getAttribute('title') || '',
+              }),
+            }
+          : rule,
+      );
+    }
+
+    // parseDOM rules are captured when DOMParser.fromSchema first builds —
+    // drop whatever may already be cached (same as tableAlignmentFix)
+    delete (schema as unknown as { cached: Record<string, unknown> }).cached?.domParser;
+    delete (schema as unknown as { cached: Record<string, unknown> }).cached?.domSerializer;
+  };
+};
+
+/**
+ * #55 (link reference definitions vanish): milkdown's commonmark preset runs
+ * `remark-inline-links`, which resolves every `[text][id]` reference into an
+ * inline link AND splices all `definition` nodes out of the tree — the model
+ * never sees them, so every save silently deletes `[id]: url` blocks and the
+ * `[//]: # (comment)` trick. Restoring them inside the model is not possible
+ * without a schema rebuild, so this fix works at the two boundaries the app
+ * owns:
+ *
+ *  - capture: every whole-document markdown source (open, mode switch,
+ *    `setMarkdown`) and every plain-text paste are scanned for
+ *    definition-looking lines OUTSIDE fenced/indented code; the raw line is
+ *    stored byte-exact, keyed by the normalized identifier (first wins, as
+ *    in CommonMark). Pasted fragments only ADD definitions (a document's own
+ *    defs can't be deleted from visual mode — they're invisible there);
+ *  - restore: the serializer slice is wrapped to append the captured block
+ *    back when (and only when) the WHOLE document is serialized — a fragment
+ *    copy must not drag the document's definitions along. References
+ *    themselves still serialize inline (the audit's accepted compromise:
+ *    bytes change at the reference, the definition survives, position moves
+ *    to the end of the document).
+ *
+ * Known heuristic limits (L1, documented in #55): titles on the line AFTER
+ * the destination, definitions inside blockquotes, and definition-looking
+ * lines inside html blocks are not captured. The block is re-emitted at the
+ * document end, which is a stable round-trip position (a reopen recaptures
+ * it there and re-emits the same bytes).
+ */
+const makeLinkReferenceFix = (getDefinitions: () => Map<string, string>): MilkdownPlugin => (ctx) => {
+  return async () => {
+    await ctx.wait(SerializerReady);
+    const stockSerializer = ctx.get(serializerCtx);
+    ctx.set(serializerCtx, (content: ProseNode) => {
+      const markdown = stockSerializer(content);
+      const definitions = getDefinitions();
+      if (definitions.size === 0) return markdown;
+      // only the whole document carries its definitions block back —
+      // partial copies and ranged serializations stay fragment-clean
+      const view = ctx.get(editorViewCtx);
+      if (!content.eq(view.state.doc)) return markdown;
+      return `${markdown.replace(/\s+$/, '')}\n\n${[...definitions.values()].join('\n')}\n`;
+    });
+  };
+};
+
+/** A link reference definition, outside code fences/indented code (#55). */
+const DEFINITION_LINE =
+  /^ {0,3}\[((?:\\.|[^\\[\]])+)\]:\s*(?:<[^<>]*>|\S+)\s*(?:"[^"]*"|'[^']*'|\([^)]*\))?\s*$/;
+
+/** See makeLinkReferenceFix: capture definition lines from raw markdown. */
+function captureDefinitions(markdown: string, store: Map<string, string>, reset: boolean): void {
+  if (reset) store.clear();
+  let fence: { marker: string; length: number } | null = null;
+  for (const line of markdown.split(/\r?\n/)) {
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      // a closing fence is the fence marker alone, at least as long as the opener
+      if (fenceMatch && fenceMatch[1][0] === fence.marker && fenceMatch[1].length >= fence.length && line.trim() === fenceMatch[1]) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fenceMatch) {
+      fence = { marker: fenceMatch[1][0], length: fenceMatch[1].length };
+      continue;
+    }
+    if (/^ {4,}/.test(line)) continue; // indented code block content
+    const match = DEFINITION_LINE.exec(line);
+    if (!match) continue;
+    // CommonMark identifier normalization; first definition wins, as in remark
+    const key = match[1].trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!store.has(key)) store.set(key, line.trim());
+  }
+}
+
+/**
  * Visual mode: Milkdown (Crepe) — live WYSIWYG rendering of the whole document.
  * Source-on-focus (Typora-style raw markdown under the cursor) is a roadmap
  * goal, not implemented yet — stock Crepe never reveals the raw markup.
@@ -229,6 +550,39 @@ export class VisualEditor {
     e.stopPropagation();
     input.focus();
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+  };
+
+  // #59 (internal anchors): headings already carry auto-IDs (the stock
+  // sync-heading-id plugin assigns them on every doc change and heading toDOM
+  // writes them into the DOM), but a click on `[text](#id)` followed the href
+  // out of the app (WebView shells it to the system browser). Capture-phase
+  // interception turns `#`-links into in-document scrolling. Caret placement
+  // survives: it happens on mousedown, this only cancels the navigation.
+  // Only `#`-links are taken — external links keep their behavior.
+  private anchorClickHandler = (e: MouseEvent) => {
+    const anchor = (e.target as Element | null)?.closest?.('a[href^="#"]') as HTMLAnchorElement | null;
+    if (!anchor) return;
+    e.preventDefault();
+    const id = decodeURIComponent(anchor.hash.slice(1));
+    const target = id ? this.root?.querySelector(`[id="${CSS.escape(id)}"]`) : null;
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  // #55: definitions captured from every parsed markdown source (see
+  // makeLinkReferenceFix). Instance-level: one editor = one document.
+  private definitions = new Map<string, string>();
+
+  private captureDefinitions(markdown: string, reset: boolean): void {
+    captureDefinitions(markdown, this.definitions, reset);
+  }
+
+  // #55: see create(); code blocks (Crepe's code-mirror feature) paste raw —
+  // definition-looking lines there are content, not definitions
+  private pasteCaptureHandler = (e: ClipboardEvent) => {
+    const target = e.target as Element | null;
+    if (target?.closest?.('.cm-editor, pre, code')) return;
+    const text = e.clipboardData?.getData('text/plain');
+    if (text) captureDefinitions(text, this.definitions, false);
   };
 
   constructor() {
@@ -267,10 +621,22 @@ export class VisualEditor {
     // listener: remove first, then add
     document.removeEventListener('keydown', this.escapeLinkTooltip, true);
     document.addEventListener('keydown', this.escapeLinkTooltip, true);
+    // #59: same re-register pattern for the anchor click handler
+    root.removeEventListener('click', this.anchorClickHandler, true);
+    root.addEventListener('click', this.anchorClickHandler, true);
+    // #55: plain-text pastes can carry definitions into the document — the
+    // parse itself consumes them invisibly (remark-inline-links), so they are
+    // captured from the raw clipboard text before ProseMirror handles it.
+    // Pasting into a code block keeps the text verbatim — nothing to capture.
+    root.removeEventListener('paste', this.pasteCaptureHandler, true);
+    root.addEventListener('paste', this.pasteCaptureHandler, true);
     // carried across rebuilds (language switch re-creates the panel too)
     if (panelClipboard) this.panelClipboard = panelClipboard;
     // a rebuild (language switch) remounts everything — clean the old panel first
     this.panel?.destroy();
+    // #55: the whole-document source is scanned for link reference
+    // definitions before the parse consumes them (see makeLinkReferenceFix)
+    this.captureDefinitions(defaultValue, true);
     const locale = crepeLocaleConfigs(getLang());
     this.crepe = new Crepe({
       root,
@@ -326,14 +692,30 @@ export class VisualEditor {
     // list written with `*` still serializes as `*` — the serializer picks
     // the "other" bullet for adjacent lists so they cannot merge.
     // `rule: '-'` keeps `---` thematic breaks from turning into `***`.
+    //
+    // #59: heading auto-IDs follow the GitHub slug shape (lowercase,
+    // punctuation dropped, whitespace → dashes, unicode letters kept), so
+    // anchors typed by hand after GitHub's rendering resolve in ProsaMD too.
+    // The ids live only in the model/DOM — the heading serializer never
+    // writes them into the file.
     this.crepe.editor.config((ctx) => {
       ctx.update(remarkStringifyOptionsCtx, (options) => ({
         ...options,
         bullet: '-' as const,
         rule: '-' as const,
       }));
+      ctx.update(headingIdGenerator.key, () => (node: ProseNode) =>
+        node.textContent
+          .trim()
+          .toLowerCase()
+          .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+          .replace(/\s+/g, '-'),
+      );
     });
     this.crepe.editor.use(tableAlignmentFix);
+    this.crepe.editor.use(lineBreaksFix);
+    this.crepe.editor.use(imagesFix);
+    this.crepe.editor.use(makeLinkReferenceFix(() => this.definitions));
     // only real document changes count as edits: a DOM-wide mutation observer
     // would misread focus/cursor/block-handle widget mutations as edits
     this.crepe.editor.use(listener);
@@ -370,6 +752,9 @@ export class VisualEditor {
 
   setMarkdown(md: string): void {
     if (!this.crepe) return;
+    // a whole-document replacement: re-capture definitions from the new
+    // source (#55) — the parse below consumes them invisibly
+    this.captureDefinitions(md, true);
     this.crepe.editor.action(replaceAll(md, true));
   }
 
