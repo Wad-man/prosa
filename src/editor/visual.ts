@@ -27,6 +27,7 @@ import {
   visualUndoRedo,
   visualSelectAll,
   visualSelectionText,
+  visualSelectionMarkdown,
   visualDeleteSelection,
   visualInsertMarkdown,
   visualCurrentBlock,
@@ -399,6 +400,11 @@ export class VisualEditor {
 
   selectionText(): string {
     return this.crepe ? visualSelectionText(this.crepe) : '';
+  }
+
+  /** Markdown of the selection — what "Copy" puts on the clipboard (#47). */
+  selectionMarkdown(): string {
+    return this.crepe ? visualSelectionMarkdown(this.crepe) : '';
   }
 
   deleteSelection(): void {

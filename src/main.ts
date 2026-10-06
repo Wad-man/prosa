@@ -428,12 +428,20 @@ function selectionText(): string {
   return source ? sourceSelectionText(source.view) : '';
 }
 
+// #47: like Obsidian, copy/cut always carry markdown in the visual mode (the
+// native Ctrl+C path already did — this unifies the menu and right-click
+// panel with it); the source mode is raw markdown by nature
+function copyPayload(): string {
+  if (mode === 'visual') return visual.selectionMarkdown() || selectionText();
+  return selectionText();
+}
+
 async function editCopy(): Promise<void> {
-  await writeClipboard(selectionText());
+  await writeClipboard(copyPayload());
 }
 
 async function editCut(): Promise<void> {
-  if (await writeClipboard(selectionText())) {
+  if (await writeClipboard(copyPayload())) {
     if (mode === 'visual') visual.deleteSelection();
     else if (source) sourceDeleteSelection(source.view);
   }
