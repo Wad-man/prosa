@@ -2949,7 +2949,7 @@ dependencies = [
 
 [[package]]
 name = "prosa"
-version = "0.1.10-rc.4"
+version = "0.1.10-rc.5"
 dependencies = [
  "percent-encoding",
  "serde",
