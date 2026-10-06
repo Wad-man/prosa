@@ -801,11 +801,16 @@ function hideModal(overlay: HTMLElement): void {
   back?.focus();
 }
 
-// keep Tab cycling inside the open dialog
-function trapTabKey(overlay: HTMLElement, e: KeyboardEvent): void {
-  const focusable = Array.from(
+// the focusable set shared by Tab trapping and arrow-key navigation
+function modalFocusables(overlay: HTMLElement): HTMLElement[] {
+  return Array.from(
     overlay.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'),
   ).filter((el) => el.offsetParent !== null);
+}
+
+// keep Tab cycling inside the open dialog
+function trapTabKey(overlay: HTMLElement, e: KeyboardEvent): void {
+  const focusable = modalFocusables(overlay);
   if (focusable.length === 0) return;
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
@@ -817,6 +822,22 @@ function trapTabKey(overlay: HTMLElement, e: KeyboardEvent): void {
     e.preventDefault();
     first.focus();
   }
+}
+
+// native Windows dialogs move focus between buttons with arrow keys — mirror
+// that; with a single focusable (the hotkeys dialog) arrows stay native so
+// they keep scrolling the list
+function moveModalFocus(overlay: HTMLElement, e: KeyboardEvent): void {
+  const focusable = modalFocusables(overlay);
+  if (focusable.length < 2) return;
+  const backward = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
+  const index = focusable.indexOf(document.activeElement as HTMLElement);
+  const next =
+    index === -1
+      ? focusable[0]
+      : focusable[(index + (backward ? -1 : 1) + focusable.length) % focusable.length];
+  e.preventDefault();
+  next.focus();
 }
 
 function refreshAboutVersion(): void {
@@ -1108,6 +1129,8 @@ async function init(): Promise<void> {
         hideModal(overlay);
       } else if (e.key === 'Tab') {
         trapTabKey(overlay, e);
+      } else if (e.key.startsWith('Arrow')) {
+        moveModalFocus(overlay, e);
       }
       return;
     }
