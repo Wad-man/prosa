@@ -788,6 +788,105 @@ export class VisualEditor {
     target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  // #64: footnotes render (`sup` reference ↔ `dl` definition, both carry
+  // data-label) but nothing is clickable. Obsidian-style navigation: a plain
+  // click on the reference jumps to its definition — the marker is
+  // contenteditable=false, so a plain click has no editing meaning to steal.
+  // The way back is Ctrl/Cmd+click on the definition's dt label (the dt IS
+  // editable — a plain click there must keep placing the caret): it scrolls
+  // to the first reference of that label. Labels are matched by iteration,
+  // not an attribute selector — a footnote label may contain quotes.
+  private footnoteClickHandler = (e: MouseEvent) => {
+    const target = e.target as Element | null;
+    const byLabel = (sel: string, label: string): Element | null =>
+      [...(this.root?.querySelectorAll(sel) ?? [])].find(
+        (el) => el.getAttribute('data-label') === label,
+      ) ?? null;
+    const ref = target?.closest?.('sup[data-type="footnote_reference"]');
+    if (ref) {
+      e.preventDefault();
+      const def = byLabel('dl[data-type="footnote_definition"]', ref.getAttribute('data-label') ?? '');
+      def?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (def) this.flashTarget(def);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      const dt = target?.closest?.('dl[data-type="footnote_definition"] > dt');
+      if (dt) {
+        e.preventDefault();
+        const dl = dt.closest('dl[data-type="footnote_definition"]');
+        const back = byLabel('sup[data-type="footnote_reference"]', dl?.getAttribute('data-label') ?? '');
+        back?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (back) this.flashTarget(back);
+      }
+    }
+  };
+
+  // #64: the landing-point highlight. The footnote definition's DOM is
+  // recreated by its nodeView on every ProseMirror transaction (verified: a
+  // plain click on an unrelated paragraph replaces the dl node), so a class
+  // painted on the target dies with it. Instead an overlay outside the
+  // editor tree — fixed, tracked to the target's live rect by rAF — follows
+  // the element through the smooth scroll and survives node replacement
+  // (if the node is replaced mid-flash, isConnected ends the loop).
+  private flashTarget(el: Element): void {
+    const overlay = document.createElement('div');
+    overlay.className = 'prosa-flash-overlay';
+    document.body.appendChild(overlay);
+    const end = performance.now() + 1250;
+    const track = () => {
+      if (!el.isConnected || performance.now() > end) {
+        overlay.remove();
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      overlay.style.width = `${Math.max(r.width, 8)}px`;
+      overlay.style.height = `${Math.max(r.height, 8)}px`;
+      overlay.style.transform = `translate(${r.left}px, ${r.top}px)`;
+      requestAnimationFrame(track);
+    };
+    requestAnimationFrame(track);
+  };
+
+  // #65: an inline image whose fetch fails (dead URL — a 404 HTML page gets
+  // ORB-blocked, offline files, hotlink protection) collapses to an invisible
+  // 0×0: the component forces display:block, and Chromium only paints alt
+  // text for broken *inline* images, so the paragraph reads as empty. Capture
+  // error/load on the container — resource errors don't bubble, but they do
+  // pass through ancestors in the capture phase. The sweep is a safety net
+  // for failures that complete before the first paint.
+  private imageStatusHandler = (e: Event) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement) || !img.classList.contains('image-inline')) return;
+    const span = img.closest<HTMLElement>('span.milkdown-image-inline');
+    if (!span) return;
+    if (e.type === 'error') {
+      this.markImageBroken(span, img);
+    } else {
+      span.classList.remove('prosa-img-broken');
+      delete span.dataset.prosaImg;
+    }
+  };
+
+  private markImageBroken(span: HTMLElement, img: HTMLImageElement): void {
+    span.classList.add('prosa-img-broken');
+    // alt text is content, not UI chrome — no i18n string involved
+    span.dataset.prosaImg =
+      img.getAttribute('alt') || img.getAttribute('src') || '';
+  }
+
+  private sweepBrokenImages(): void {
+    for (const img of this.root?.querySelectorAll('img.image-inline') ?? []) {
+      if (!(img instanceof HTMLImageElement)) continue;
+      if (img.complete && img.naturalWidth === 0 && img.getAttribute('src')) {
+        this.markImageBroken(
+          img.closest<HTMLElement>('span.milkdown-image-inline') ?? img,
+          img,
+        );
+      }
+    }
+  }
+
   // #55: definitions captured from every parsed markdown source (see
   // makeLinkReferenceFix). Instance-level: one editor = one document.
   private definitions = new Map<string, string>();
@@ -857,6 +956,15 @@ export class VisualEditor {
     // #59: same re-register pattern for the anchor click handler
     root.removeEventListener('click', this.anchorClickHandler, true);
     root.addEventListener('click', this.anchorClickHandler, true);
+    // #64: footnote navigation (re-register pattern as above)
+    root.removeEventListener('click', this.footnoteClickHandler, true);
+    root.addEventListener('click', this.footnoteClickHandler, true);
+    // #65: broken inline images must be visible, not 0×0 (capture phase —
+    // resource error events don't bubble)
+    root.removeEventListener('error', this.imageStatusHandler, true);
+    root.removeEventListener('load', this.imageStatusHandler, true);
+    root.addEventListener('error', this.imageStatusHandler, true);
+    root.addEventListener('load', this.imageStatusHandler, true);
     // #55: plain-text pastes can carry definitions into the document — the
     // parse itself consumes them invisibly (remark-inline-links), so they are
     // captured from the raw clipboard text before ProseMirror handles it.
@@ -988,8 +1096,16 @@ export class VisualEditor {
     this.crepe.editor.use(listener);
     await this.crepe.create();
     this.crepe.editor.action((ctx) => {
-      ctx.get(listenerCtx).markdownUpdated(() => onChange());
+      ctx.get(listenerCtx).markdownUpdated(() => {
+        onChange();
+        // #65: a doc change can rebuild inline-image DOM without a fresh
+        // load error event (cached failure) — resweep on every update
+        this.sweepBrokenImages();
+      });
     });
+    // #65: catches fetch failures that already completed before this point
+    // (cached failures); everything later flows through imageStatusHandler
+    this.sweepBrokenImages();
     // the right-click formatting panel — the only floating panel left
     this.panel = new ContextPanel();
     this.panel.mount(this.crepe, root, this.panelClipboard ?? undefined);

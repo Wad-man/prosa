@@ -838,6 +838,63 @@ body {
   line-height: 0;
 }
 
+/* #64: footnote references jump to their definition (Obsidian-style) —
+   the marker is contenteditable=false, so pointer + hover just say
+   "clickable" without stealing any editing affordance. */
+#visual-editor .ProseMirror sup[data-type='footnote_reference'] {
+  cursor: pointer;
+}
+#visual-editor .ProseMirror sup[data-type='footnote_reference']:hover {
+  text-decoration: underline;
+}
+
+/* #64: one-shot landing highlight for footnote jumps. The overlay is
+   created/tracked by visual.ts (the footnote nodeView recreates its DOM on
+   every transaction, so the highlight cannot live on the target itself). */
+@keyframes prosa-flash {
+  from {
+    background-color: var(--sel);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.prosa-flash-overlay {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 30;
+  pointer-events: none;
+  border-radius: 6px;
+  animation: prosa-flash 1.2s ease-out 1;
+}
+
+/* #65: an inline image whose fetch failed must not vanish into an invisible
+   0×0 (dead URL, ORB-blocked 404 page, offline) — the paragraph would read
+   as empty. visual.ts marks the wrapper and stashes the alt text (or the
+   URL when there is no alt) in data-prosa-img; the dashed box makes the
+   breakage visible and keeps the click target where the image was. */
+#visual-editor span.milkdown-image-inline.prosa-img-broken {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 1.8em;
+  padding: 0.1em 0.7em;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+}
+#visual-editor span.milkdown-image-inline.prosa-img-broken img {
+  display: none;
+}
+#visual-editor span.milkdown-image-inline.prosa-img-broken::before {
+  content: '◌ ' attr(data-prosa-img);
+  color: var(--fg-3);
+  font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* --- typography ---
    Vertical rhythm (see TYPOGRAPHY.md): the base line is 16px × 1.75 = 28px.
    Plain block gap (p) 0.95em; decorated blocks (quote/code/table) 1.25em;
