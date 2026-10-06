@@ -183,7 +183,9 @@ function refreshChrome(): void {
   const title = `${prefix}${fileName()} — ProsaMD`;
   document.title = title;
   const nw = nativeWindow();
-  if (nw) void nw.setTitle(title).catch(() => {});
+  // #43: a rejected setTitle (missing capability) must surface in dev tools,
+  // not vanish — that silence hid the missing permission for releases
+  if (nw) void nw.setTitle(title).catch((err) => console.warn('setTitle failed:', err));
   els.stPath.textContent = filePath ?? fileSuggestion ?? t('untitled');
   els.stPath.title = filePath ?? '';
   els.stModified.hidden = !dirty;
