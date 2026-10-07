@@ -98,15 +98,21 @@ fn show_fallback(app: &AppHandle, delay: std::time::Duration) {
 }
 
 /// One document per window: every window is an isolated editor instance, so
-/// window state never has to be shared.
+/// window state never has to be shared. An empty `path` opens a fresh
+/// untitled document (#60): no `?file=` query, the frontend boots into the
+/// empty state.
 fn create_doc_window(app: &AppHandle, path: &str) -> tauri::Result<()> {
     static COUNTER: AtomicU32 = AtomicU32::new(1);
     let label = format!("doc-{}", COUNTER.fetch_add(1, Ordering::Relaxed));
-    let encoded = utf8_percent_encode(path, NON_ALPHANUMERIC).to_string();
+    let query = if path.is_empty() {
+        String::new()
+    } else {
+        format!("?file={}", utf8_percent_encode(path, NON_ALPHANUMERIC))
+    };
     let builder = WebviewWindowBuilder::new(
         app,
         &label,
-        WebviewUrl::App(format!("index.html?file={encoded}").into()),
+        WebviewUrl::App(format!("index.html{query}").into()),
     )
     .title("ProsaMD")
     .inner_size(1100.0, 780.0)
@@ -207,21 +213,31 @@ pub fn run() {
             }
         });
 
-    // When a second instance is launched with a file argument (e.g. the user
-    // double-clicks another .md while Prosa is running), route the file to
-    // this instance and exit.
+    // A second instance routes here: a markdown argument (double-clicked
+    // document) opens in a window; a plain relaunch — taskbar icon, Start
+    // menu shortcut — opens a fresh empty window (#60, owner decision
+    // 2026-10-06: the "every file gets its own window" model gives every
+    // launch click its own window too).
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(
         |app, args, _cwd| {
-            if let Some(path) = args.into_iter().nth(1).filter(|p| is_markdown(p)) {
-                // spawn off the main thread: creating a webview window from
-                // inside the message loop deadlocks on Windows (Webview2)
-                let handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    let state = handle.state::<Docs>();
-                    open_doc_external(&handle, state.inner(), &path);
-                });
-            }
+            // spawn off the main thread: creating a webview window from
+            // inside the message loop deadlocks on Windows (Webview2)
+            let handle = app.clone();
+            let path = args.into_iter().nth(1).filter(|p| is_markdown(p));
+            tauri::async_runtime::spawn(async move {
+                match path {
+                    Some(path) => {
+                        let state = handle.state::<Docs>();
+                        open_doc_external(&handle, state.inner(), &path);
+                    }
+                    None => {
+                        if let Err(err) = create_doc_window(&handle, "") {
+                            eprintln!("prosa: failed to open new window: {err}");
+                        }
+                    }
+                }
+            });
         },
     ));
 

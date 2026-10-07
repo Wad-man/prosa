@@ -10,6 +10,7 @@ import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 import type { NodeType, Node as ProseNode } from '@milkdown/kit/prose/model';
 import { headingIdGenerator } from '@milkdown/kit/preset/commonmark';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
+import { uploadConfig } from '@milkdown/kit/plugin/upload';
 import {
   createCodeBlockCommand,
   turnIntoTextCommand,
@@ -21,6 +22,7 @@ import {
 import { toggleLinkCommand } from '@milkdown/kit/component/link-tooltip';
 import { $remark, $shortcut, replaceAll } from '@milkdown/kit/utils';
 import { crepeLocaleConfigs } from './crepe-locale';
+import { displaySrc, ensureImageTarget, writeImageFile } from './image-assets';
 import { ContextPanel, type PanelClipboardActions } from './context-panel';
 import {
   applyVisualBlock,
@@ -1007,6 +1009,14 @@ export class VisualEditor {
           ...locale[Crepe.Feature.CodeMirror],
           theme: codeBlockTheme,
         },
+        // #68: the display-only src rewrite for both image components
+        // (image-block and image-inline share the ImageBlock feature). The
+        // ProseMirror model keeps the raw markdown string — this hook only
+        // feeds the DOM <img>, so the serializer writes the file untouched
+        [Crepe.Feature.ImageBlock]: {
+          ...locale[Crepe.Feature.ImageBlock],
+          proxyDomURL: displaySrc,
+        },
       },
     });
     // Typora-style aliases on top of the built-in Ctrl+Alt-… keymap of
@@ -1094,6 +1104,31 @@ export class VisualEditor {
           .replace(/[^\p{L}\p{N}\p{M}\s_-]/gu, '')
           .replace(/\s/g, '-'),
       );
+      // #68: durable image paste/drop. This update runs after the Crepe
+      // constructor's own uploadConfig wiring (configs apply in
+      // registration order), so it replaces the stock uploader, whose
+      // onUpload returned a session-scoped blob: URL that then leaked into
+      // saved files. Bytes go to assets/ next to the document; the node
+      // gets the relative link, which proxyDomURL renders (image-assets.ts).
+      // An empty array aborts cleanly — the upload plugin just drops its
+      // placeholder decoration, nothing lands in the document.
+      ctx.update(uploadConfig.key, (prev) => ({
+        ...prev,
+        uploader: async (files, schema) => {
+          const images = [...files].filter((f) => f.type.startsWith('image/'));
+          if (images.length === 0 || !(await ensureImageTarget())) return [];
+          const type = schema.nodes['image-block'] ?? schema.nodes['image'];
+          if (!type) return [];
+          const nodes: ProseNode[] = [];
+          for (const file of images) {
+            const src = await writeImageFile(file);
+            if (!src) continue; // declined/failed — skip, never a dead link
+            const node = type.createAndFill({ src });
+            if (node) nodes.push(node);
+          }
+          return nodes;
+        },
+      }));
     });
     this.crepe.editor.use(tableAlignmentFix);
     this.crepe.editor.use(lineBreaksFix);

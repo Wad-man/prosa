@@ -68,6 +68,10 @@ const strings = {
     taskToggle: 'Флажок задачи [x]',
     clearFormat: 'Снять форматирование',
     clipboardError: 'Не удалось обратиться к буферу обмена',
+    imgSaveTitle: 'Вставка картинки',
+    imgSaveQuestion:
+      'Чтобы вставить картинку, сначала сохраните документ — файл картинки будет лежать рядом с ним в подпапке assets/. Сохранить сейчас?',
+    imgSaveError: 'Не удалось сохранить файл картинки',
     themeLight: 'Светлая',
     themeDark: 'Тёмная',
     modeCycle: 'Сменить режим',
@@ -142,6 +146,10 @@ const strings = {
     taskToggle: 'Task checkbox [x]',
     clearFormat: 'Clear formatting',
     clipboardError: 'Clipboard access failed',
+    imgSaveTitle: 'Pasting an image',
+    imgSaveQuestion:
+      'Save the document first — the image file will live next to it in an assets/ subfolder. Save now?',
+    imgSaveError: 'Failed to save the image file',
     themeLight: 'Light',
     themeDark: 'Dark',
     modeCycle: 'Switch mode',

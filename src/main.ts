@@ -18,6 +18,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { VisualEditor } from './editor/visual';
 import { SourceEditor } from './editor/source';
+import { setImageContext } from './editor/image-assets';
 import { editorStrings } from './editor/crepe-locale';
 import {
   sourceSetBlock,
@@ -166,6 +167,12 @@ function currentFullText(): string {
 function fileName(): string {
   if (filePath !== null) return filePath.split(/[\\/]/).pop() ?? t('untitled');
   return fileSuggestion ?? t('untitled');
+}
+
+/** Directory part of a filesystem path; null when there is no separator. */
+function dirOf(p: string): string | null {
+  const i = Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'));
+  return i > 0 ? p.slice(0, i) : null;
 }
 
 function pluralRu(n: number, one: string, few: string, many: string): string {
@@ -1087,6 +1094,18 @@ function sourceHotkey(code: string, shift: boolean, alt: boolean): boolean {
 }
 
 async function init(): Promise<void> {
+  // #68: the visual editor's image layer (display resolution + paste/drop
+  // persistence) resolves against this window's document folder
+  setImageContext({
+    getDocDir: () => (filePath === null ? null : dirOf(filePath)),
+    ensureSaved: async () => {
+      const save = await ask(t('imgSaveQuestion'), { title: t('imgSaveTitle'), kind: 'info' });
+      if (!save) return false;
+      await saveFile(true);
+      return filePath !== null;
+    },
+  });
+
   window.addEventListener(
     'pointerdown',
     () => {
@@ -1300,6 +1319,19 @@ async function init(): Promise<void> {
     const file = dt?.files[0];
     if (!dt || !file) return;
     e.preventDefault();
+    if (!MD_PATH_RE.test(file.name)) {
+      // #68: an image dropped into the visual editor is inserted by the
+      // upload plugin (saved to assets/ next to the document); the
+      // not-a-markdown nag stays for drops elsewhere (chrome, source mode)
+      const intoVisualEditor =
+        mode === 'visual' &&
+        e.target instanceof Element &&
+        e.target.closest('#visual-editor') !== null;
+      if (!intoVisualEditor) {
+        void message(t('notMarkdown'), { title: 'ProsaMD', kind: 'info' });
+      }
+      return;
+    }
     void openDroppedFile(dt, file);
   });
 
