@@ -47,8 +47,8 @@ import './styles.css';
 applyWebView2DragFix();
 
 // #66: three modes, Obsidian-style — reading (the visual editor made
-// non-editable), live preview (the visual editor) and source code. Reading
-// and live preview share one VisualEditor instance: switching between them
+// non-editable), visual editing and source code. Reading and the visual
+// editor share one VisualEditor instance: switching between them
 // only flips `editable`, the document is never re-parsed.
 type Mode = 'reading' | 'visual' | 'source';
 const MODE_CYCLE: Mode[] = ['reading', 'visual', 'source'];
@@ -670,7 +670,7 @@ function buildMenuSections(): (() => MenuSection)[] {
       label: t('mView'),
       altKey: 'KeyV',
       entries: [
-        // #66: Ctrl+/ cycles reading → live preview → source; the three
+        // #66: Ctrl+/ cycles reading → visual → source; the three
         // entries below pick a mode directly
         { label: t('modeCycle'), hotkey: 'Ctrl+/', action: () => toggleMode() },
         ...MODE_CYCLE.map((m) => ({
@@ -795,7 +795,7 @@ async function checkForUpdates(manual: boolean): Promise<void> {
 }
 
 function setMode(next: Mode): void {
-  // reading ↔ live preview stays in the same pane and instance: no content
+  // reading ↔ visual stays in the same pane and instance: no content
   // hand-over, no re-parse — the document (and its dirty state) is untouched.
   // Same-mode calls still normalize the UI classes below.
   if (paneOf(next) !== paneOf(mode)) {

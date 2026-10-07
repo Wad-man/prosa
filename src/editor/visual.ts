@@ -800,7 +800,7 @@ export class VisualEditor {
   // paints after it (`dl::after`, styles.css): it scrolls to the first
   // reference of that label. The dt is not editable content — it is the
   // node's toDOM mirror of the label outside the contentDOM (dd), so a plain
-  // click there steals nothing in the live preview either. The arrow is a
+  // click there steals nothing in the visual editor either. The arrow is a
   // pseudo-element (the nodeView rebuilds the dl on every transaction, so no
   // DOM can be injected there): its clicks land on the dl itself, told apart
   // from gap clicks by lying past the dd's right edge. A missing definition
