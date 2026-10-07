@@ -301,10 +301,14 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
   // source view keeps it as part of the file text
   const { frontMatter: fm, body } = splitFrontMatter(text);
   frontMatter = fm;
-  if (paneOf(mode) === 'visual') visual.setMarkdown(body);
-  else source?.setContent(text);
+  // #68: image nodeViews resolve their display src (displaySrc) against the
+  // document folder SYNCHRONOUSLY inside setMarkdown below — the path must
+  // already be set, or every image keeps a raw relative src forever (the
+  // nodeView only rebinds when its node changes)
   filePath = path;
   fileSuggestion = path === null ? (suggestedName ?? null) : null;
+  if (paneOf(mode) === 'visual') visual.setMarkdown(body);
+  else source?.setContent(text);
   dirty = false;
   editedSinceSave = false;
   window.clearTimeout(dirtyCheckTimer);
