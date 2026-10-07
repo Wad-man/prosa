@@ -113,6 +113,12 @@ body {
 #app {
   display: grid;
   grid-template-rows: auto 1fr auto;
+  /* The implicit column track is auto-sized and grows to the widest item's
+     max-content — a long nowrap string (#st-path full file path, #67) blew
+     the track past the window and dragged the editor pane with it. A
+     definite minmax(0,1fr) track pins every row to the window width and
+     lets #st-path's own ellipsis do the truncating. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 /* ---------- shared: selection, focus, scrollbars ---------- */
