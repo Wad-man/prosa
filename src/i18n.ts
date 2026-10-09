@@ -29,7 +29,7 @@ const strings = {
     formatPanel: 'форматирование',
     modeToggle: 'Режим',
     versionTip: 'О программе',
-    aboutDesc: 'Минималистичный открытый редактор и читалка Markdown — «блокнот» для .md-файлов',
+    aboutDesc: 'Минималистичный открытый редактор и просмотрщик Markdown — «блокнот» для .md-файлов',
     versionWord: 'Версия',
     licenseLink: 'Лицензия MIT',
     checkUpdates: 'Проверить обновления',
