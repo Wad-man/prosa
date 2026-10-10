@@ -1,0 +1,45 @@
+name: Social posts
+
+# Автопостинг релиза в Telegram-канал @prosamd и группу VK.
+# Правила постов, конвенции ассетов и токены: prosa-docs/55-marketing/SOCIAL.md
+# (в приватном prosa-work). RC (prerelease) автоматически не анонсируются —
+# только стабильные релизы; вручную можно запустить с любым тегом.
+
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег релиза (например v0.1.10)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run: собрать посты, ничего не отправлять'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  post:
+    if: github.repository == 'Wad-man/prosa'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Собрать и отправить посты
+        run: >
+          node scripts/social-posts.mjs
+          --tag "${{ inputs.tag || github.event.release.tag_name }}"
+          ${{ (inputs.dry_run && '--dry') || '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOCIAL_TG_BOT_TOKEN: ${{ secrets.SOCIAL_TG_BOT_TOKEN }}
+          SOCIAL_TG_CHAT: ${{ vars.SOCIAL_TG_CHAT || '@prosamd' }}
+          SOCIAL_VK_TOKEN: ${{ secrets.SOCIAL_VK_TOKEN }}
+          SOCIAL_VK_GROUP: ${{ vars.SOCIAL_VK_GROUP || 'prosamd' }}
