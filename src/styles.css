@@ -768,6 +768,34 @@ body {
    Visual mode (Milkdown/Crepe)
    ============================================================ */
 
+/* The front-matter service record (#49): the block carved out of the
+   document body (frontmatter.ts) shown as quiet metadata above the
+   document — raw bytes, fences included, read-only (editing lives in the
+   source mode). Column metrics mirror the document column; the pane-wide
+   `#visual-editor > div` rule below would add the editor's 48px/35vh
+   padding — the id override wins on specificity. */
+#visual-editor > #fm-view {
+  width: min(80%, 1600px);
+  min-width: min(640px, calc(100% - 48px));
+  margin: 48px auto 0;
+  padding: 10px 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-2);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  user-select: text;
+}
+
+/* the record owns the top gap — the editor column starts right below it */
+#visual-editor:has(> #fm-view) > div:not(#fm-view) {
+  padding-top: 24px;
+}
+
 /* Re-skin Crepe's own components (code-block chrome, tooltips,
    slash menu, tables, list markers) through its token layer. */
 #visual-editor .milkdown {

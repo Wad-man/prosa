@@ -164,6 +164,30 @@ function currentFullText(): string {
   return (frontMatter ?? '') + visual.getMarkdown();
 }
 
+/**
+ * The carved-out front-matter block rendered above the document in the
+ * visual pane (visible in both the visual editor and reading, #49/#66): a
+ * quiet service record showing the block's raw bytes. It deliberately lives
+ * OUTSIDE ProseMirror — the model must never round-trip the block (#33) —
+ * so it is a plain DOM element the pane owns; editing stays in the source
+ * mode, where the block is part of the raw text.
+ */
+function refreshFrontMatterView(): void {
+  const existing = document.getElementById('fm-view');
+  if (frontMatter === null) {
+    existing?.remove();
+    return;
+  }
+  const view = existing ?? document.createElement('div');
+  if (!existing) {
+    view.id = 'fm-view';
+    els.visualPane.insertBefore(view, els.visualPane.firstChild);
+  }
+  // the raw block, fences included; the box adds its own bottom spacing, so
+  // the block's final newline is dropped from the display
+  view.textContent = frontMatter.replace(/\r?\n$/, '');
+}
+
 function fileName(): string {
   if (filePath !== null) return filePath.split(/[\\/]/).pop() ?? t('untitled');
   return fileSuggestion ?? t('untitled');
@@ -309,6 +333,7 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
   fileSuggestion = path === null ? (suggestedName ?? null) : null;
   if (paneOf(mode) === 'visual') visual.setMarkdown(body);
   else source?.setContent(text);
+  refreshFrontMatterView();
   dirty = false;
   editedSinceSave = false;
   window.clearTimeout(dirtyCheckTimer);
@@ -826,6 +851,7 @@ function setMode(next: Mode): void {
       const { frontMatter: fm, body } = splitFrontMatter(md);
       frontMatter = fm;
       visual.setMarkdown(body);
+      refreshFrontMatterView();
     }
     window.setTimeout(() => {
       suppressChange = false;
@@ -1181,6 +1207,13 @@ async function init(): Promise<void> {
       cut: () => void editCut(),
       paste: () => void editPaste(),
     },
+    // #49: a whole-document paste into the empty visual editor hands its
+    // front-matter block to the file-level bookkeeping (and the service
+    // record above the document)
+    (fm) => {
+      frontMatter = fm;
+      refreshFrontMatterView();
+    },
   );
   setMode('visual');
 
@@ -1200,6 +1233,9 @@ async function init(): Promise<void> {
     frontMatter = fm;
     suppressChange = true;
     void visual.rebuild(body).then(() => {
+      // rebuild wipes the pane (visual.rebuild replaceChildren) — bring the
+      // front-matter record back above the fresh editor
+      refreshFrontMatterView();
       if (mode === 'visual') visual.focus();
       window.setTimeout(() => {
         suppressChange = false;

@@ -24,6 +24,7 @@ import { $remark, $shortcut, replaceAll } from '@milkdown/kit/utils';
 import { crepeLocaleConfigs } from './crepe-locale';
 import { displaySrc, ensureImageTarget, writeImageFile } from './image-assets';
 import { ContextPanel, type PanelClipboardActions } from './context-panel';
+import { splitFrontMatter } from '../frontmatter';
 import {
   applyVisualBlock,
   toggleVisualMark,
@@ -923,6 +924,17 @@ export class VisualEditor {
     if (types.includes('text/html')) return;
     const text = data.getData('text/plain');
     if (!text) return;
+    // #49: a whole document pasted into the empty editor carries its
+    // front-matter — ProseMirror's own paste would chew the fences into a
+    // thematic break and the fields into a setext heading. Carve the block
+    // out like a file load does, then let only the body reach the model
+    // (this handler is a capture listener on the pane root, so stopping the
+    // event also keeps the stock paste plugin from double-inserting).
+    if (!this.readonly && this.carvePastedFrontMatter(text)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     const before = this.definitions.size;
     captureDefinitions(text, this.definitions, false);
     // a definitions-only paste changes nothing in the model (they are
@@ -930,6 +942,43 @@ export class VisualEditor {
     // would write the untouched raw bytes back, dropping them — mark edited
     if (this.definitions.size > before) this.onChange?.();
   };
+
+  // #49: the main.ts-side landing for a carved-out front-matter block (the
+  // visual editor never owns the block, see frontmatter.ts)
+  private frontMatterSink: ((fm: string) => void) | null = null;
+
+  /**
+   * #49: when `md` leads with a valid front-matter block and the document is
+   * empty (the "paste a whole document into a fresh editor" case), adopt the
+   * block as the document's front-matter and insert only the body (a second
+   * FM-looking block in the body stays body content). Returns false when
+   * nothing was carved — the caller proceeds with the stock path.
+   */
+  private carvePastedFrontMatter(md: string): boolean {
+    if (!this.frontMatterSink) return false;
+    const { frontMatter: fm, body } = splitFrontMatter(md);
+    if (fm === null) return false;
+    let empty = false;
+    this.crepe?.editor.action((ctx) => {
+      // "empty" = nothing but empty paragraphs — an image-only document is
+      // content, pasting over it must not adopt a front-matter block
+      empty = true;
+      ctx.get(editorViewCtx).state.doc.forEach((node) => {
+        if (node.type.name !== 'paragraph' || node.childCount > 0) empty = false;
+      });
+    });
+    if (!empty) return false;
+    this.frontMatterSink(fm);
+    // the body goes down the plain insert path (no re-carve: the paste's
+    // first block already became the document's front-matter)
+    captureDefinitions(body, this.definitions, false);
+    if (this.crepe) visualInsertMarkdown(this.crepe, body);
+    // an FM-only paste leaves the model untouched, so no markdownUpdated
+    // fires — but the document (as a file) just changed; same reasoning as
+    // the definitions capture above
+    this.onChange?.();
+    return true;
+  }
 
   constructor() {
     // Block moving left the core (#15): Crepe re-creates the handle widget
@@ -960,9 +1009,14 @@ export class VisualEditor {
     defaultValue: string,
     onChange: () => void,
     panelClipboard?: PanelClipboardActions,
+    frontMatterSink?: (fm: string) => void,
   ): Promise<void> {
     this.root = root;
     this.onChange = onChange;
+    // #49: pastes that lead with a front-matter block hand the block over to
+    // the app's file-level bookkeeping (main.ts re-attaches it on save);
+    // carried across rebuilds like panelClipboard below
+    if (frontMatterSink) this.frontMatterSink = frontMatterSink;
     // re-registering on rebuild (language switch) is a no-op for the extra
     // listener: remove first, then add
     document.removeEventListener('keydown', this.escapeLinkTooltip, true);
@@ -1243,6 +1297,10 @@ export class VisualEditor {
   }
 
   insertMarkdown(md: string): void {
+    // #49: the Edit-menu/right-panel paste goes through the parser directly
+    // (not the clipboard event), so the front-matter carve runs here too —
+    // same semantics as a direct Ctrl+V into the empty editor
+    if (!this.readonly && this.carvePastedFrontMatter(md)) return;
     // menu/right-panel paste goes through the parser directly (not the
     // clipboard event), so definitions in it are captured here too (#55)
     captureDefinitions(md, this.definitions, false);
