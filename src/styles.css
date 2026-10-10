@@ -1,6 +1,14 @@
 /* ============================================================
    Prosa — quiet editorial theme (2026)
    Token-based color system, tonal surfaces, typography-first.
+
+   Palette C «red-blue pencil» (owner decision 2026-10-10, kit/GUIDELINES.md):
+   the UI has exactly one accent — ultramarine; brand cinnabar lives only in
+   the mark. Neutrals share one hue (OKLCH h276, chroma <= 0.01), paper is
+   pure white. Every text token passes WCAG AA (>= 4.5:1) on --bg and
+   --bg-sunk/--code-bg in both themes; syntax and status colors stay
+   distinguishable under protan/deutan/tritan simulation. No gradients here:
+   the cinnabar -> ultramarine gradient is a website-only gesture.
    ============================================================ */
 
 :root {
@@ -8,34 +16,39 @@
 
   /* surfaces */
   --bg: #ffffff;
-  --bg-sunk: #f7f8fa;
+  --bg-sunk: #f6f8fe;
   --bg-raised: #ffffff;
 
   /* text */
-  --fg: #191c22;
-  --fg-2: #4b5261;
-  --fg-3: #66707f;
+  --fg: #181a23;
+  --fg-2: #4d4f58;
+  --fg-3: #6f7179;
 
   /* lines */
-  --border: #e7e9ee;
-  --border-strong: #d5d9e1;
+  --border: #e4e6ed;
+  --border-strong: #d2d4dc;
 
-  /* accent */
-  --accent: #5b4fc4;
-  --accent-hover: #4c41b3;
+  /* accent — ultramarine, 7.5:1 on --bg-sunk */
+  --accent: #4600f9;
+  --accent-hover: #3900cf;
   --accent-fg: #ffffff;
 
   /* code */
-  --code-bg: #f4f5f8;
-  --code-fg: #5a4bcc;
+  --code-bg: #f6f8fe;
+  --code-fg: #3900cf;
 
   /* syntax (embedded code, source mode) */
   --syn-key: var(--accent);
-  --syn-str: #14795e;
-  --syn-num: #a45a00;
+  --syn-str: #2f7f47;
+  --syn-num: #c73194;
   --syn-com: var(--fg-3);
 
-  --sel: color-mix(in srgb, var(--accent) 22%, transparent);
+  /* status — always paired with an icon and text, never color alone */
+  --ok: #2f7f47;
+  --warn: #96681d;
+  --err: #b3261e;
+
+  --sel: color-mix(in srgb, var(--accent) 18%, transparent);
 
   /* type */
   --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -60,29 +73,33 @@
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --bg: #14171d;
-  --bg-sunk: #101318;
-  --bg-raised: #1d222c;
+  --bg: #111218;
+  --bg-sunk: #0c0d13;
+  --bg-raised: #191b24;
 
-  --fg: #e8ebf1;
-  --fg-2: #b2bac7;
-  --fg-3: #8a93a4;
+  --fg: #eaebee;
+  --fg-2: #bcbdc3;
+  --fg-3: #96989e;
 
-  --border: #262c37;
-  --border-strong: #353e4d;
+  --border: #272830;
+  --border-strong: #363740;
 
-  --accent: #9d90f5;
-  --accent-hover: #ada2f8;
-  --accent-fg: #161821;
+  --accent: #7885f7;
+  --accent-hover: #8d9bf8;
+  --accent-fg: #0c0d13;
 
   /* code */
-  --code-bg: #1c212b;
-  --code-fg: #b6adf3;
+  --code-bg: #191b24;
+  --code-fg: #8d9bf8;
 
   --syn-key: var(--accent);
-  --syn-str: #5fc7a6;
-  --syn-num: #e0a35c;
+  --syn-str: #3ea25b;
+  --syn-num: #f24cb8;
   --syn-com: var(--fg-3);
+
+  --ok: #3b9b57;
+  --warn: #b57f25;
+  --err: #ff6b5e;
 
   --sel: color-mix(in srgb, var(--accent) 30%, transparent);
 
@@ -270,8 +287,8 @@ body {
     top: calc(100% + 8px);
     left: 50%;
     transform: translateX(-50%) translateY(-2px);
-    background: #22262f;
-    color: #f2f4f9;
+    background: #181a23; /* palette C ink; tooltip stays dark in both themes */
+    color: #eaebee;
     font-size: 12px;
     font-weight: 500;
     line-height: 1;
@@ -813,7 +830,7 @@ body {
   --crepe-color-secondary: transparent;
   --crepe-color-on-secondary: var(--fg);
   --crepe-color-inline-code: var(--code-fg);
-  --crepe-color-error: #d13438;
+  --crepe-color-error: var(--err);
   --crepe-color-hover: color-mix(in srgb, var(--fg) 9%, transparent);
   --crepe-color-selected: color-mix(in srgb, var(--accent) 24%, transparent);
   --crepe-color-inline-area: var(--border-strong);
