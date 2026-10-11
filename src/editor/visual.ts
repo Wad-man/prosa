@@ -1225,15 +1225,18 @@ export class VisualEditor {
   // visual editor never owns the block, see frontmatter.ts). R1: the sink
   // returns false to REFUSE the block (a front-matter already exists on the
   // document) — the caller then pastes through the stock path instead of
-  // silently replacing unundoable file-level state.
-  private frontMatterSink: ((fm: string) => boolean) | null = null;
+  // silently replacing unundoable file-level state. #83: a blank-lined
+  // block arrives with fm=null and the prefix in the second argument.
+  private frontMatterSink: ((fm: string | null, prefix: string | null) => boolean) | null = null;
 
   /**
    * #49: when `md` leads with a valid front-matter block and the document is
    * empty (the "paste a whole document into a fresh editor" case), adopt the
    * block as the document's front-matter and insert only the body (a second
    * FM-looking block in the body stays body content). Returns false when
-   * nothing was carved — the caller proceeds with the stock path.
+   * nothing was carved — the caller proceeds with the stock path. #83: a
+   * closed block with blank lines inside is adopted as the unparsed prefix
+   * the same way (its body is still just the body).
    */
   private carvePastedFrontMatter(md: string): boolean {
     if (!this.frontMatterSink) return false;
@@ -1249,9 +1252,9 @@ export class VisualEditor {
       });
     });
     if (!empty) return false;
-    const { frontMatter: fm, body } = splitFrontMatter(md);
-    if (fm === null) return false;
-    if (!this.frontMatterSink(fm)) return false;
+    const { frontMatter: fm, unparsedPrefix: prefix, body } = splitFrontMatter(md);
+    if (fm === null && prefix === null) return false;
+    if (!this.frontMatterSink(fm, prefix)) return false;
     // the body goes down the plain insert path (no re-carve: the paste's
     // first block already became the document's front-matter)
     captureDefinitions(body, this.definitions, false);
@@ -1292,7 +1295,7 @@ export class VisualEditor {
     defaultValue: string,
     onChange: () => void,
     panelClipboard?: PanelClipboardActions,
-    frontMatterSink?: (fm: string) => boolean,
+    frontMatterSink?: (fm: string | null, prefix: string | null) => boolean,
   ): Promise<void> {
     this.root = root;
     this.onChange = onChange;

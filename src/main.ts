@@ -151,17 +151,23 @@ let statsTimer: number | undefined;
 //   passthrough honest across mode switches (a switched-but-unedited doc
 //   still saves its original bytes).
 let frontMatter: string | null = null;
+// #83(а): a closed `---` block at byte 0 with blank lines inside — held
+// byte-for-byte and re-attached on save, but never shown to the editors
+// (not even the #fm-view record): remark would rewrite its YAML fields
+// into headings, silently corrupting Jekyll/Hugo files on save
+let unparsedPrefix: string | null = null;
 let savedRaw = '';
 let baseline = '';
 let editedSinceSave = false;
 let dirtyCheckTimer: number | undefined;
 
-/** The document as a file: front-matter + the active editor's content. In
- * the source mode that is the raw text itself; in the visual mode the body
- * is Crepe's serialization with the front-matter block re-attached. */
+/** The document as a file: the unparsed prefix (if any) + front-matter +
+ * the active editor's content. In the source mode the editor part is the
+ * raw body text itself; in the visual mode it is Crepe's serialization of
+ * the body with the front-matter block re-attached. */
 function currentFullText(): string {
-  if (mode === 'source') return source?.getContent() ?? '';
-  return (frontMatter ?? '') + visual.getMarkdown();
+  if (mode === 'source') return (unparsedPrefix ?? '') + (source?.getContent() ?? '');
+  return (unparsedPrefix ?? '') + (frontMatter ?? '') + visual.getMarkdown();
 }
 
 /**
@@ -335,10 +341,13 @@ async function confirmLoseChanges(): Promise<boolean> {
 function applyLoaded(text: string, path: string | null, suggestedName?: string): void {
   suppressChange = true;
   savedRaw = text;
-  // the visual editor must not see the front-matter block (#33); the raw
-  // source view keeps it as part of the file text
-  const { frontMatter: fm, body } = splitFrontMatter(text);
+  // the visual editor must not see the front-matter block (#33) nor the
+  // #83 unparsed prefix; the raw source view keeps the front-matter as
+  // part of the file text (the prefix stays hidden there too — it is
+  // untouchable file-level state, byte-for-byte on save)
+  const { frontMatter: fm, unparsedPrefix: up, body } = splitFrontMatter(text);
   frontMatter = fm;
+  unparsedPrefix = up;
   // #68: image nodeViews resolve their display src (displaySrc) against the
   // document folder SYNCHRONOUSLY inside setMarkdown below — the path must
   // already be set, or every image keeps a raw relative src forever (the
@@ -346,7 +355,7 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
   filePath = path;
   fileSuggestion = path === null ? (suggestedName ?? null) : null;
   if (paneOf(mode) === 'visual') visual.setMarkdown(body);
-  else source?.setContent(text);
+  else source?.setContent((fm ?? '') + body);
   refreshFrontMatterView();
   dirty = false;
   editedSinceSave = false;
@@ -855,18 +864,24 @@ function setMode(next: Mode): void {
     const md = currentFullText();
     suppressChange = true;
     if (next === 'source') {
-      // the raw view shows the whole file — front-matter included
+      // the raw view shows the whole file — front-matter included, but NOT
+      // the #83 unparsed prefix (hidden file-level state; currentFullText
+      // re-attaches it on top of whatever the source editor holds)
+      const raw = (unparsedPrefix === null ? md : md.slice(unparsedPrefix.length));
       if (source === null)
-        source = new SourceEditor(els.sourcePane, md, () => {
+        source = new SourceEditor(els.sourcePane, raw, () => {
           markDirty();
           scheduleToc();
         });
-      else source.setContent(md);
+      else source.setContent(raw);
     } else {
-      // leaving the raw view: re-split, the front-matter may have been
-      // edited (or removed) as plain text
-      const { frontMatter: fm, body } = splitFrontMatter(md);
+      // leaving the raw view: re-split — the front-matter may have been
+      // edited (or removed, or gained a blank line) as plain text. The
+      // prefix is prepended by currentFullText, so a still-blank-lined
+      // block re-carves as the prefix and survives byte-for-byte
+      const { frontMatter: fm, unparsedPrefix: up, body } = splitFrontMatter(md);
       frontMatter = fm;
+      unparsedPrefix = up;
       visual.setMarkdown(body);
       refreshFrontMatterView();
     }
@@ -1229,10 +1244,12 @@ async function init(): Promise<void> {
     // record above the document). R1: the sink REFUSES when a block
     // already exists — a paste must never silently replace it (the block
     // lives outside ProseMirror's undo history); the editor then runs the
-    // stock paste path instead.
-    (fm) => {
-      if (frontMatter !== null) return false;
+    // stock paste path instead. #83: a blank-lined block adopts the
+    // unparsed-prefix slot instead — same refusal rule.
+    (fm, prefix) => {
+      if (frontMatter !== null || unparsedPrefix !== null) return false;
       frontMatter = fm;
+      unparsedPrefix = prefix;
       refreshFrontMatterView();
       return true;
     },
@@ -1250,9 +1267,11 @@ async function init(): Promise<void> {
     // visual editor so its menus/tooltips follow the new language (undo
     // history resets; a rare action, accepted). Works in source mode too:
     // the hidden editor rebuilds with the current content (front-matter
-    // carved back out — Crepe must not see it, #33).
-    const { frontMatter: fm, body } = splitFrontMatter(currentFullText());
+    // carved back out — Crepe must not see it, #33; the #83 prefix is
+    // carved out by the same split)
+    const { frontMatter: fm, unparsedPrefix: up, body } = splitFrontMatter(currentFullText());
     frontMatter = fm;
+    unparsedPrefix = up;
     suppressChange = true;
     void visual.rebuild(body).then(() => {
       // rebuild wipes the pane (visual.rebuild replaceChildren) — bring the
