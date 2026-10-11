@@ -196,8 +196,10 @@ function refreshFrontMatterView(): void {
     els.visualPane.insertBefore(view, els.visualPane.firstChild);
   }
   // the raw block, fences included; the box adds its own bottom spacing, so
-  // the block's final newline is dropped from the display
-  view.textContent = frontMatter.replace(/\r?\n$/, '');
+  // the display drops the block's final newline AND the blank gap lines the
+  // carve absorbed after the closing fence (display-only — saving keeps
+  // every byte)
+  view.textContent = frontMatter.replace(/(?:[ \t]*\r?\n)+$/, '');
 }
 
 function fileName(): string {
@@ -1224,10 +1226,15 @@ async function init(): Promise<void> {
     },
     // #49: a whole-document paste into the empty visual editor hands its
     // front-matter block to the file-level bookkeeping (and the service
-    // record above the document)
+    // record above the document). R1: the sink REFUSES when a block
+    // already exists — a paste must never silently replace it (the block
+    // lives outside ProseMirror's undo history); the editor then runs the
+    // stock paste path instead.
     (fm) => {
+      if (frontMatter !== null) return false;
       frontMatter = fm;
       refreshFrontMatterView();
+      return true;
     },
   );
   setMode('visual');

@@ -135,6 +135,10 @@ export class ContextPanel {
     const target = e.target instanceof Element ? e.target : null;
     if (!target) return;
     if (!this.root?.contains(target) && !target.closest('.milkdown-block-handle')) return;
+    // #49/R6: the front-matter service record is chrome, not editable
+    // content — the panel's «Копировать» reads the ProseMirror selection
+    // and would copy the wrong thing over it; the native menu stays
+    if (target.closest('#fm-view')) return;
     // #66: a formatting panel has nothing to do in the read-only (reading)
     // mode — the native menu (Copy) stays, as everywhere outside the editor
     if (this.crepe?.readonly) return;

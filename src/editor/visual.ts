@@ -921,20 +921,22 @@ export class VisualEditor {
     const data = e.clipboardData;
     if (!data) return;
     const types = Array.from(data.types ?? []);
-    if (types.includes('text/html')) return;
     const text = data.getData('text/plain');
-    if (!text) return;
-    // #49: a whole document pasted into the empty editor carries its
+    // #49 (R2): a whole document pasted into the empty editor carries its
     // front-matter — ProseMirror's own paste would chew the fences into a
-    // thematic break and the fields into a setext heading. Carve the block
-    // out like a file load does, then let only the body reach the model
-    // (this handler is a capture listener on the pane root, so stopping the
-    // event also keeps the stock paste plugin from double-inserting).
-    if (!this.readonly && this.carvePastedFrontMatter(text)) {
+    // thematic break and the fields into a setext heading, on the PLAIN
+    // path and just as much on the rich one (VS Code/GitHub/browsers put a
+    // text/html flavor next to the markdown). The carve therefore runs
+    // before the html branch; its own emptiness check (R4) makes it a
+    // cheap no-op for ordinary rich pastes into a non-empty document. The
+    // stock html path (and its skipped definitions scan, #55) is untouched
+    // for everything else.
+    if (text && !this.readonly && this.carvePastedFrontMatter(text)) {
       e.preventDefault();
       e.stopPropagation();
       return;
     }
+    if (types.includes('text/html')) return;
     const before = this.definitions.size;
     captureDefinitions(text, this.definitions, false);
     // a definitions-only paste changes nothing in the model (they are
@@ -944,8 +946,11 @@ export class VisualEditor {
   };
 
   // #49: the main.ts-side landing for a carved-out front-matter block (the
-  // visual editor never owns the block, see frontmatter.ts)
-  private frontMatterSink: ((fm: string) => void) | null = null;
+  // visual editor never owns the block, see frontmatter.ts). R1: the sink
+  // returns false to REFUSE the block (a front-matter already exists on the
+  // document) — the caller then pastes through the stock path instead of
+  // silently replacing unundoable file-level state.
+  private frontMatterSink: ((fm: string) => boolean) | null = null;
 
   /**
    * #49: when `md` leads with a valid front-matter block and the document is
@@ -956,8 +961,8 @@ export class VisualEditor {
    */
   private carvePastedFrontMatter(md: string): boolean {
     if (!this.frontMatterSink) return false;
-    const { frontMatter: fm, body } = splitFrontMatter(md);
-    if (fm === null) return false;
+    // R4: the emptiness probe is the cheap gate (and the rich-paste path of
+    // R2 calls this on every paste) — run it before the split
     let empty = false;
     this.crepe?.editor.action((ctx) => {
       // "empty" = nothing but empty paragraphs — an image-only document is
@@ -968,11 +973,13 @@ export class VisualEditor {
       });
     });
     if (!empty) return false;
-    this.frontMatterSink(fm);
+    const { frontMatter: fm, body } = splitFrontMatter(md);
+    if (fm === null) return false;
+    if (!this.frontMatterSink(fm)) return false;
     // the body goes down the plain insert path (no re-carve: the paste's
     // first block already became the document's front-matter)
     captureDefinitions(body, this.definitions, false);
-    if (this.crepe) visualInsertMarkdown(this.crepe, body);
+    if (body && this.crepe) visualInsertMarkdown(this.crepe, body);
     // an FM-only paste leaves the model untouched, so no markdownUpdated
     // fires — but the document (as a file) just changed; same reasoning as
     // the definitions capture above
@@ -1009,7 +1016,7 @@ export class VisualEditor {
     defaultValue: string,
     onChange: () => void,
     panelClipboard?: PanelClipboardActions,
-    frontMatterSink?: (fm: string) => void,
+    frontMatterSink?: (fm: string) => boolean,
   ): Promise<void> {
     this.root = root;
     this.onChange = onChange;
