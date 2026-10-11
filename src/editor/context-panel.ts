@@ -176,7 +176,7 @@ export class ContextPanel {
         btn(s.italic, 'Ctrl+I', 'I', () => this.run((ctx) => ctx.get(commandsCtx).call(toggleEmphasisCommand.key))),
         btn(
           s.strikethrough,
-          '',
+          'Ctrl+Shift+X',
           'S',
           () => this.run((ctx) => ctx.get(commandsCtx).call(toggleStrikethroughCommand.key)),
         ),
@@ -186,7 +186,7 @@ export class ContextPanel {
           ICONS.code,
           () => this.run((ctx) => ctx.get(commandsCtx).call(toggleInlineCodeCommand.key)),
         ),
-        btn(s.link, '', ICONS.link, () => this.run((ctx) => ctx.get(commandsCtx).call(toggleLinkCommand.key))),
+        btn(s.link, 'Ctrl+K', ICONS.link, () => this.run((ctx) => ctx.get(commandsCtx).call(toggleLinkCommand.key))),
       );
       panel.append(inline, sep());
     }

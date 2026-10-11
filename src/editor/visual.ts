@@ -3,7 +3,7 @@ import '@milkdown/crepe/theme/common/style.css';
 import '@milkdown/crepe/theme/frame.css';
 import { EditorView, keymap } from '@codemirror/view';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { Prec, type Extension } from '@codemirror/state';
+import { EditorState, Prec, type Extension } from '@codemirror/state';
 import { tags as t } from '@lezer/highlight';
 import { commandsCtx, remarkStringifyOptionsCtx, schemaCtx, SchemaReady, SerializerReady, serializerCtx, editorViewCtx } from '@milkdown/kit/core';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
@@ -41,7 +41,7 @@ import {
   type BlockId,
   type MarkId,
 } from './actions';
-import { getLang } from '../i18n';
+import { getLang, getCmPhrases } from '../i18n';
 
 /**
  * Theme for the CodeMirror editor inside code blocks (Crepe's `code-mirror`
@@ -126,6 +126,12 @@ const codeBlockTheme: Extension = [
   // same double-fire the source editor swallows (source.ts). Swallow it
   // here too; the window handler still performs the flip.
   Prec.high(keymap.of([{ key: 'Mod-/', run: () => true }])),
+  // R7 (#76): Crepe's code-mirror feature creates these CodeMirror
+  // instances without any phrases, so their search panel and Fold/Unfold
+  // hints stayed English in the RU interface — the same live-getter
+  // phrase object the source mode uses (source.ts) localizes them and
+  // keeps following the language without a rebuild
+  EditorState.phrases.of(getCmPhrases()),
 ];
 
 /**
