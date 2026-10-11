@@ -257,8 +257,10 @@ body {
   letter-spacing: 0.02em;
 }
 
-[data-theme='light'] .icon-moon,
-[data-theme='dark'] .icon-sun {
+/* #69: the toggle shows the theme a click will switch TO (site parity —
+   light carries the moon, dark the sun), not the current one */
+[data-theme='light'] .icon-sun,
+[data-theme='dark'] .icon-moon {
   display: none;
 }
 
