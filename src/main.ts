@@ -1107,6 +1107,24 @@ function applyTheme(theme: 'light' | 'dark'): void {
   localStorage.setItem(THEME_KEY, theme);
 }
 
+/** #70: an outline mouse with the right button filled (Lucide "mouse"
+ * geometry, MIT — the same stroke style as the toolbar icons). The fill is
+ * currentColor, so it follows the kbd text color in both themes. */
+function formatKbdIcon(): string {
+  const label = t('formatMouse');
+  return (
+    `<svg class="icon-mouse" viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
+    `stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" ` +
+    `aria-label="${label}">` +
+    `<rect x="5" y="2" width="14" height="20" rx="7"/>` +
+    `<path d="M5 9h14"/>` +
+    `<path d="M12 2v7"/>` +
+    `<path d="M12 12v3"/>` +
+    `<path d="M12 2a7 7 0 0 1 7 7H12Z" fill="currentColor" stroke="none"/>` +
+    `</svg>`
+  );
+}
+
 function applyStaticTexts(): void {
   document.documentElement.lang = getLang();
   document.getElementById('toolbar')?.setAttribute('aria-label', t('toolbar'));
@@ -1116,7 +1134,11 @@ function applyStaticTexts(): void {
   els.ehLine.textContent = t('emptyDrop');
   els.ehOpen.textContent = t('open').replace('…', '');
   els.ehMode.textContent = t('modeToggle');
-  els.ehFormatKbd.textContent = t('formatKbd');
+  // #70: the «ПКМ/RMB» abbreviation is a mouse glyph with the right button
+  // filled — a pictogram reads without translation; the kbd keeps the
+  // abbreviated text as visually-hidden copy for screen readers
+  els.ehFormatKbd.innerHTML = `<span class="sr-only">${t('formatKbd')}</span>${formatKbdIcon()}`;
+  els.ehFormatKbd.title = t('formatMouse');
   els.ehFormat.textContent = t('formatPanel');
 
   const tip = (el: HTMLElement, text: string): void => el.setAttribute('data-tip', text);

@@ -783,6 +783,26 @@ body {
   color: var(--fg-2);
 }
 
+/* #70: the mouse glyph sits at the kbd's text height, no line shift */
+.icon-mouse {
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+
+/* screen-reader-only text (kept for a11y where a glyph replaces words) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ============================================================
    Visual mode (Milkdown/Crepe)
    ============================================================ */
