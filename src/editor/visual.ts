@@ -1373,6 +1373,13 @@ export class VisualEditor {
       $shortcut((ctx) => {
         const call = ctx.get(commandsCtx);
         return {
+          // #85: Ctrl+Shift+1 is the app-wide TOC toggle (window handler in
+          // main.ts). With Ctrl held Windows reports e.key='1', so
+          // prosemirror-keymap's no-shift fallback would match the combo to
+          // 'Mod-1' above and wrap the caret's block into an H1 before the
+          // window listener runs. Claiming the combo here keeps the editor
+          // silent; the swallowed event still bubbles to the window handler.
+          'Shift-Mod-1': () => true,
           'Mod-0': () => call.call(turnIntoTextCommand.key),
           'Mod-1': () => call.call(wrapInHeadingCommand.key, 1),
           'Mod-2': () => call.call(wrapInHeadingCommand.key, 2),
