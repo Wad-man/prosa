@@ -6,7 +6,7 @@
 </p>
 
 **Минималистичный открытый редактор и просмотрщик Markdown — «блокнот» для `.md`-файлов.**
-A minimal open-source Markdown reader & editor — a "notepad" for `.md` files.
+A minimal open-source Markdown editor & viewer — a "notepad" for `.md` files.
 
 Сайт проекта — **[prosamd.ru](https://prosamd.ru)** · [Скачать последнюю версию](https://github.com/Wad-man/prosa/releases/latest)
 
