@@ -297,6 +297,39 @@ function scheduleDirtyCheck(): void {
       editedSinceSave = false;
       refreshChrome();
       reportDocState();
+    } else if (filePath === null && baseline !== '' && currentFullText().trim() === '') {
+      // #86: an untitled document emptied again is pristine — void the
+      // paste anchor so a save writes an empty file, not the stale
+      // pasted bytes (the passthrough would have used savedRaw)
+      savedRaw = '';
+      baseline = '';
+      dirty = false;
+      editedSinceSave = false;
+      refreshChrome();
+      reportDocState();
+    }
+  }, 350);
+}
+
+// #86: a paste into a pristine untitled document is new content, not an
+// edit of emptiness — once it settles it becomes the clean state, so an
+// undo back to the pasted text clears the unsaved dot exactly like a full
+// undo after loading a file. Only the FIRST content ever pasted into the
+// empty document anchors (baseline === '' gate); typing never passes here.
+let pasteAnchorTimer: number | undefined;
+function schedulePasteAnchor(): void {
+  window.clearTimeout(pasteAnchorTimer);
+  pasteAnchorTimer = window.setTimeout(() => {
+    if (filePath !== null || suppressChange || baseline !== '') return;
+    const current = currentFullText();
+    if (current.trim() === '') return;
+    savedRaw = current;
+    baseline = current;
+    editedSinceSave = false;
+    if (dirty) {
+      dirty = false;
+      refreshChrome();
+      reportDocState();
     }
   }, 350);
 }
@@ -561,8 +594,11 @@ async function editCopyForWord(): Promise<void> {
 async function editPaste(): Promise<void> {
   const text = await readClipboard();
   if (text === null || text === '') return;
+  // #86: evaluate the pristine-untitled gate BEFORE the insertion lands
+  const intoPristine = filePath === null && !dirty && currentFullText().trim() === '';
   if (mode === 'visual') visual.insertMarkdown(text);
   else if (mode === 'source' && source) sourceInsertText(source.view, text);
+  if (intoPristine) schedulePasteAnchor();
 }
 
 function editBlock(id: BlockId): void {
@@ -1287,6 +1323,16 @@ async function init(): Promise<void> {
     const now = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
     applyTheme(now);
   });
+  // #86: real Ctrl+V pastes in either editor — the capture-phase event
+  // fires before the editor consumes it, so the pristine-untitled gate
+  // still sees the pre-paste (empty) document
+  window.addEventListener(
+    'paste',
+    () => {
+      if (filePath === null && !dirty && currentFullText().trim() === '') schedulePasteAnchor();
+    },
+    true,
+  );
 
   window.addEventListener('keydown', (e) => {
     // Alt+F/E/P/O/V/H open the menu sections (physical key — the RU layout
