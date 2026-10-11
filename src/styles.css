@@ -28,14 +28,14 @@
   --border: #e4e6ed;
   --border-strong: #d2d4dc;
 
-  /* accent — ultramarine, 7.5:1 on --bg-sunk */
-  --accent: #4600f9;
-  --accent-hover: #3900cf;
+  /* accent — muted ultramarine (owner 2026-10-11, prosa#82): 6.3:1 on white, 6.0:1 on --bg-sunk */
+  --accent: #4c52c5;
+  --accent-hover: #3f41b2;
   --accent-fg: #ffffff;
 
   /* code */
   --code-bg: #f6f8fe;
-  --code-fg: #3900cf;
+  --code-fg: #3f41b2;
 
   /* syntax (embedded code, source mode) */
   --syn-key: var(--accent);
