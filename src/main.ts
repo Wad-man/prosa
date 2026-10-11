@@ -933,8 +933,16 @@ function setMode(next: Mode): void {
     if (next === 'source') {
       // the raw view shows the whole file — front-matter included, but NOT
       // the #83 unparsed prefix (hidden file-level state; currentFullText
-      // re-attaches it on top of whatever the source editor holds)
-      const raw = (unparsedPrefix === null ? md : md.slice(unparsedPrefix.length));
+      // re-attaches it on top of whatever the source editor holds). The
+      // slice inverts withSeparator exactly: when the prefix ends at EOF
+      // (no newline), the composed text carries one injected separator
+      // byte — skip it, or the source view gains a phantom leading blank
+      // line and saves drift from the visual mode by one byte
+      let raw = md;
+      if (unparsedPrefix !== null) {
+        raw = md.slice(unparsedPrefix.length);
+        if (!unparsedPrefix.endsWith('\n') && raw.startsWith('\n')) raw = raw.slice(1);
+      }
       if (source === null)
         source = new SourceEditor(els.sourcePane, raw, () => {
           markDirty();

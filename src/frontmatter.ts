@@ -66,9 +66,14 @@ export function splitFrontMatter(text: string): FrontMatterSplit {
   // (or a `...` line in prose) would vanish from all three modes.
   let seenKey = false;
   let yamlShape = true;
-  const keyLine = (l: string): boolean => /^\s*\S+\s*:(\s|$)/.test(l);
+  // review round 2: keys are identifier-shaped only — `[\w.-]+` before a
+  // `: ` or a line-end colon. That rejects URLs (`https://…`, the colon is
+  // followed by `/`), times (`10:30`), `**Bold:**` prose and Cyrillic
+  // prose-lines («Статус: черновик» renders, not hides); `Q:`/`Alice:`
+  // dialog lines still pass — accepted residual, see R-053.
+  const keyLine = (l: string): boolean => /^[\w.-]+[ \t]*:(\s|$)/.test(l);
   const yamlLine = (l: string): boolean =>
-    /^\s*\S+\s*:/.test(l) || /^(\s*-\s|\s*#)/.test(l) || /^\s+\S/.test(l);
+    /^[\w.-]+[ \t]*:(\s|$)/.test(l) || /^([ \t]*-[ \t]|#)/.test(l) || /^[ \t]+\S/.test(l);
   for (;;) {
     const nl = text.indexOf('\n', pos);
     const lineEnd = nl === -1 ? len : nl;
