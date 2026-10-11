@@ -6,6 +6,8 @@ import { tags as t } from '@lezer/highlight';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 
+import { getCmPhrases } from '../i18n';
+
 /**
  * Syntax colors go through the CSS variables of styles.css, so both themes
  * (and theme switching) restyle tokens without rebuilding this style.
@@ -64,6 +66,12 @@ export class SourceEditor {
             ]),
           ),
           basicSetup,
+          // #76: localize CodeMirror's own UI — the Ctrl+F search panel, the
+          // go-to-line dialog, fold tooltips and announcements. The phrases
+          // object reads the live language through getters (see getCmPhrases),
+          // so a language switch re-localizes them on the next render without
+          // recreating this editor.
+          EditorState.phrases.of(getCmPhrases()),
           syntaxHighlighting(highlightStyle),
           EditorView.lineWrapping,
           markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: true }),

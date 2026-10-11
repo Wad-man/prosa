@@ -87,7 +87,9 @@ const strings = {
     saveAs: 'Save as…',
     reading: 'Reading',
     visual: 'Visual editor',
-    source: 'Source code',
+    // "Code", not "Source code": the Help menu already links to the repo as
+    // "Source code" (mirrors RU «Код» / «Исходный код», #81)
+    source: 'Code',
     untitled: 'Untitled',
     unsaved: 'Unsaved changes',
     words: 'words',
@@ -107,7 +109,7 @@ const strings = {
     formatPanel: 'formatting',
     modeToggle: 'Mode',
     versionTip: 'About ProsaMD',
-    aboutDesc: 'A minimal open-source Markdown reader & editor — a "notepad" for .md files',
+    aboutDesc: 'A minimal open-source Markdown editor & viewer — a "notepad" for .md files',
     versionWord: 'Version',
     licenseLink: 'MIT License',
     checkUpdates: 'Check for updates',
@@ -157,7 +159,7 @@ const strings = {
     tocEmpty: 'No headings yet',
     website: 'Website',
     sourceCode: 'Source code',
-    hotkeys: 'Keyboard Shortcuts',
+    hotkeys: 'Keyboard shortcuts',
   },
 } as const;
 
@@ -182,4 +184,100 @@ export function setLang(lang: Lang): void {
 
 export function t(key: StrKey): string {
   return strings[current][key];
+}
+
+// ---------- CodeMirror UI phrases (#76) ----------
+// CodeMirror renders its own UI (the Ctrl+F search panel, the go-to-line
+// dialog on Ctrl+Alt+G, fold-gutter tooltips, screen-reader announcements)
+// through view.state.phrase(), which falls back to the phrase's English
+// source string — so that string is the key below. The English dictionary
+// repeats CodeMirror's defaults explicitly, both languages stay symmetric
+// (same pattern as crepe-locale.ts).
+const cmPhrases: Record<Lang, Record<string, string>> = {
+  ru: {
+    // @codemirror/search — the search panel and its announcements
+    Find: 'Найти',
+    Replace: 'Заменить',
+    next: 'Далее',
+    previous: 'Назад',
+    all: 'Все',
+    'match case': 'Учитывать регистр',
+    regexp: 'Регулярное выражение',
+    'by word': 'Слово целиком',
+    replace: 'Заменить',
+    'replace all': 'Заменить все',
+    close: 'Закрыть',
+    'Go to line': 'Перейти к строке',
+    go: 'Перейти',
+    'current match': 'Текущее совпадение',
+    'on line': 'в строке',
+    'replaced $ matches': 'Заменено совпадений: $',
+    'replaced match on line $': 'Заменено совпадение в строке $',
+    // @codemirror/language — folding (gutter tooltips, announcements)
+    'Fold line': 'Свернуть строку',
+    'Unfold line': 'Развернуть строку',
+    'Folded lines': 'Свёрнуты строки',
+    'Unfolded lines': 'Развёрнуты строки',
+    to: 'до',
+    'folded code': 'Свёрнутый код',
+    unfold: 'Развернуть',
+    // @codemirror/view, autocomplete, commands, lint (basicSetup surface)
+    'Control character': 'Управляющий символ',
+    Completions: 'Автодополнение',
+    'Selection deleted': 'Выделение удалено',
+    Diagnostics: 'Диагностика',
+    'No diagnostics': 'Нет замечаний',
+  },
+  en: {
+    Find: 'Find',
+    Replace: 'Replace',
+    next: 'next',
+    previous: 'previous',
+    all: 'all',
+    'match case': 'match case',
+    regexp: 'regexp',
+    'by word': 'by word',
+    replace: 'replace',
+    'replace all': 'replace all',
+    close: 'close',
+    'Go to line': 'Go to line',
+    go: 'go',
+    'current match': 'Current match',
+    'on line': 'on line',
+    'replaced $ matches': 'replaced $ matches',
+    'replaced match on line $': 'replaced match on line $',
+    'Fold line': 'Fold line',
+    'Unfold line': 'Unfold line',
+    'Folded lines': 'Folded lines',
+    'Unfolded lines': 'Unfolded lines',
+    to: 'to',
+    'folded code': 'folded code',
+    unfold: 'unfold',
+    'Control character': 'Control character',
+    Completions: 'Completions',
+    'Selection deleted': 'Selection deleted',
+    Diagnostics: 'Diagnostics',
+    'No diagnostics': 'No diagnostics',
+  },
+};
+
+/**
+ * Phrases for EditorState.phrases.of() in the source mode. The source
+ * editor is created once and outlives language switches (main.ts only
+ * rebuilds the visual editor), so instead of a snapshot the object exposes
+ * the strings through getters: EditorState.phrase() does hasOwnProperty +
+ * [key] on every call, and each search-panel open or gutter render
+ * re-reads the live language (#76).
+ */
+export function getCmPhrases(): Record<string, string> {
+  const live: Record<string, string> = {};
+  for (const key of Object.keys(cmPhrases.ru)) {
+    Object.defineProperty(live, key, {
+      enumerable: true,
+      // a key missing from the active dictionary falls back to the English
+      // source string, exactly like CodeMirror's own default
+      get: () => cmPhrases[current][key] ?? key,
+    });
+  }
+  return live;
 }

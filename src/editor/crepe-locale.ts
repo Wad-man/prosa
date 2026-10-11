@@ -87,9 +87,9 @@ const STRINGS: Record<Lang, EditorStrings> = {
     h6: 'Heading 6',
     quote: 'Quote',
     divider: 'Divider',
-    bulletList: 'Bullet List',
-    orderedList: 'Ordered List',
-    taskList: 'Task List',
+    bulletList: 'Bullet list',
+    orderedList: 'Ordered list',
+    taskList: 'Task list',
     image: 'Image',
     table: 'Table',
     math: 'Math',
@@ -147,11 +147,11 @@ export function crepeLocaleConfigs(lang: Lang): NonNullable<CrepeConfig['feature
     // label config would be dead code; the context panel uses
     // editorStrings() directly)
     [Crepe.Feature.LinkTooltip]: {
-      inputPlaceholder: ru ? 'Вставьте ссылку…' : 'Paste link...',
+      inputPlaceholder: ru ? 'Вставьте ссылку…' : 'Paste link…',
     },
     [Crepe.Feature.ImageBlock]: {
       inlineUploadPlaceholderText: ru ? 'или вставьте ссылку' : 'or paste link',
-      blockCaptionPlaceholderText: ru ? 'Подпись к изображению' : 'Write Image Caption',
+      blockCaptionPlaceholderText: ru ? 'Подпись к изображению' : 'Write image caption',
       blockUploadPlaceholderText: ru ? 'или вставьте ссылку' : 'or paste link',
     },
     [Crepe.Feature.CodeMirror]: {

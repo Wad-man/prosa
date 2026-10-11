@@ -2,7 +2,7 @@
   "name": "prosa",
   "private": true,
   "version": "0.1.10-rc.6",
-  "description": "ProsaMD — a minimal open-source Markdown reader & editor",
+  "description": "ProsaMD — a minimal open-source Markdown editor & viewer",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Wad-man/prosa.git"

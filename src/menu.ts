@@ -64,8 +64,11 @@ export class MenuBar {
       btn.setAttribute('aria-haspopup', 'menu');
       btn.setAttribute('aria-expanded', 'false');
       if (section.altKey) {
-        btn.title = `Alt+${section.altKey}`;
-        btn.setAttribute('aria-keyshortcuts', `Alt+${section.altKey}`);
+        // The tooltip and aria-keyshortcuts say the key as the user reads
+        // it — 'Alt+F', not the KeyboardEvent.code spelling 'Alt+KeyF' (#81)
+        const key = section.altKey.replace(/^Key/, '');
+        btn.title = `Alt+${key}`;
+        btn.setAttribute('aria-keyshortcuts', `Alt+${key}`);
       }
       btn.addEventListener('pointerdown', (e) => e.preventDefault());
       btn.addEventListener('click', () => {
