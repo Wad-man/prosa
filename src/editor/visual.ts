@@ -362,49 +362,121 @@ const breakFlavorTagger = $remark('prosa-break-flavor', () => () => {
  * #80 (lossless, R-035): an `_`-flavored emphasis/strong (`_b_`, `__b__`)
  * was rewritten into the asterisk form on every visual round-trip — mdast
  * carries no delimiter information, and remark-stringify's default marker
- * preference is `*`. milkdown 7.22 already carries a `marker` attr end to
- * end (mark schema attr → `openMark(type, {marker})` in the stock parse
- * runner → `withMark(..., {marker})` onto the mdast node in the stock
- * serializer runner); the two missing links are filled here:
+ * preference is `*`. milkdown 7.22 already carries the flavor end to end:
+ * the composed `remarkMarker` plugin (preset-commonmark) tags each parsed
+ * emphasis/strong node with its `marker` (the source byte at the node's
+ * opening position), the stock parse runner lifts it into the ProseMirror
+ * mark attrs, and the stock serializer runner puts it back onto the mdast
+ * node (`withMark(..., {marker})`). The missing link — the serialization
+ * side — is filled in two pieces:
  *
- *  - this remark plugin (registered before Crepe's own $remark plugins,
- *    breakFlavorTagger manner) slices the source at each emphasis/strong
- *    node's opening position — the first byte IS its delimiter — and tags
- *    the node with the `marker` the stock parse runner then carries into
- *    the ProseMirror mark attrs;
  *  - the attention handlers in the remarkStringifyOptions config below
  *    put the node's own marker first in the serializer's preference list
- *    (mdast-util-to-markdown 2.1's attention algorithm — the CommonMark
- *    pairing, rule-of-3 and escaping all stay the library's business; an
- *    impossible `_` pairing still degrades to `*` exactly like the stock
- *    preference flip does).
+ *    (mdast-util-to-markdown 2.1's attention algorithm — CommonMark
+ *    pairing, rule-of-3 and escaping stay the library's business);
+ *  - review follow-up (MAJOR): an EDIT can make a `_`-flavored emphasis
+ *    intraword (the user deletes the space in `foo _bar_ baz`) —
+ *    serialized with `_` first, the library would then encode the
+ *    adjacent letters as character references (`fo&#x6F;_&#x62;ar_`).
+ *    emphasisIntrawordFix scans the ProseMirror document right before
+ *    serialization (the one place with full sibling context) and the
+ *    patched serializer runner below then writes an already-degraded `*`
+ *    marker for those marks: CommonMark's underscore rule — the flavor
+ *    drops when the phrasing outside the boundary is a letter/digit, or
+ *    the content inside starts/ends with whitespace.
  *
  * Marks created by typing (Ctrl+I/B) keep the schema default `*`. The
  * clipboard PM→DOM→PM round-trip carries the flavor through a
- * `data-marker` attribute (emphasisMarkerDomFix below, data-twospace
+ * `data-marker` attribute (emphasisMarkerFix below, data-twospace
  * manner).
  */
-const emphasisMarkerTagger = $remark('prosa-emphasis-marker', () => () => {
-  return (tree: unknown, file: { value?: unknown }) => {
-    const source = typeof file?.value === 'string' ? file.value : '';
-    const walk = (node: unknown): void => {
-      if (node && typeof node === 'object' && 'type' in node) {
-        const n = node as {
-          type: string;
-          children?: unknown[];
-          marker?: unknown;
-          position?: { start?: { offset?: number } };
-        };
-        if ((n.type === 'emphasis' || n.type === 'strong') && n.marker === undefined && n.position) {
-          const first = n.position.start?.offset != null ? source[n.position.start.offset] : undefined;
-          if (first === '_' || first === '*') n.marker = first;
-        }
-        n.children?.forEach(walk);
-      }
-    };
-    walk(tree);
+
+/**
+ * Per-serialization report of `_`-flavored emphasis/strong marks that an
+ * edit made intraword (see emphasisIntrawordFix): set by the serializer
+ * wrapper, read by the patched toMarkdown runners while the same
+ * synchronous serialization runs. Plain WeakSet: ProseMirror marks are
+ * immutable values, so object identity is stable across the scan and the
+ * serializer walk of the same document.
+ */
+let intrawordUnderscoreMarks: WeakSet<object> | null = null;
+
+const scanIntrawordUnderscore = (doc: ProseNode): WeakSet<object> => {
+  const intraword = new WeakSet<object>();
+  const alnum = (ch: string | undefined): boolean => ch !== undefined && /[\p{L}\p{N}]/u.test(ch);
+  const ws = (ch: string | undefined): boolean => ch !== undefined && /\s/.test(ch);
+  // the serialized edge character of an inline child: bare text carries
+  // its own edge char, but text wearing emphasis/strong ends in a marker
+  // character (punctuation — safe for `_`), and every other leaf (code,
+  // html, image, link, …) also ends in punctuation; undeterminable counts
+  // as safe
+  const edge = (child: ProseNode, side: 'first' | 'last'): string | undefined => {
+    if (!child.isText) return undefined;
+    if (child.marks.some((m) => m.type.name === 'emphasis' || m.type.name === 'strong')) return undefined;
+    const t = child.text ?? '';
+    return side === 'first' ? t[0] : t[t.length - 1];
   };
-});
+  doc.descendants((node) => {
+    if (!node.isTextblock) return true;
+    const children: ProseNode[] = [];
+    node.forEach((c) => children.push(c));
+    for (const name of ['emphasis', 'strong'] as const) {
+      const markOf = (c: ProseNode): ProseNode['marks'][number] | null =>
+        c.marks.find((m) => m.type.name === name && m.attrs.marker === '_') ?? null;
+      let i = 0;
+      while (i < children.length) {
+        const head = markOf(children[i]);
+        if (!head) {
+          i += 1;
+          continue;
+        }
+        // one run of consecutive children carrying the same `_` mark
+        const run: object[] = [];
+        let first: string | undefined;
+        let last: string | undefined;
+        let j = i;
+        for (; j < children.length; j += 1) {
+          const m = markOf(children[j]);
+          if (!m) break;
+          run.push(m);
+          const t = children[j].text ?? '';
+          if (t) {
+            if (first === undefined) first = t[0];
+            last = t[t.length - 1];
+          }
+        }
+        const before = i > 0 ? edge(children[i - 1], 'last') : undefined;
+        const after = j < children.length ? edge(children[j], 'first') : undefined;
+        if (alnum(before) || alnum(after) || ws(first) || ws(last)) {
+          for (const m of run) intraword.add(m);
+        }
+        i = j;
+      }
+    }
+    return true;
+  });
+  return intraword;
+};
+
+/**
+ * #80 review follow-up: wraps the serializer so the intraword scan runs
+ * with the ProseMirror document in hand right before every serialization
+ * (makeLinkReferenceFix manner; the two wrappers compose).
+ */
+const emphasisIntrawordFix: MilkdownPlugin = (ctx) => {
+  return async () => {
+    await ctx.wait(SerializerReady);
+    const stockSerializer = ctx.get(serializerCtx);
+    ctx.set(serializerCtx, (content: ProseNode) => {
+      intrawordUnderscoreMarks = scanIntrawordUnderscore(content);
+      try {
+        return stockSerializer(content);
+      } finally {
+        intrawordUnderscoreMarks = null;
+      }
+    });
+  };
+};
 
 /** #80: the mdast node as the attention handlers see it (see below). */
 interface AttentionNode {
@@ -424,9 +496,10 @@ interface AttentionState {
  * #80: an mdast-util-to-markdown handler with the `attention` extension
  * point (types.d.ts: "Set as the `attention` field of a handler"), mirroring
  * the stock emphasis/strong handlers — only the marker preference order
- * differs: the node's own `marker` prop (the milkdown serializer runner
- * copies it from the PM mark attrs) comes first, the option default (`*`)
- * otherwise.
+ * differs: the node's own `marker` prop comes first (the composed
+ * remarkMarker plugin tags it on parse, the patched serializer runner below
+ * copies it from the PM mark attrs — already degraded to `*` when an edit
+ * made the emphasis intraword), the option default (`*`) otherwise.
  */
 type AttentionHandle = {
   (node: AttentionNode, parent: unknown, state: AttentionState, info: unknown): string;
@@ -441,8 +514,7 @@ type AttentionHandle = {
 const makeAttentionHandler = (construct: 'emphasis' | 'strong'): AttentionHandle => {
   const option = construct === 'emphasis' ? 'emphasis' : 'strong';
   const size = construct === 'strong' ? 2 : 1;
-  const preferred = (node: AttentionNode, state: AttentionState): string =>
-    node.marker === '_' ? '_' : state.options?.[option] ?? '*';
+  const fallback = (state: AttentionState): string => state.options?.[option] ?? '*';
   const handler = ((
     node: AttentionNode,
     _parent: unknown,
@@ -455,14 +527,14 @@ const makeAttentionHandler = (construct: 'emphasis' | 'strong'): AttentionHandle
     return value;
   }) as AttentionHandle;
   handler.attention = (node, state) => {
-    const marker = preferred(node, state);
+    const marker = node.marker === '_' ? '_' : fallback(state);
     return {
       construct,
       markers: marker === '*' ? ['*', '_'] : ['_', '*'],
       sizes: [size],
     };
   };
-  handler.peek = (node, _parent, state) => preferred(node, state);
+  handler.peek = (node, _parent, state) => (node.marker === '_' ? '_' : fallback(state));
   return handler;
 };
 
@@ -473,9 +545,13 @@ const strongAttentionHandler = makeAttentionHandler('strong');
  * #80 follow-up: the clipboard plugin's PM→DOM→PM round-trip drops the
  * marker (an `<em>`/`<strong>` carries no flavor), so an internally pasted
  * `_b_` would degrade to `*`. The flavor travels through a `data-marker`
- * attribute, hardBreakFlavorFix's data-twospace manner.
+ * attribute, hardBreakFlavorFix's data-twospace manner. The toMarkdown
+ * runner is also patched to write the ALREADY-DEGRADED marker for marks
+ * the intraword scan flagged (see emphasisIntrawordFix) — the mdast
+ * attention handlers then never prefer a `_` that CommonMark could not
+ * re-parse.
  */
-const emphasisMarkerDomFix: MilkdownPlugin = (ctx) => {
+const emphasisMarkerFix: MilkdownPlugin = (ctx) => {
   return async () => {
     await ctx.wait(SchemaReady);
     const schema = ctx.get(schemaCtx);
@@ -487,6 +563,13 @@ const emphasisMarkerDomFix: MilkdownPlugin = (ctx) => {
         | {
             spec: {
               toDOM?: (mark: { attrs: Record<string, unknown> }, inline: boolean) => unknown;
+              toMarkdown?: {
+                match: (mark: unknown) => boolean;
+                runner: (
+                  state: { withMark: (mark: unknown, type: string, value?: unknown, props?: Record<string, unknown>) => unknown },
+                  mark: { attrs: Record<string, unknown> },
+                ) => void;
+              };
               parseDOM?: {
                 tag?: string;
                 getAttrs?: (dom: HTMLElement) => Record<string, unknown> | null | false;
@@ -495,6 +578,18 @@ const emphasisMarkerDomFix: MilkdownPlugin = (ctx) => {
           }
         | undefined;
       if (!type) continue;
+
+      const stockToMarkdown = type.spec.toMarkdown;
+      if (stockToMarkdown) {
+        type.spec.toMarkdown = {
+          ...stockToMarkdown,
+          runner: (state, mark) => {
+            const marker =
+              mark.attrs.marker === '_' && intrawordUnderscoreMarks?.has(mark) ? '*' : mark.attrs.marker;
+            state.withMark(mark, name, undefined, { marker });
+          },
+        };
+      }
 
       const stockToDOM = type.spec.toDOM;
       if (stockToDOM) {
@@ -1382,12 +1477,14 @@ export class VisualEditor {
     this.crepe.editor.use(lineBreaksFix);
     this.crepe.editor.use(hardBreakFlavorFix);
     this.crepe.editor.use(imagesFix);
-    this.crepe.editor.use(emphasisMarkerDomFix);
+    this.crepe.editor.use(emphasisMarkerFix);
+    this.crepe.editor.use(emphasisIntrawordFix);
     this.crepe.editor.use(makeLinkReferenceFix(() => this.definitions));
-    // registered before Crepe's own $remark plugins: they must see break and
-    // emphasis nodes with their pristine positions to detect the source flavor
+    // registered before Crepe's own $remark plugins: it must see break nodes
+    // with their pristine positions to detect the source flavor (emphasis
+    // markers are tagged by the stock remarkMarker inside the commonmark
+    // preset, #80)
     this.crepe.editor.use(breakFlavorTagger);
-    this.crepe.editor.use(emphasisMarkerTagger);
     // only real document changes count as edits: a DOM-wide mutation observer
     // would misread focus/cursor/block-handle widget mutations as edits
     this.crepe.editor.use(listener);
