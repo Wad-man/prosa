@@ -712,7 +712,7 @@ body {
 }
 
 #empty-hint .eh-inner {
-  width: min(80%, 1600px);
+  width: min(80%, 52em);
   min-width: min(640px, calc(100% - 48px));
   margin: 0 auto;
   padding: 96px clamp(24px, 4%, 56px) 0;
@@ -788,12 +788,18 @@ body {
 /* The front-matter service record (#49): the block carved out of the
    document body (frontmatter.ts) shown as quiet metadata above the
    document — raw bytes, fences included, read-only (editing lives in the
-   source mode). Column metrics mirror the document column; the pane-wide
-   `#visual-editor > div` rule below would add the editor's 48px/35vh
-   padding — the id override wins on specificity. */
+   source mode). The box sits flush on the document TEXT edges, like
+   pre/table boxes: the column track — width cap plus min-width floor
+   (#67) — minus the column's own horizontal padding doubled (the column
+   pads with clamp(24px, 4%, 56px) of the same pane, #78). The cap is
+   spelled in px because em would resolve against this record's 13px
+   font, not the column's 16px: 52em x 16px = 832px — keep in sync with
+   the column rule below. The id override also keeps the pane-wide
+   `#visual-editor > div` padding out (specificity). */
 #visual-editor > #fm-view {
-  width: min(80%, 1600px);
-  min-width: min(640px, calc(100% - 48px));
+  width: calc(
+    max(min(80%, 832px), min(640px, calc(100% - 48px))) - clamp(48px, 8%, 112px)
+  );
   margin: 48px auto 0;
   padding: 10px 16px;
   font-family: var(--font-mono);
@@ -853,11 +859,13 @@ body {
   display: none !important;
 }
 
-/* 80% of the pane, capped so 2K/4K lines don't stretch absurdly;
+/* 80% of the pane capped at a stable reading measure — 52em = 832px at
+   the inherited 16px UI font, ~66 characters per line (#67, owner (a));
+   the cap binds only above 1040px-wide panes, below it nothing changes;
    on narrow windows fall back to full width minus 24px side margins */
 #visual-editor .milkdown-wrapper,
 #visual-editor > div {
-  width: min(80%, 1600px);
+  width: min(80%, 52em);
   min-width: min(640px, calc(100% - 48px));
   margin: 0 auto;
   padding: 48px clamp(24px, 4%, 56px) 35vh;
@@ -1247,16 +1255,17 @@ body {
   background: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
+/* Crepe's reset pads hr 6px 0 and clips its background to the content
+   box; a background SHORTHAND here resets that clip to border-box and
+   floods the whole 13px-tall box — the "thick bar" of #79. Zero the
+   padding and paint a flat hairline instead: palette C has no gradients
+   in the app (the gradient's core color --border-strong is kept). */
 #visual-editor hr {
   border: none;
   height: 1px;
+  padding: 0;
   margin: 2.25em 0;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--border-strong) 22% 78%,
-    transparent
-  );
+  background: var(--border-strong);
 }
 
 #visual-editor img {
@@ -1357,9 +1366,10 @@ body {
   padding: 48px 0 30vh;
 }
 
-/* Same content column as visual mode (80% of the pane, min 640, max 1600).
-   Auto margins on gutters/content center the line-numbers + text group,
-   while the scroller (and its scrollbar) stays full width like visual mode.
+/* Same content column as visual mode (80% of the pane capped at 52em —
+   728px at this 14px mono font, #67; min 640). Auto margins on
+   gutters/content center the line-numbers + text group, while the
+   scroller (and its scrollbar) stays full width like visual mode.
    The min-width subtracts the 49px gutter: 640−49 = 591, 24px+49px+24px = 97,
    so narrow windows never get a horizontal scrollbar (soft-wrap only). */
 #source-editor .cm-gutters {
@@ -1373,7 +1383,7 @@ body {
 
 #source-editor .cm-content {
   flex: none;
-  width: min(80%, 1600px);
+  width: min(80%, 52em);
   min-width: min(591px, calc(100% - 97px));
   margin-right: auto;
 }
@@ -1904,6 +1914,23 @@ body {
   color: var(--fg-3);
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+/* ---------- #77: dark-theme hover contrast (palette C regression) ----------
+   In the dark theme the accent (#7885f7) over the 30% --sel wash
+   composited on --bg-raised (menus, context panel) is 3.31:1, and on
+   --bg-sunk (the open menubar button) 3.86:1 — below the 4.5:1 AA text
+   minimum; fb0900d muted only the light accent. A neutral hover wash
+   would not rescue the accent text either (4.43:1 on a 7% wash), so the
+   hovered label goes neutral-light instead: --fg gives 8.98:1 / 10.46:1.
+   The accent stays in the wash itself, the checkmarks and the pressed
+   markers. Light theme is untouched (4.85:1 / 4.58:1, passes). */
+[data-theme='dark'] .menu-item:hover,
+[data-theme='dark'] .menu-item:focus-visible,
+[data-theme='dark'] .ctx-item:hover,
+[data-theme='dark'] .ctx-btn:hover,
+[data-theme='dark'] .menu-btn[aria-expanded='true'] {
+  color: var(--fg);
 }
 
 /* ---------- reduced motion ---------- */
