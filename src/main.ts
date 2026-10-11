@@ -165,6 +165,18 @@ function currentFullText(): string {
 }
 
 /**
+ * #71: put the caret into the editor of the current mode — "opened the
+ * app, start typing", Notepad/Typora style. DOM focus set while the window
+ * was still hidden (setMode during init) does not reliably survive the
+ * WebView2 becoming visible, so this re-runs after show() and after a file
+ * lands in this window. Reading keeps its no-caret rule (setMode's blur).
+ */
+function focusActiveEditor(): void {
+  if (mode === 'visual') visual.focus();
+  else if (mode === 'source') source?.focus();
+}
+
+/**
  * The carved-out front-matter block rendered above the document in the
  * visual pane (visible in both the visual editor and reading, #49/#66): a
  * quiet service record showing the block's raw bytes. It deliberately lives
@@ -344,6 +356,9 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
     refreshChrome();
     reportDocState();
     toc.refresh();
+    // #71: a document landing in this window puts the caret at its start
+    // (file open, drop, Ctrl+N, __prosaOpen into a pristine window)
+    focusActiveEditor();
   }, 0);
 }
 
@@ -1455,7 +1470,19 @@ async function init(): Promise<void> {
     // The Rust fallback timer shows it even if this script never runs.
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        void currentWindow?.show().catch(() => {});
+        void currentWindow
+          ?.show()
+          .then(() => {
+            // #71: a window shown from hidden does not reliably hand
+            // keyboard focus to the WebView2 — the caret sat in a focused
+            // element no keystroke could reach until the user clicked.
+            // setFocus claims the OS-level focus (warn on rejection like
+            // setTitle, #43 — the capability may be missing), then the
+            // editor is re-focused now that the view is visible.
+            void currentWindow?.setFocus().catch((err) => console.warn('setFocus failed:', err));
+            focusActiveEditor();
+          })
+          .catch(() => {});
       }),
     );
 
