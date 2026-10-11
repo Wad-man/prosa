@@ -358,6 +358,181 @@ const breakFlavorTagger = $remark('prosa-break-flavor', () => () => {
   };
 });
 
+/**
+ * #80 (lossless, R-035): an `_`-flavored emphasis/strong (`_b_`, `__b__`)
+ * was rewritten into the asterisk form on every visual round-trip — mdast
+ * carries no delimiter information, and remark-stringify's default marker
+ * preference is `*`. milkdown 7.22 already carries a `marker` attr end to
+ * end (mark schema attr → `openMark(type, {marker})` in the stock parse
+ * runner → `withMark(..., {marker})` onto the mdast node in the stock
+ * serializer runner); the two missing links are filled here:
+ *
+ *  - this remark plugin (registered before Crepe's own $remark plugins,
+ *    breakFlavorTagger manner) slices the source at each emphasis/strong
+ *    node's opening position — the first byte IS its delimiter — and tags
+ *    the node with the `marker` the stock parse runner then carries into
+ *    the ProseMirror mark attrs;
+ *  - the attention handlers in the remarkStringifyOptions config below
+ *    put the node's own marker first in the serializer's preference list
+ *    (mdast-util-to-markdown 2.1's attention algorithm — the CommonMark
+ *    pairing, rule-of-3 and escaping all stay the library's business; an
+ *    impossible `_` pairing still degrades to `*` exactly like the stock
+ *    preference flip does).
+ *
+ * Marks created by typing (Ctrl+I/B) keep the schema default `*`. The
+ * clipboard PM→DOM→PM round-trip carries the flavor through a
+ * `data-marker` attribute (emphasisMarkerDomFix below, data-twospace
+ * manner).
+ */
+const emphasisMarkerTagger = $remark('prosa-emphasis-marker', () => () => {
+  return (tree: unknown, file: { value?: unknown }) => {
+    const source = typeof file?.value === 'string' ? file.value : '';
+    const walk = (node: unknown): void => {
+      if (node && typeof node === 'object' && 'type' in node) {
+        const n = node as {
+          type: string;
+          children?: unknown[];
+          marker?: unknown;
+          position?: { start?: { offset?: number } };
+        };
+        if ((n.type === 'emphasis' || n.type === 'strong') && n.marker === undefined && n.position) {
+          const first = n.position.start?.offset != null ? source[n.position.start.offset] : undefined;
+          if (first === '_' || first === '*') n.marker = first;
+        }
+        n.children?.forEach(walk);
+      }
+    };
+    walk(tree);
+  };
+});
+
+/** #80: the mdast node as the attention handlers see it (see below). */
+interface AttentionNode {
+  type?: string;
+  children?: unknown[];
+  marker?: unknown;
+}
+
+/** #80: the serializer state surface the stock attention handlers use. */
+interface AttentionState {
+  options?: { emphasis?: string | null; strong?: string | null };
+  enter(construct: string): () => void;
+  containerPhrasing(node: unknown, info: unknown): string;
+}
+
+/**
+ * #80: an mdast-util-to-markdown handler with the `attention` extension
+ * point (types.d.ts: "Set as the `attention` field of a handler"), mirroring
+ * the stock emphasis/strong handlers — only the marker preference order
+ * differs: the node's own `marker` prop (the milkdown serializer runner
+ * copies it from the PM mark attrs) comes first, the option default (`*`)
+ * otherwise.
+ */
+type AttentionHandle = {
+  (node: AttentionNode, parent: unknown, state: AttentionState, info: unknown): string;
+  attention?: (node: AttentionNode, state: AttentionState) => {
+    construct: string;
+    markers: string[];
+    sizes: number[];
+  };
+  peek?: (node: AttentionNode, parent: unknown, state: AttentionState) => string;
+};
+
+const makeAttentionHandler = (construct: 'emphasis' | 'strong'): AttentionHandle => {
+  const option = construct === 'emphasis' ? 'emphasis' : 'strong';
+  const size = construct === 'strong' ? 2 : 1;
+  const preferred = (node: AttentionNode, state: AttentionState): string =>
+    node.marker === '_' ? '_' : state.options?.[option] ?? '*';
+  const handler = ((
+    node: AttentionNode,
+    _parent: unknown,
+    state: AttentionState,
+    info: unknown,
+  ): string => {
+    const exit = state.enter('phrasing');
+    const value = state.containerPhrasing({ type: 'root', children: [node] }, info);
+    exit();
+    return value;
+  }) as AttentionHandle;
+  handler.attention = (node, state) => {
+    const marker = preferred(node, state);
+    return {
+      construct,
+      markers: marker === '*' ? ['*', '_'] : ['_', '*'],
+      sizes: [size],
+    };
+  };
+  handler.peek = (node, _parent, state) => preferred(node, state);
+  return handler;
+};
+
+const emphasisAttentionHandler = makeAttentionHandler('emphasis');
+const strongAttentionHandler = makeAttentionHandler('strong');
+
+/**
+ * #80 follow-up: the clipboard plugin's PM→DOM→PM round-trip drops the
+ * marker (an `<em>`/`<strong>` carries no flavor), so an internally pasted
+ * `_b_` would degrade to `*`. The flavor travels through a `data-marker`
+ * attribute, hardBreakFlavorFix's data-twospace manner.
+ */
+const emphasisMarkerDomFix: MilkdownPlugin = (ctx) => {
+  return async () => {
+    await ctx.wait(SchemaReady);
+    const schema = ctx.get(schemaCtx);
+    for (const name of ['emphasis', 'strong'] as const) {
+      // a bare structural shape (no MarkType import — keeps this hunk free
+      // of import-line changes): the live spec carries richer stock types,
+      // erased via the double assertion like window.__prosaOpen in main.ts
+      const type = (schema.marks as unknown as Record<string, unknown>)[name] as
+        | {
+            spec: {
+              toDOM?: (mark: { attrs: Record<string, unknown> }, inline: boolean) => unknown;
+              parseDOM?: {
+                tag?: string;
+                getAttrs?: (dom: HTMLElement) => Record<string, unknown> | null | false;
+              }[];
+            };
+          }
+        | undefined;
+      if (!type) continue;
+
+      const stockToDOM = type.spec.toDOM;
+      if (stockToDOM) {
+        type.spec.toDOM = (mark, inline) => {
+          const spec = stockToDOM(mark, inline) as
+            | [string, Record<string, unknown> | undefined, ...unknown[]]
+            | unknown;
+          if (mark.attrs.marker === '_' && Array.isArray(spec)) {
+            return [spec[0], { ...(spec[1] ?? {}), 'data-marker': '_' }, ...spec.slice(2)];
+          }
+          return spec;
+        };
+      }
+
+      type.spec.parseDOM = type.spec.parseDOM?.map((rule) =>
+        rule.tag === 'em' || rule.tag === 'i' || rule.tag === 'strong' || rule.tag === 'b'
+          ? {
+              ...rule,
+              getAttrs: (dom: HTMLElement) => {
+                // `false` from a stock rule (the `b` font-weight check)
+                // rejects the element outright — that verdict stands
+                const base = rule.getAttrs?.(dom);
+                if (base === false) return base;
+                const marker = dom.getAttribute('data-marker') === '_' ? '_' : '*';
+                if (!base || typeof base !== 'object') return { marker };
+                return { ...base, marker };
+              },
+            }
+          : rule,
+      );
+    }
+    // DOMParser captures parseDOM rules when first built — drop whatever may
+    // already be cached (same as tableAlignmentFix)
+    delete (schema as unknown as { cached: Record<string, unknown> }).cached?.domParser;
+    delete (schema as unknown as { cached: Record<string, unknown> }).cached?.domSerializer;
+  };
+};
+
 const hardBreakFlavorFix: MilkdownPlugin = (ctx) => {
   return async () => {
     await ctx.wait(SchemaReady);
@@ -1139,8 +1314,14 @@ export class VisualEditor {
         // Mirrors mdast-util-to-markdown's hardBreak: where an unconditional
         // eol is not allowed (setext/table cells), a break degrades to a
         // space — patternInScope inlined below.
+        // #80: emphasis/strong attention handlers keep the `_` delimiter of
+        // a parsed node (see makeAttentionHandler) — the pairing algorithm,
+        // escaping and the degradation to the other marker all stay the
+        // library's.
         handlers: {
           ...(options.handlers ?? {}),
+          emphasis: emphasisAttentionHandler,
+          strong: strongAttentionHandler,
           break(node: { twoSpace?: boolean }, _parent: unknown, rawState: unknown, rawInfo: unknown): string {
             if (!node.twoSpace) return '\\\n';
             const state = rawState as {
@@ -1201,10 +1382,12 @@ export class VisualEditor {
     this.crepe.editor.use(lineBreaksFix);
     this.crepe.editor.use(hardBreakFlavorFix);
     this.crepe.editor.use(imagesFix);
+    this.crepe.editor.use(emphasisMarkerDomFix);
     this.crepe.editor.use(makeLinkReferenceFix(() => this.definitions));
-    // registered before Crepe's own $remark plugins: it must see break nodes
-    // with their pristine positions to detect the source flavor
+    // registered before Crepe's own $remark plugins: they must see break and
+    // emphasis nodes with their pristine positions to detect the source flavor
     this.crepe.editor.use(breakFlavorTagger);
+    this.crepe.editor.use(emphasisMarkerTagger);
     // only real document changes count as edits: a DOM-wide mutation observer
     // would misread focus/cursor/block-handle widget mutations as edits
     this.crepe.editor.use(listener);
