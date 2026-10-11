@@ -161,13 +161,34 @@ let baseline = '';
 let editedSinceSave = false;
 let dirtyCheckTimer: number | undefined;
 
+/**
+ * #83 review: a prefix/front-matter block that ended at EOF carries no
+ * trailing newline — when the user later adds body text, the join must not
+ * glue it onto the closing fence. One separator byte, inserted only when
+ * both sides are non-empty (an untouched document keeps its savedRaw
+ * passthrough and never passes through here on save).
+ */
+function withSeparator(block: string, body: string): string {
+  if (block === '' || body === '') return block + body;
+  return block.endsWith('\n') ? block + body : block + '\n' + body;
+}
+
 /** The document as a file: the unparsed prefix (if any) + front-matter +
  * the active editor's content. In the source mode the editor part is the
  * raw body text itself; in the visual mode it is Crepe's serialization of
  * the body with the front-matter block re-attached. */
 function currentFullText(): string {
-  if (mode === 'source') return (unparsedPrefix ?? '') + (source?.getContent() ?? '');
-  return (unparsedPrefix ?? '') + (frontMatter ?? '') + visual.getMarkdown();
+  if (mode === 'source') return withSeparator(unparsedPrefix ?? '', source?.getContent() ?? '');
+  return withSeparator(unparsedPrefix ?? '', withSeparator(frontMatter ?? '', visual.getMarkdown()));
+}
+
+/**
+ * #86 review: the paste anchor legitimately clears `dirty`, but an
+ * untitled window with content on screen holds text that exists nowhere
+ * on disk — the close/new/update guards must still treat it as unsaved.
+ */
+function unsavedContent(): boolean {
+  return dirty || (filePath === null && currentFullText().trim() !== '');
 }
 
 /**
@@ -314,15 +335,22 @@ function scheduleDirtyCheck(): void {
 // #86: a paste into a pristine untitled document is new content, not an
 // edit of emptiness — once it settles it becomes the clean state, so an
 // undo back to the pasted text clears the unsaved dot exactly like a full
-// undo after loading a file. Only the FIRST content ever pasted into the
+// undo after loading a file. The clean state is SNAPSHOT right after the
+// paste lands (task 0 — the paste is processed synchronously); if the user
+// typed anything before the 350 ms check, the content no longer matches
+// and the anchor never fires. Only the FIRST content ever pasted into the
 // empty document anchors (baseline === '' gate); typing never passes here.
 let pasteAnchorTimer: number | undefined;
 function schedulePasteAnchor(): void {
+  let snapshot = '';
+  window.setTimeout(() => {
+    snapshot = currentFullText();
+  }, 0);
   window.clearTimeout(pasteAnchorTimer);
   pasteAnchorTimer = window.setTimeout(() => {
     if (filePath !== null || suppressChange || baseline !== '') return;
     const current = currentFullText();
-    if (current.trim() === '') return;
+    if (current.trim() === '' || current !== snapshot) return;
     savedRaw = current;
     baseline = current;
     editedSinceSave = false;
@@ -341,7 +369,10 @@ function reportDocState(): void {
   if (!inTauri) return;
   void invoke('report_doc_state', {
     path: filePath,
-    dirty,
+    // unsavedContent (#86 review): an anchored paste clears `dirty`, but
+    // the Rust side routes files and warns before update force-closes —
+    // untitled on-screen content must count
+    dirty: unsavedContent(),
     empty: currentFullText().trim() === '',
   }).catch(() => {});
 }
@@ -367,7 +398,7 @@ async function openPathBestWindow(path: string): Promise<void> {
 }
 
 async function confirmLoseChanges(): Promise<boolean> {
-  if (!dirty) return true;
+  if (!unsavedContent()) return true;
   return await ask(t('discardQuestion'), { title: t('discardTitle'), kind: 'warning' });
 }
 
@@ -1537,7 +1568,7 @@ async function init(): Promise<void> {
     })();
   });
   void currentWindow?.onCloseRequested(async (event) => {
-    if (!dirty || forceClose) return;
+    if (!unsavedContent() || forceClose) return;
     event.preventDefault();
     askBeforeClose();
   });

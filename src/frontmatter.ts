@@ -11,9 +11,10 @@
  * Only a closed block of NON-BLANK lines at byte 0 counts (opening `---`
  * line, closing `---` or `...` line on its own). A blank line inside the
  * block demotes it to an "unparsed prefix" (#83, owner decision 2026-10-11
- * variant (а)): it is neither front-matter (per CommonMark that text is a
- * thematic break + paragraph, and the owner rule of 2026-10-10 stands) nor
- * editor content — it is held byte-for-byte and re-attached on save, so a
+ * variant (а)) — but only when the block reads like YAML (see the scan):
+ * it is neither front-matter (per CommonMark that text is a thematic
+ * break + paragraph, and the owner rule of 2026-10-10 stands) nor editor
+ * content — it is held byte-for-byte and re-attached on save, so a
  * Jekyll/Hugo YAML block with blank lines survives the visual round-trip
  * instead of being rewritten into headings. Blank lines AFTER the closing
  * fence are absorbed into the block, so the gap between the front-matter
@@ -57,6 +58,17 @@ export function splitFrontMatter(text: string): FrontMatterSplit {
 
   const len = text.length;
   let sawBlank = false;
+  // #83 review (2026-10-11): a blank-lined block becomes the unparsed
+  // prefix ONLY when it reads like YAML — the first non-blank line must be
+  // `key:` shaped (and must precede any blank line), every non-blank line a
+  // key, list item, comment or indented continuation. Otherwise a document
+  // that merely starts with a `---` rule and happens to contain another one
+  // (or a `...` line in prose) would vanish from all three modes.
+  let seenKey = false;
+  let yamlShape = true;
+  const keyLine = (l: string): boolean => /^\s*\S+\s*:(\s|$)/.test(l);
+  const yamlLine = (l: string): boolean =>
+    /^\s*\S+\s*:/.test(l) || /^(\s*-\s|\s*#)/.test(l) || /^\s+\S/.test(l);
   for (;;) {
     const nl = text.indexOf('\n', pos);
     const lineEnd = nl === -1 ? len : nl;
@@ -74,15 +86,26 @@ export function splitFrontMatter(text: string): FrontMatterSplit {
       const rest = text.slice(end);
       const gap = nl !== -1 ? /^(?:[ \t]*\r?\n)+/.exec(rest)?.[0].length ?? 0 : 0;
       const raw = text.slice(0, end + gap);
-      return sawBlank
-        ? { frontMatter: null, unparsedPrefix: raw, body: rest.slice(gap) }
-        : { frontMatter: raw, unparsedPrefix: null, body: rest.slice(gap) };
+      if (!sawBlank) return { frontMatter: raw, unparsedPrefix: null, body: rest.slice(gap) };
+      if (yamlShape)
+        return { frontMatter: null, unparsedPrefix: raw, body: rest.slice(gap) };
+      return { frontMatter: null, unparsedPrefix: null, body: text };
     }
     // a content line is non-blank and newline-terminated — text that
     // simply runs out is no front-matter of any kind; a blank line only
-    // demotes a still-closing block to the unparsed prefix (#83)
+    // demotes a still-closing YAML-shaped block to the unparsed prefix
     if (nl === -1) return { frontMatter: null, unparsedPrefix: null, body: text };
-    if (!/\S/.test(line)) sawBlank = true;
+    if (!/\S/.test(line)) {
+      sawBlank = true;
+      // a blank line before any key: no front-matter shape at all
+      if (!seenKey) yamlShape = false;
+    } else if (!seenKey) {
+      seenKey = true;
+      // a blank line before the first key already disqualified the shape
+      if (yamlShape) yamlShape = keyLine(line);
+    } else if (yamlShape && !yamlLine(line)) {
+      yamlShape = false;
+    }
     pos = nl + 1;
   }
 }
