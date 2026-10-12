@@ -2010,6 +2010,14 @@ body {
   box-shadow: var(--shadow-2);
 }
 
+/* the author display rules above beat the UA's [hidden]{display:none} —
+   without this the bar (and the replace row) NEVER hid: the owner could
+   not close it and Ctrl+F always showed the replace fields (post-RC2) */
+#find-bar[hidden],
+.find-row[hidden] {
+  display: none;
+}
+
 .find-row {
   display: flex;
   align-items: center;
@@ -2131,6 +2139,84 @@ body {
 .cm-prosa-search-hit-active {
   background-color: color-mix(in srgb, var(--accent) 40%, transparent);
   border-radius: 2px;
+}
+
+/* ---------- #32: CodeMirror's own search panel in the source mode ----------
+   The source mode keeps CM's advanced find/replace (regexp, whole word,
+   per-hit buttons — the right tool where the raw text lives), reskinned
+   to the app's raised-surface tokens to match the find bar (#4, post-RC2). */
+#source-editor .cm-panel.cm-search {
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-1);
+  padding: 10px 12px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--fg-2);
+}
+
+#source-editor .cm-panel.cm-search .cm-textfield {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 9px;
+}
+
+#source-editor .cm-panel.cm-search .cm-textfield:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
+#source-editor .cm-panel.cm-search .cm-button {
+  appearance: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-raised);
+  color: var(--fg-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-right: 4px;
+}
+
+#source-editor .cm-panel.cm-search .cm-button:hover {
+  background: var(--sel);
+  color: var(--accent);
+}
+
+#source-editor .cm-panel.cm-search label {
+  font-size: 12.5px;
+  color: var(--fg-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#source-editor .cm-panel.cm-search input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
+#source-editor .cm-panel.cm-search button[name='close'] {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--fg-3);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+}
+
+#source-editor .cm-panel.cm-search button[name='close']:hover {
+  background: var(--sel);
+  color: var(--fg);
 }
 
 /* ---------- reduced motion ---------- */

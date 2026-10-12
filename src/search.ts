@@ -17,6 +17,7 @@
 import { t } from './i18n';
 import type { VisualEditor } from './editor/visual';
 import type { SourceEditor } from './editor/source';
+import { openSearchPanel } from '@codemirror/search';
 import { cmApplySearch, cmGoToMatch, cmMatchCount, cmMatchFrom, cmReplaceAllMatches, cmReplaceMatch } from './editor/cm-search';
 
 export interface FindReplaceDeps {
@@ -69,11 +70,21 @@ export class FindReplaceBar {
     return this.isOpen && this.bar !== null && document.activeElement !== null && this.bar.contains(document.activeElement);
   }
 
-  /** Правка → Найти… / Ctrl+F; `withReplace` forces the replace row (Ctrl+H). */
+  /** Правка → Найти… / Ctrl+F; `withReplace` shows the replace row
+   * (Ctrl+H). In the SOURCE mode both route to CodeMirror's own search
+   * panel instead — its advanced toolset (regexp, word, per-hit buttons)
+   * is the right tool there (owner decision, post-RC2). */
   open(withReplace: boolean): void {
     if (this.deps.isOverlayOpen()) return;
+    if (this.deps.getMode() === 'source') {
+      const src = this.deps.getSource();
+      if (src) openSearchPanel(src.view);
+      return;
+    }
     this.ensureBuilt();
-    if (withReplace) this.replaceVisible = true;
+    // per-invocation, not sticky: Ctrl+F is find-only, Ctrl+H brings the
+    // replace row — a previous Ctrl+H must not leak into the next Ctrl+F
+    this.replaceVisible = withReplace;
     this.updateReplaceVisibility();
     // a fresh (re)open re-runs the search: the active index refers to the
     // previous match set and must not leak into the new one
@@ -110,6 +121,12 @@ export class FindReplaceBar {
    * visual editor rebuild (language change destroys the decorations). */
   reattach(): void {
     if (!this.isOpen) return;
+    // entering the source mode hands search over to CodeMirror's panel —
+    // the bar has no business there (owner decision, post-RC2)
+    if (this.deps.getMode() === 'source') {
+      this.close();
+      return;
+    }
     // the new pane's match set is not the old one — restart navigation
     this.activeIndex = -1;
     this.refreshEditable();
@@ -151,6 +168,9 @@ export class FindReplaceBar {
       // while a modal dialog is up the combo belongs to it (nothing binds
       // Ctrl+F/H today, but the rule keeps future dialogs safe)
       if (!this.isOpen && this.deps.isOverlayOpen()) return;
+      // source mode: CodeMirror's own Mod-f panel is the tool — don't
+      // claim the event, let the editor keymap open it
+      if (this.deps.getMode() === 'source') return;
       e.preventDefault();
       e.stopPropagation();
       this.open(code === 'KeyH');
@@ -166,10 +186,17 @@ export class FindReplaceBar {
     }
     if (e.key === 'Escape' && !mod && !e.altKey) {
       if (this.deps.isOverlayOpen()) return; // the modal wins its own Esc
-      // only when the bar itself holds focus: with focus elsewhere, Esc
-      // belongs to whatever the user is in (open menu, link tooltip,
-      // autocomplete) — they close on it, the bar stays
-      if (!this.bar?.contains(document.activeElement)) return;
+      // the bar closes on Esc while IT holds focus or while the caret sits
+      // in one of the editor panes (the owner's "clicked into the text and
+      // pressed Esc" case). Elsewhere (menus, tooltips, chrome) Esc stays
+      // with whoever owns it. An open link-edit tooltip inside the editor
+      // outranks the bar — its own Esc handler must run first.
+      const active = document.activeElement;
+      const inBar = active !== null && this.bar !== null && this.bar.contains(active);
+      const inPanes =
+        active instanceof Element && active.closest('#visual-editor, #source-editor') !== null;
+      if (!inBar && !inPanes) return;
+      if (document.querySelector('.milkdown-link-edit[data-show="true"]')) return;
       e.preventDefault();
       e.stopPropagation();
       this.close();
@@ -203,6 +230,9 @@ export class FindReplaceBar {
     caseBtn.id = 'find-case';
     caseBtn.type = 'button';
     caseBtn.className = 'find-btn find-btn-case';
+    // a pictogram reads without translation — same trick as the #70 mouse
+    // glyph; the title/aria-label carry the localized meaning
+    caseBtn.textContent = 'Aa';
     caseBtn.setAttribute('aria-pressed', 'false');
     caseBtn.addEventListener('click', () => {
       this.caseSensitive = !this.caseSensitive;
