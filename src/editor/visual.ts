@@ -8,6 +8,8 @@ import { tags as t } from '@lezer/highlight';
 import { commandsCtx, remarkStringifyOptionsCtx, schemaCtx, SchemaReady, SerializerReady, serializerCtx, editorViewCtx } from '@milkdown/kit/core';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 import type { NodeType, Node as ProseNode } from '@milkdown/kit/prose/model';
+import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
+import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 import { headingIdGenerator } from '@milkdown/kit/preset/commonmark';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import { uploadConfig } from '@milkdown/kit/plugin/upload';
@@ -32,11 +34,12 @@ declare module '@milkdown/components/code-block' {
     defaultLanguageText?: string;
   }
 }
-import { $remark, $shortcut, replaceAll } from '@milkdown/kit/utils';
+import { $remark, $shortcut, $prose, replaceAll } from '@milkdown/kit/utils';
 import { crepeLocaleConfigs, editorStrings } from './crepe-locale';
 import { displaySrc, ensureImageTarget, writeImageFile } from './image-assets';
 import { ContextPanel, type PanelClipboardActions } from './context-panel';
 import { splitFrontMatter } from '../frontmatter';
+import { findRanges, type TextRange } from './search-core';
 import {
   applyVisualBlock,
   toggleVisualMark,
@@ -1006,6 +1009,95 @@ function listInScope(stack: string[], list: string | string[] | null | undefined
 }
 
 /**
+ * #32: find & replace in the visual/reading pane. The bar in search.ts owns
+ * the query and the active-match index; this plugin mirrors them into
+ * ProseMirror as inline decorations. Matches are computed over the
+ * concatenated TEXT of the document — the visible prose, not the markdown
+ * source (in the visual mode the syntax is not on screen; searching the
+ * rendered text is what a reader expects).
+ *
+ * The concatenation joins textblocks with a `\n` separator: the query
+ * comes from a single-line input and can never contain one, so a match can
+ * never span two blocks — every match range is inside a single textblock
+ * and replaceWith() with a text node is always structurally valid.
+ */
+interface VisualSearchState {
+  query: string;
+  caseSensitive: boolean;
+  active: number;
+  matches: TextRange[];
+}
+
+const VISUAL_SEARCH_EMPTY: VisualSearchState = {
+  query: '',
+  caseSensitive: false,
+  active: -1,
+  matches: [],
+};
+
+const visualSearchKey = new PluginKey<VisualSearchState>('prosa-visual-search');
+
+function computeVisualMatches(doc: ProseNode, query: string, caseSensitive: boolean): TextRange[] {
+  if (!query) return [];
+  // spans[i] maps a slice of the concatenated text back to document
+  // positions: [spans[i].start, spans[i].start + text.length)
+  let text = '';
+  const spans: { start: number; pos: number; size: number }[] = [];
+  doc.descendants((node, pos) => {
+    if (node.isTextblock) {
+      text += '\n';
+    } else if (node.isText && node.text) {
+      spans.push({ start: text.length, pos, size: node.text.length });
+      text += node.text;
+    }
+    return true;
+  });
+  const mapIndex = (index: number): number | null => {
+    let lo = 0;
+    let hi = spans.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const s = spans[mid];
+      if (index < s.start) hi = mid - 1;
+      else if (index >= s.start + s.size) lo = mid + 1;
+      else return s.pos + (index - s.start);
+    }
+    return null; // the separator region — no match can land here by construction
+  };
+  const out: TextRange[] = [];
+  for (const r of findRanges(text, query, caseSensitive)) {
+    const from = mapIndex(r.from);
+    const to = mapIndex(r.to - 1);
+    if (from === null || to === null) continue;
+    out.push({ from, to: to + 1 });
+  }
+  return out;
+}
+
+const visualSearchPlugin = new Plugin({
+  key: visualSearchKey,
+  state: {
+    init: () => VISUAL_SEARCH_EMPTY,
+    apply: (tr, prev) => {
+      const meta = tr.getMeta(visualSearchKey) as Partial<VisualSearchState> | undefined;
+      if (!meta && !tr.docChanged) return prev;
+      const next = meta ? { ...prev, ...meta } : prev;
+      return { ...next, matches: computeVisualMatches(tr.doc, next.query, next.caseSensitive) };
+    },
+  },
+  props: {
+    decorations(state) {
+      const s = visualSearchKey.getState(state);
+      if (!s || !s.query) return DecorationSet.empty;
+      const parts = s.matches.map((m, i) =>
+        Decoration.inline(m.from, m.to, { class: i === s.active ? 'prosa-search-hit-active' : 'prosa-search-hit' }),
+      );
+      return DecorationSet.create(state.doc, parts);
+    },
+  },
+});
+
+/**
  * Visual mode: Milkdown (Crepe) — live WYSIWYG rendering of the whole document.
  * Source-on-focus (Typora-style raw markdown under the cursor) is a roadmap
  * goal, not implemented yet — stock Crepe never reveals the raw markup.
@@ -1532,6 +1624,9 @@ export class VisualEditor {
     // markers are tagged by the stock remarkMarker inside the commonmark
     // preset, #80)
     this.crepe.editor.use(breakFlavorTagger);
+    // #32: the search decorations plugin (query/active are pushed in by
+    // search.ts through setSearch/setSearchActive below)
+    this.crepe.editor.use($prose(() => visualSearchPlugin));
     // only real document changes count as edits: a DOM-wide mutation observer
     // would misread focus/cursor/block-handle widget mutations as edits
     this.crepe.editor.use(listener);
@@ -1601,6 +1696,90 @@ export class VisualEditor {
     this.readonly = on;
     this.crepe?.setReadonly(on);
     this.panel?.close();
+  }
+
+  // ---------- find & replace surface for search.ts (#32) ----------
+  // Thin wrappers over the plugin state; the bar keeps the query and the
+  // active index, these only mirror them into the editor. No-ops before
+  // the first create()/after destroy().
+
+  /** Push a new query (active resets); recomputes decorations. */
+  setSearch(query: string, caseSensitive: boolean): void {
+    this.crepe?.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      view.dispatch(view.state.tr.setMeta(visualSearchKey, { query, caseSensitive, active: -1 }));
+    });
+  }
+
+  /** Match count for the query last pushed by setSearch. */
+  searchMatchCount(): number {
+    let count = 0;
+    this.crepe?.editor.action((ctx) => {
+      const s = visualSearchKey.getState(ctx.get(editorViewCtx).state);
+      count = s ? s.matches.length : 0;
+    });
+    return count;
+  }
+
+  /** Highlight + select + scroll to match `index` (works read-only too). */
+  setSearchActive(index: number): void {
+    this.crepe?.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const s = visualSearchKey.getState(view.state);
+      const m = s?.matches[index];
+      if (!m) return;
+      view.dispatch(
+        view.state.tr
+          .setMeta(visualSearchKey, { active: index })
+          .setSelection(TextSelection.create(view.state.doc, m.from, m.to))
+          .scrollIntoView(),
+      );
+    });
+  }
+
+  /** Replace the match at `index` — a normal editing transaction (marks at
+   * the position carry over, undo/history as usual). Returns success. */
+  searchReplace(index: number, replacement: string): boolean {
+    let ok = false;
+    this.crepe?.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const s = visualSearchKey.getState(view.state);
+      const m = s?.matches[index];
+      if (!m || this.readonly) return;
+      // plain text replacement inherits the marks at the range start, so
+      // replacing inside bold/italic stays bold/italic
+      const marks = view.state.doc.resolve(m.from).marks();
+      view.dispatch(
+        view.state.tr
+          .replaceWith(m.from, m.to, view.state.doc.type.schema.text(replacement, marks))
+          .setMeta(visualSearchKey, { active: index }),
+      );
+      ok = true;
+    });
+    return ok;
+  }
+
+  /** Replace every match in ONE transaction (one undo step). The untouched
+   * parts of the document are never re-serialized by this — byte fidelity
+   * rides on the lossless core the visual editor already guarantees. */
+  searchReplaceAll(replacement: string): number {
+    let count = 0;
+    this.crepe?.editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const s = visualSearchKey.getState(view.state);
+      if (!s || s.matches.length === 0 || this.readonly) return;
+      // reverse document order: earlier positions stay valid as later
+      // ranges are replaced first
+      let tr = view.state.tr;
+      for (let i = s.matches.length - 1; i >= 0; i--) {
+        const m = s.matches[i];
+        const marks = tr.doc.resolve(m.from).marks();
+        tr = tr.replaceWith(m.from, m.to, tr.doc.type.schema.text(replacement, marks));
+      }
+      count = s.matches.length;
+      view.dispatch(tr);
+    });
+    return count;
   }
 
   // ---------- command surface for the menu bar (#20) ----------

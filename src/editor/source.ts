@@ -7,6 +7,7 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 
 import { getCmPhrases } from '../i18n';
+import { cmSearchExtension } from './cm-search';
 
 /**
  * Syntax colors go through the CSS variables of styles.css, so both themes
@@ -66,6 +67,10 @@ export class SourceEditor {
             ]),
           ),
           basicSetup,
+          // #32: match state + highlight decorations for the app-level find
+          // & replace bar (search.ts); the stock @codemirror/search panel
+          // stays dormant — the bar's window-capture Ctrl+F runs first
+          cmSearchExtension,
           // #76: localize CodeMirror's own UI — the Ctrl+F search panel, the
           // go-to-line dialog, fold tooltips and announcements. The phrases
           // object reads the live language through getters (see getCmPhrases),

@@ -42,6 +42,8 @@ import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './featur
 import { applyWebView2DragFix } from './platform/webview2-dnd';
 import { getLang, t } from './i18n';
 import { applyTheme, currentTheme, onLangChanged, setLanguage, toggleTheme } from './settings';
+import { FindReplaceBar } from './search';
+import { initZoom, zoomIn, zoomOut, zoomReset } from './zoom';
 import './styles.css';
 
 // Must run before the editors mount: it re-routes DataTransfer writes so
@@ -126,6 +128,17 @@ const visual = new VisualEditor();
 let source: SourceEditor | null = null; // lazily created on first switch
 const menuBar = new MenuBar();
 const toc = new TocPanel();
+// #32: constructed early (installs the window-capture keydown), built
+// lazily on the first open; the closures read the live mode/editor state
+const findBar = new FindReplaceBar({
+  visual,
+  getSource: () => source,
+  getMode: () => mode,
+  isOverlayOpen: () => activeModalOverlay() !== null,
+  onEdited: () => markDirty(),
+  selectionText,
+  focusEditor: focusActiveEditor,
+});
 
 // Belt-and-suspenders alongside the editor change events: only real user input
 // (pointer/keyboard) can mark the doc dirty. Programmatic or async updates —
@@ -426,6 +439,8 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
   if (paneOf(mode) === 'visual') visual.setMarkdown(body);
   else source?.setContent((fm ?? '') + body);
   refreshFrontMatterView();
+  // a new document invalidates the open search — close the bar quietly
+  findBar.close();
   dirty = false;
   editedSinceSave = false;
   window.clearTimeout(dirtyCheckTimer);
@@ -739,6 +754,9 @@ function buildMenuSections(): (() => MenuSection)[] {
         { label: t('paste'), hotkey: 'Ctrl+V', action: () => void editPaste() },
         { label: t('copyForWord'), action: () => void editCopyForWord() },
         sep(),
+        { label: t('findMenu'), hotkey: 'Ctrl+F', action: () => findBar.open(false) },
+        { label: t('findReplaceMenu'), hotkey: 'Ctrl+H', action: () => findBar.open(true) },
+        sep(),
         { label: t('selectAll'), hotkey: 'Ctrl+A', action: () => editSelectAll() },
         { label: t('deleteLine'), hotkey: 'Ctrl+D', action: () => editDeleteLine() },
       ],
@@ -823,6 +841,12 @@ function buildMenuSections(): (() => MenuSection)[] {
           action: () => applyTheme('dark'),
           checked: () => currentTheme() === 'dark',
         },
+        sep(),
+        // #25: zoom ladder (reset lives on Ctrl+Num0 — Ctrl+0 is the
+        // "plain text" block command in both editing modes)
+        { label: t('zoomIn'), hotkey: 'Ctrl+=', action: zoomIn },
+        { label: t('zoomOut'), hotkey: 'Ctrl+−', action: zoomOut },
+        { label: t('zoomReset'), hotkey: 'Ctrl+Num0', action: zoomReset },
         sep(),
         {
           label: t('tocTitle'),
@@ -953,6 +977,7 @@ function setMode(next: Mode): void {
         source = new SourceEditor(els.sourcePane, raw, () => {
           markDirty();
           scheduleToc();
+          findBar.notifyDocChanged();
         });
       else source.setContent(raw);
     } else {
@@ -973,8 +998,7 @@ function setMode(next: Mode): void {
   mode = next;
   visual.setReadonly(mode === 'reading');
   els.visualPane.classList.toggle('active', paneOf(mode) === 'visual');
-  els.sourcePane.classList.toggle('active', mode === 'source');
-  const buttons: [HTMLButtonElement, Mode][] = [
+  els.sourcePane.classList.toggle('active', mode === 'source');  const buttons: [HTMLButtonElement, Mode][] = [
     [els.btnReading, 'reading'],
     [els.btnVisual, 'visual'],
     [els.btnSource, 'source'],
@@ -994,6 +1018,9 @@ function setMode(next: Mode): void {
   refreshChrome();
   // heading sources differ per mode (live DOM vs text scan)
   toc.refresh();
+  // #32: the open search follows into the now-active pane (and picks up
+  // the read-only replace lock of the reading mode)
+  findBar.reattach();
 }
 
 function toggleMode(): void {
@@ -1240,6 +1267,8 @@ function applyStaticTexts(): void {
   // render time, so a rebuild re-localizes them
   menuBar.relabel();
   toc.relabel();
+  // #32: the find bar (a no-op before its first open)
+  findBar.relabel();
 }
 
 // source-mode aliases mirroring the visual editor's Milkdown keymap
@@ -1276,6 +1305,8 @@ function sourceHotkey(code: string, shift: boolean, alt: boolean): boolean {
 }
 
 async function init(): Promise<void> {
+  // #25: apply the persisted zoom before the first meaningful paint
+  initZoom();
   // #68: the visual editor's image layer (display resolution + paste/drop
   // persistence) resolves against this window's document folder
   setImageContext({
@@ -1345,6 +1376,7 @@ async function init(): Promise<void> {
     '',
     () => {
       scheduleToc();
+      findBar.notifyDocChanged();
       if (userInteracted) {
         markDirty();
         return;
@@ -1395,11 +1427,13 @@ async function init(): Promise<void> {
     frontMatter = fm;
     unparsedPrefix = up;
     suppressChange = true;
-    void visual.rebuild(body)
+      void visual.rebuild(body)
       .then(() => {
         // rebuild wipes the pane (visual.rebuild replaceChildren) — bring the
         // front-matter record back above the fresh editor
         refreshFrontMatterView();
+        // #32: the rebuild destroyed the search decorations — re-apply
+        findBar.reattach();
         // with a modal open (settings dialog) the focus must stay inside it,
         // otherwise typing goes "blind" into the document under the overlay
         const openOverlay = activeModalOverlay();
@@ -1466,6 +1500,18 @@ async function init(): Promise<void> {
     } else if (code === 'Slash') {
       e.preventDefault();
       toggleMode();
+    } else if (!e.altKey && (code === 'Equal' || code === 'NumpadAdd')) {
+      // #25: zoom ladder — works everywhere, dialogs included; AltGr
+      // (Ctrl+Alt on Windows) must not zoom while typing
+      e.preventDefault();
+      zoomIn();
+    } else if (!e.altKey && (code === 'Minus' || code === 'NumpadSubtract')) {
+      e.preventDefault();
+      zoomOut();
+    } else if (!e.altKey && !e.shiftKey && code === 'Numpad0') {
+      // reset is Ctrl+Num0: Ctrl+0 stays the "plain text" block command
+      e.preventDefault();
+      zoomReset();
     } else if (code === 'KeyN' && !e.shiftKey && !e.altKey) {
       e.preventDefault();
       void newFile();
