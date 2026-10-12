@@ -40,7 +40,8 @@ import { MenuBar, type MenuSection } from './menu';
 import { TocPanel } from './toc';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
 import { applyWebView2DragFix } from './platform/webview2-dnd';
-import { getLang, setLang, t } from './i18n';
+import { getLang, t } from './i18n';
+import { applyTheme, currentTheme, toggleLang, toggleTheme } from './settings';
 import './styles.css';
 
 // Must run before the editors mount: it re-routes DataTransfer writes so
@@ -59,7 +60,6 @@ const paneOf = (m: Mode): 'visual' | 'source' => (m === 'source' ? 'source' : 'v
 
 const MD_FILTER = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] }];
 const MD_PATH_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
-const THEME_KEY = 'prosa.theme';
 
 // In a plain browser (no Tauri shell) native APIs are unavailable;
 // the editor core still works — only window/file integration is skipped.
@@ -811,12 +811,12 @@ function buildMenuSections(): (() => MenuSection)[] {
         {
           label: t('themeLight'),
           action: () => applyTheme('light'),
-          checked: () => document.documentElement.dataset.theme !== 'dark',
+          checked: () => currentTheme() !== 'dark',
         },
         {
           label: t('themeDark'),
           action: () => applyTheme('dark'),
-          checked: () => document.documentElement.dataset.theme === 'dark',
+          checked: () => currentTheme() === 'dark',
         },
         sep(),
         {
@@ -1141,11 +1141,6 @@ function askBeforeClose(): void {
   showModal(els.closeOverlay, els.ccSave);
 }
 
-function applyTheme(theme: 'light' | 'dark'): void {
-  document.documentElement.dataset.theme = theme;
-  localStorage.setItem(THEME_KEY, theme);
-}
-
 /** #70: an outline mouse with the right button filled (Lucide "mouse"
  * geometry, MIT — the same stroke style as the toolbar icons). The fill is
  * currentColor, so it follows the kbd text color in both themes. */
@@ -1357,7 +1352,7 @@ async function init(): Promise<void> {
   els.btnVisual.addEventListener('click', () => setMode('visual'));
   els.btnSource.addEventListener('click', () => setMode('source'));
   els.btnLang.addEventListener('click', () => {
-    setLang(getLang() === 'ru' ? 'en' : 'ru');
+    toggleLang();
     applyStaticTexts();
     refreshChrome();
     // Crepe bakes its feature strings in at construction — rebuild the
@@ -1380,10 +1375,7 @@ async function init(): Promise<void> {
       }, 0);
     });
   });
-  els.btnTheme.addEventListener('click', () => {
-    const now = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-    applyTheme(now);
-  });
+  els.btnTheme.addEventListener('click', () => toggleTheme());
   // #86: real Ctrl+V pastes in either editor — the capture-phase event
   // fires before the editor consumes it, so the pristine-untitled gate
   // still sees the pre-paste (empty) document
