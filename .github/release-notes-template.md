@@ -2,21 +2,15 @@
 
 **RU** — что нового:
 
-- Поиск и замена (Ctrl+F / Ctrl+H) во всех трёх режимах: подсветка совпадений, счётчик, переходы Enter/F3, учёт регистра, «Заменить все» одним шагом отмены.
-- Масштаб: Ctrl+колесо, Ctrl+= / Ctrl+−, сброс Ctrl+Num0; уровень запоминается.
-- Исправлено: конвертация нумерованного списка в маркированный (Ctrl+Alt+8) в визуальном режиме.
-- Исправлено: «Снять форматирование» больше не съедает флажок задачи `[x]` на строке со ссылкой.
-- Исправлено: оглавление показывает «Заголовков нет» на пустом документе.
-- Локализация: триггер языка блока кода — «Текст»/«Text».
+- **HTML в визуальном режиме**: инлайн-теги `kbd`, `sub`, `sup` и `<br>` рендерятся как настоящие теги — `H<sub>2</sub>O`, `x<sup>2</sup>`, клавиши `<kbd>Ctrl</kbd>`; выделение, ссылки и жирный работают поверх. Блочный HTML (`<div>`, HTML-таблицы, комментарии) показывается стилизованным кодом, а не рендерится. Файл не меняется побайтово: регистр тегов (`<BR/>`) и формы (`<br />`/`<br>`) сохраняются, «Копировать для Word» уносит те же теги. Остальной HTML остаётся текстом.
+- **Поиск в режиме «Код»**: Ctrl+F и Ctrl+H открывают штатную панель CodeMirror (регекс, «целое слово», кнопки) в любом месте фокуса; Ctrl+H сразу ставит курсор в поле замены. Esc панели больше не перехватывает клавишу у меню и подсказок редактора.
+- Исправлено (по прогону rc.2): панель поиска не закрывалась и всегда показывала строку замены; кнопка регистра была пустой.
 
 **EN** — what's new:
 
-- Find & replace (Ctrl+F / Ctrl+H) in all three modes: match highlighting, counter, Enter/F3 navigation, match case, Replace all as a single undo step.
-- Zoom: Ctrl+wheel, Ctrl+= / Ctrl+−, reset with Ctrl+Num0; the level persists.
-- Fixed: converting an ordered list to a bullet list (Ctrl+Alt+8) in the visual editor.
-- Fixed: Clear formatting no longer eats the `[x]` task checkbox on a line with a link.
-- Fixed: the outline shows its "no headings" placeholder on an empty document.
-- Localization: the code-block language trigger now reads «Текст»/«Text».
+- **HTML in the visual mode**: the inline `kbd`, `sub`, `sup` and `<br>` tags render as real tags — `H<sub>2</sub>O`, `x<sup>2</sup>`, `<kbd>Ctrl</kbd>` keycaps — with bold/links working across them. Block-level HTML (`<div>`, HTML tables, comments) shows as styled code instead of rendering. The file stays byte-identical: tag case (`<BR/>`) and forms (`<br />`/`<br>`) survive, and Copy-for-Word carries the same tags. Everything else stays literal text.
+- **Search in the Source mode**: Ctrl+F and Ctrl+H open CodeMirror's own panel (regexp, whole word, buttons) no matter where the focus is; Ctrl+H lands the caret in the replace field. The panel's Esc no longer steals the key from menus and editor hints.
+- Fixed (from the rc.2 owner run): the find bar would not close and always showed the replace row; the case-sensitivity button was empty.
 
 ---
 
