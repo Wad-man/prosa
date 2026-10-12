@@ -841,6 +841,41 @@ body {
   padding-top: 24px;
 }
 
+/* #61: block-level raw HTML shows as formatted code, never renders as HTML
+   (owner decision 2026-10-06). Atom node: mono, sunk surface, hairline
+   border — kin to the front-matter record and code blocks, no chrome. */
+#visual-editor .prosa-html-block {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-2);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 10px 16px;
+  margin: 12px 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  user-select: text;
+}
+
+/* #61: the whitelisted inline <kbd> — keycap look in app tokens (GitHub-
+   like); sub/sup stay native browser semantics. */
+#visual-editor .ProseMirror kbd {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1;
+  padding: 2px 5px;
+  color: var(--fg);
+  background: var(--bg-sunk);
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  vertical-align: middle;
+  display: inline-block;
+}
+
+
 /* Re-skin Crepe's own components (code-block chrome, tooltips,
    slash menu, tables, list markers) through its token layer. */
 #visual-editor .milkdown {

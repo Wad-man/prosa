@@ -35,6 +35,7 @@ declare module '@milkdown/components/code-block' {
   }
 }
 import { $remark, $shortcut, $prose, replaceAll } from '@milkdown/kit/utils';
+import { rawHtmlTagger, htmlTagNode, htmlBlockNode } from './raw-html';
 import { crepeLocaleConfigs, editorStrings } from './crepe-locale';
 import { displaySrc, ensureImageTarget, writeImageFile } from './image-assets';
 import { ContextPanel, type PanelClipboardActions } from './context-panel';
@@ -359,7 +360,7 @@ const breakFlavorTagger = $remark('prosa-break-flavor', () => () => {
           data?: Record<string, unknown>;
           position?: { start?: { offset?: number }; end?: { offset?: number } };
         };
-        if (n.type === 'break' && n.position) {
+        if (n.type === 'break' && n.position && n.data?.hardBreakFlavor === undefined) {
           const start = n.position.start?.offset;
           const end = n.position.end?.offset;
           const slice = start != null && end != null ? source.slice(start, end) : '';
@@ -658,7 +659,7 @@ const hardBreakFlavorFix: MilkdownPlugin = (ctx) => {
               match: (node: unknown) => boolean;
               runner: (
                 state: { addNode: (type: unknown, attrs?: unknown) => unknown },
-                node: { data?: { isInline?: boolean; hardBreakFlavor?: string } },
+                node: { data?: { isInline?: boolean; hardBreakFlavor?: string; htmlRaw?: string } },
                 type: unknown,
               ) => void;
             };
@@ -675,10 +676,15 @@ const hardBreakFlavorFix: MilkdownPlugin = (ctx) => {
       | undefined;
     if (!hardbreak) return;
 
-    hardbreak.spec.attrs = { ...hardbreak.spec.attrs, twoSpace: { default: false, validate: 'boolean' } };
+    // #61: `htmlRaw` is the fourth flavor — an inline `<br>` variant kept as
+    // its original bytes ('' = not an HTML break). The toMarkdown branch
+    // below emits an mdast `html` node (written verbatim) instead of a
+    // `break`, so the file never learns about `\` or two spaces.
+    hardbreak.spec.attrs = { ...hardbreak.spec.attrs, twoSpace: { default: false, validate: 'boolean' }, htmlRaw: { default: '', validate: 'string' } };
     hardbreak.attrs.twoSpace = { hasDefault: true, default: false };
+    hardbreak.attrs.htmlRaw = { hasDefault: true, default: '' };
     if (hardbreak.defaultAttrs) {
-      hardbreak.defaultAttrs = { ...hardbreak.defaultAttrs, twoSpace: false };
+      hardbreak.defaultAttrs = { ...hardbreak.defaultAttrs, twoSpace: false, htmlRaw: '' };
     }
 
     const parse = hardbreak.spec.parseMarkdown!;
@@ -688,6 +694,7 @@ const hardBreakFlavorFix: MilkdownPlugin = (ctx) => {
         state.addNode(type, {
           isInline: Boolean(node.data?.isInline),
           twoSpace: node.data?.hardBreakFlavor === 'twospace',
+          htmlRaw: node.data?.hardBreakFlavor === 'html' ? String(node.data?.htmlRaw ?? '') : '',
         });
       },
     };
@@ -696,7 +703,9 @@ const hardBreakFlavorFix: MilkdownPlugin = (ctx) => {
     hardbreak.spec.toMarkdown = {
       ...toMarkdown,
       runner: (state, node) => {
-        if (node.attrs.isInline) {
+        if (node.attrs.htmlRaw) {
+          state.addNode('html', undefined, node.attrs.htmlRaw);
+        } else if (node.attrs.isInline) {
           state.addNode('text', undefined, '\n');
         } else if (node.attrs.twoSpace) {
           state.addNode('break', undefined, undefined, { twoSpace: true });
@@ -714,6 +723,9 @@ const hardBreakFlavorFix: MilkdownPlugin = (ctx) => {
         if (node.attrs.twoSpace && Array.isArray(spec) && spec[1]) {
           spec[1]['data-twospace'] = 'true';
         }
+        if (node.attrs.htmlRaw && Array.isArray(spec) && spec[1]) {
+          spec[1]['data-htmlraw'] = String(node.attrs.htmlRaw);
+        }
         return spec;
       };
     }
@@ -724,10 +736,11 @@ const hardBreakFlavorFix: MilkdownPlugin = (ctx) => {
             // `isInline: false` is lineBreaksFix's pin (a DOM `<br>` is the
             // hard flavor; without it the new default would soften every
             // break on the clipboard round-trip) — keep it AND read the
-            // two-space flavor back
+            // two-space / #61 html flavors back
             getAttrs: (dom: HTMLElement) => ({
               isInline: false,
               twoSpace: dom.getAttribute('data-twospace') === 'true',
+              htmlRaw: dom.getAttribute('data-htmlraw') ?? '',
             }),
           }
         : rule,
@@ -1612,6 +1625,13 @@ export class VisualEditor {
     this.crepe.editor.use(emphasisMarkerFix);
     this.crepe.editor.use(emphasisIntrawordFix);
     this.crepe.editor.use(makeLinkReferenceFix(() => this.definitions));
+    // #61: raw HTML — the two schema nodes must be registered before
+    // create() (a ProseMirror schema is immutable once built), the tagger
+    // before breakFlavorTagger (it pre-flavors `<br>`-converted break nodes;
+    // the tagger skips nodes that already carry a flavor)
+    this.crepe.editor.use(htmlTagNode);
+    this.crepe.editor.use(htmlBlockNode);
+    this.crepe.editor.use(rawHtmlTagger);
     // registered before Crepe's own $remark plugins: it must see break nodes
     // with their pristine positions to detect the source flavor (emphasis
     // markers are tagged by the stock remarkMarker inside the commonmark
