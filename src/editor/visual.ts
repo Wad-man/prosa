@@ -1753,13 +1753,14 @@ export class VisualEditor {
       if (!m || this.readonly) return;
       // nodeAt(m.from) is the text node the match starts in — its marks are
       // the ones the replacement must wear (resolve().marks() can go empty
-      // at a node boundary and silently strip bold/italic)
+      // at a node boundary and silently strip bold/italic). An empty
+      // replacement is a plain delete: schema.text('') is not a node.
       const marks = view.state.doc.nodeAt(m.from)?.marks ?? [];
-      view.dispatch(
-        view.state.tr
-          .replaceWith(m.from, m.to, view.state.doc.type.schema.text(replacement, marks))
-          .setMeta(visualSearchKey, { active: index }),
-      );
+      let tr = view.state.tr.setMeta(visualSearchKey, { active: index });
+      tr = replacement
+        ? tr.replaceWith(m.from, m.to, view.state.doc.type.schema.text(replacement, marks))
+        : tr.delete(m.from, m.to);
+      view.dispatch(tr);
       ok = true;
     });
     return ok;
@@ -1776,12 +1777,15 @@ export class VisualEditor {
       const s = visualSearchKey.getState(view.state);
       if (!s || s.matches.length === 0 || this.readonly) return;
       // reverse document order: earlier positions stay valid as later
-      // ranges are replaced first
+      // ranges are replaced first. An empty replacement deletes the range
+      // (schema.text('') is not a valid node).
       let tr = view.state.tr;
       for (let i = s.matches.length - 1; i >= 0; i--) {
         const m = s.matches[i];
         const marks = tr.doc.nodeAt(m.from)?.marks ?? [];
-        tr = tr.replaceWith(m.from, m.to, tr.doc.type.schema.text(replacement, marks));
+        tr = replacement
+          ? tr.replaceWith(m.from, m.to, tr.doc.type.schema.text(replacement, marks))
+          : tr.delete(m.from, m.to);
       }
       count = s.matches.length;
       view.dispatch(tr);
