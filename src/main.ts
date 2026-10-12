@@ -1428,9 +1428,9 @@ async function init(): Promise<void> {
     frontMatter = fm;
     unparsedPrefix = up;
     suppressChange = true;
-      void visual
-        .rebuild(body)
-        .then(() => {
+    void visual
+      .rebuild(body)
+      .then(() => {
         // rebuild wipes the pane (visual.rebuild replaceChildren) — bring the
         // front-matter record back above the fresh editor
         refreshFrontMatterView();
@@ -1563,7 +1563,7 @@ async function init(): Promise<void> {
       // document instead (Ctrl+C then copies it as markdown, #47)
       e.preventDefault();
       editSelectAll();
-    } else if (mode === 'source' && sourceHotkey(code, e.shiftKey, e.altKey)) {
+    } else if (modalOpen === false && mode === 'source' && sourceHotkey(code, e.shiftKey, e.altKey)) {
       e.preventDefault();
     }
   });

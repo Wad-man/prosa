@@ -1502,8 +1502,6 @@ export class VisualEditor {
           'Mod-Alt-с': () => call.call(createCodeBlockCommand.key),
           // Typora parity: Ctrl+K toggles a link on the selection (the
           // letter-key physical-keyCode fallback covers non-Latin layouts)
-          // Typora parity: Ctrl+K toggles a link on the selection (the
-          // letter-key physical-keyCode fallback covers non-Latin layouts)
           'Mod-k': () => call.call(toggleLinkCommand.key),
         };
       }),
@@ -1714,6 +1712,17 @@ export class VisualEditor {
       count = s ? s.matches.length : 0;
     });
     return count;
+  }
+
+  /** Document position where match `index` starts (-1 when out of range). */
+  searchMatchFrom(index: number): number {
+    let from = -1;
+    this.crepe?.editor.action((ctx) => {
+      const s = visualSearchKey.getState(ctx.get(editorViewCtx).state);
+      const m = s?.matches[index];
+      if (m) from = m.from;
+    });
+    return from;
   }
 
   /** Highlight + select + scroll to match `index` (works read-only too). */

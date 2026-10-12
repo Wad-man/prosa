@@ -95,6 +95,12 @@ export function cmMatchCount(view: EditorView): number {
   return view.state.field(searchField).matches.length;
 }
 
+/** Document position where match `index` starts (null when out of range). */
+export function cmMatchFrom(view: EditorView, index: number): number | null {
+  const m = view.state.field(searchField).matches[index];
+  return m ? m.from : null;
+}
+
 /** Highlight + select + scroll to match `index`. */
 export function cmGoToMatch(view: EditorView, index: number): void {
   const s = view.state.field(searchField);

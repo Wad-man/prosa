@@ -17,7 +17,7 @@
 import { t } from './i18n';
 import type { VisualEditor } from './editor/visual';
 import type { SourceEditor } from './editor/source';
-import { cmApplySearch, cmGoToMatch, cmMatchCount, cmReplaceAllMatches, cmReplaceMatch } from './editor/cm-search';
+import { cmApplySearch, cmGoToMatch, cmMatchCount, cmMatchFrom, cmReplaceAllMatches, cmReplaceMatch } from './editor/cm-search';
 
 export interface FindReplaceDeps {
   visual: VisualEditor;
@@ -336,12 +336,24 @@ export class FindReplaceBar {
     this.updateCountLabel();
   }
 
+  /** Position of match `index` in the active pane (-1 when out of range). */
+  private matchFrom(index: number): number {
+    if (this.deps.getMode() === 'source') {
+      const src = this.deps.getSource();
+      return src ? (cmMatchFrom(src.view, index) ?? -1) : -1;
+    }
+    return this.deps.visual.searchMatchFrom(index);
+  }
+
   private replaceCurrent(): void {
     if (this.deps.getMode() === 'reading' || !this.input || !this.replaceInput) return;
     if (this.count === 0) return;
     if (this.activeIndex < 0) this.next();
     if (this.activeIndex < 0 || this.count === 0) return;
     const replacement = this.replaceInput.value;
+    // where the replaced match started — the walk after the replace must
+    // land PAST the insertion, or "a"→"aa" would re-find its own output
+    const replacedFrom = this.matchFrom(this.activeIndex);
     let ok = false;
     if (this.deps.getMode() === 'source') {
       const src = this.deps.getSource();
@@ -352,10 +364,20 @@ export class FindReplaceBar {
     if (!ok) return;
     this.deps.onEdited();
     this.refreshCount();
-    // walk to the next match — also breaks the "a"→"aa" loop, where the
-    // replacement itself matches the query and the same spot would be
-    // replaced forever
-    if (this.count > 0) this.next();
+    // the next match to offer: the first one starting at/after the end of
+    // the inserted text (indices alone lie — the list shifts on the edit);
+    // wraps to the first match when the document ends before that
+    const past = replacedFrom + replacement.length;
+    if (this.count > 0) {
+      let target = -1;
+      for (let i = 0; i < this.count; i++) {
+        if (this.matchFrom(i) >= past) {
+          target = i;
+          break;
+        }
+      }
+      this.goTo(target === -1 ? 0 : target);
+    }
     this.updateCountLabel();
   }
 
