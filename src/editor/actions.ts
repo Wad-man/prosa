@@ -83,12 +83,34 @@ function liftSelection(ctx: Ctx): void {
   view.focus();
 }
 
-/** Convert the nearest enclosing list to `listType` in place (ul ↔ ol). */
+/** Convert the nearest enclosing list to `listType` in place (ul ↔ ol).
+ * The list node's type alone is not enough: milkdown's list items carry
+ * their own `listType`/`label` attrs, and the preset's syncListOrderPlugin
+ * appendTransaction reverts a converted list whose items still claim the
+ * old flavor (#51). One transaction updates the list AND every item, so
+ * the sync finds a consistent document and leaves it alone — and the
+ * whole conversion is a single undo step. */
 function setListType(ctx: Ctx, listType: NodeType): void {
   const view = ctx.get(editorViewCtx);
   const depth = ancestorDepth(ctx, ['bullet_list', 'ordered_list']);
   if (depth === 0) return;
-  view.dispatch(view.state.tr.setNodeMarkup(resolved$from(ctx).before(depth), listType));
+  const $from = resolved$from(ctx);
+  const listPos = $from.before(depth);
+  const list = $from.node(depth);
+  const ordered = listType.name === 'ordered_list';
+  let tr = view.state.tr.setNodeMarkup(listPos, listType);
+  // forEach offsets are relative to the list's content start (listPos + 1)
+  list.forEach((item, offset, i) => {
+    if (item.type.name !== 'list_item') return;
+    const attrs: Record<string, unknown> = {
+      ...item.attrs,
+      listType: ordered ? 'ordered' : 'bullet',
+      // labels are the ordered flavor's business; the bullet renders its icon
+      label: ordered ? `${i + (list.attrs.order ?? 1)}.` : '',
+    };
+    tr = tr.setNodeMarkup(listPos + 1 + offset, undefined, attrs);
+  });
+  view.dispatch(tr.scrollIntoView());
   view.focus();
 }
 

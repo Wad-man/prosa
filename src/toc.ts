@@ -43,8 +43,11 @@ export class TocPanel {
   // #36: [hidden] lands only after the close transition finished
   private closeTimer: number | undefined;
   // #30: skip button rebuilds when the headings did not change — mode
-  // switches used to recreate every .toc-item (and its listeners) for nothing
-  private renderedSig = '';
+  // switches used to recreate every .toc-item (and its listeners) for nothing.
+  // #50: starts at null — '' is the legitimate signature of a heading-less
+  // document and must not collide with "never rendered yet" (the fresh
+  // empty document skipped its placeholder on exactly that collision)
+  private renderedSig: string | null = null;
 
   mount(host: HTMLElement, ctx: TocContext): void {
     this.ctx = ctx;

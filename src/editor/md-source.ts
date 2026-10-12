@@ -312,7 +312,10 @@ export function sourceClearFormatting(view: EditorView): void {
       .replace(/_([^_]+?)_/g, '$1')
       .replace(/~~([\s\S]+?)~~/g, '$1')
       .replace(/`([^`]+?)`/g, '$1')
-      .replace(/\[([\s\S]*?)\]\([^)]*\)/g, '$1');
+      // a link label holds no square brackets — otherwise the lazy match
+      // starts at a task checkbox `[x]` and swallows it up to the link's
+      // `](url)` (#52)
+      .replace(/\[([^\[\]]*)\]\([^)]*\)/g, '$1');
   } while (text !== prev);
   if (text !== original) {
     view.dispatch({ changes: { from, to, insert: text } });
