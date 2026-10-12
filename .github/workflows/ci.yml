@@ -44,3 +44,92 @@ jobs:
           path: |
             src-tauri/target/release/prosa.exe
             src-tauri/target/release/bundle/nsis/*.exe
+
+  # Cross-platform smoke builds: prove the app compiles and bundles on
+  # macOS/Linux on every push/PR to main. No release, no code signing, no
+  # updater artifacts — that stays a Windows-only release concern for now.
+  # These jobs have no `needs:` and nothing depends on them, so a red
+  # cross-build never blocks the tsc/vite gate or the Windows build.
+  #
+  # tauri.conf.json ships bundle.targets=["nsis"] (Windows-only) and
+  # createUpdaterArtifacts=true (requires TAURI_SIGNING_PRIVATE_KEY), so
+  # each cross job overrides both on the CLI:
+  #   --bundles <platform format>              instead of the "nsis" target
+  #   --config createUpdaterArtifacts=false    skip updater signing entirely
+
+  macos-universal:
+    name: macOS build (universal)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # universal-apple-darwin builds both slices, so install both targets
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: macos-universal
+      - run: npm ci
+      - name: Build ad-hoc-signed universal dmg
+        # ad-hoc signature ("-"): no Apple account needed, but the arm64
+        # slice is killed by macOS unless it carries at least this
+        run: npx tauri build --target universal-apple-darwin --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":"-"}}}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prosamd-macos-universal
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+  linux:
+    name: Linux build (${{ matrix.arch }}, AppImage)
+    strategy:
+      # keep the x64 leg's result even if arm64 fails (and vice versa)
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            # 22.04 (glibc 2.35), not latest: keeps the AppImage runnable
+            # on Debian 12 / Ubuntu 22.04-era systems
+            os: ubuntu-22.04
+          - arch: arm64
+            # native arm64 runner — free for public repositories
+            os: ubuntu-22.04-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri v2 system dependencies
+        # official list from https://tauri.app/start/prerequisites/
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: linux-${{ matrix.arch }}
+      - run: npm ci
+      - name: Build unsigned AppImage
+        run: npx tauri build --bundles appimage --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prosamd-linux-${{ matrix.arch }}
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
