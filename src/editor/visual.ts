@@ -1049,6 +1049,10 @@ function computeVisualMatches(doc: ProseNode, query: string, caseSensitive: bool
     } else if (node.isText && node.text) {
       spans.push({ start: text.length, pos, size: node.text.length });
       text += node.text;
+    } else if (node.isLeaf) {
+      // inline atoms (image, hardbreak…) are NOT searchable text — a match
+      // must never span them, or replaceWith() would swallow the atom
+      text += '\uFFFC';
     }
     return true;
   });
@@ -1498,21 +1502,12 @@ export class VisualEditor {
           'Mod-Alt-с': () => call.call(createCodeBlockCommand.key),
           // Typora parity: Ctrl+K toggles a link on the selection (the
           // letter-key physical-keyCode fallback covers non-Latin layouts)
+          // Typora parity: Ctrl+K toggles a link on the selection (the
+          // letter-key physical-keyCode fallback covers non-Latin layouts)
           'Mod-k': () => call.call(toggleLinkCommand.key),
         };
       }),
     );
-    // `bullet: '-'` keeps `-`-marked lists byte-identical on save (the
-    // serializer default is `*`, which flips every dash marker); a sibling
-    // list written with `*` still serializes as `*` — the serializer picks
-    // the "other" bullet for adjacent lists so they cannot merge.
-    // `rule: '-'` keeps `---` thematic breaks from turning into `***`.
-    //
-    // #59: heading auto-IDs follow the GitHub slug shape (lowercase,
-    // punctuation dropped, whitespace → dashes, unicode letters kept), so
-    // anchors typed by hand after GitHub's rendering resolve in ProsaMD too.
-    // The ids live only in the model/DOM — the heading serializer never
-    // writes them into the file.
     // #84: the code-block language trigger falls back to "Text", hardcoded
     // in @milkdown/components; the patch-package patch (patches/) reads
     // `defaultLanguageText` from this slice. This config registers after
@@ -1737,8 +1732,9 @@ export class VisualEditor {
     });
   }
 
-  /** Replace the match at `index` — a normal editing transaction (marks at
-   * the position carry over, undo/history as usual). Returns success. */
+  /** Replace the match at `index` — a normal editing transaction (marks of
+   * the text node at the range start carry over, undo/history as usual).
+   * Returns success. */
   searchReplace(index: number, replacement: string): boolean {
     let ok = false;
     this.crepe?.editor.action((ctx) => {
@@ -1746,9 +1742,10 @@ export class VisualEditor {
       const s = visualSearchKey.getState(view.state);
       const m = s?.matches[index];
       if (!m || this.readonly) return;
-      // plain text replacement inherits the marks at the range start, so
-      // replacing inside bold/italic stays bold/italic
-      const marks = view.state.doc.resolve(m.from).marks();
+      // nodeAt(m.from) is the text node the match starts in — its marks are
+      // the ones the replacement must wear (resolve().marks() can go empty
+      // at a node boundary and silently strip bold/italic)
+      const marks = view.state.doc.nodeAt(m.from)?.marks ?? [];
       view.dispatch(
         view.state.tr
           .replaceWith(m.from, m.to, view.state.doc.type.schema.text(replacement, marks))
@@ -1759,9 +1756,10 @@ export class VisualEditor {
     return ok;
   }
 
-  /** Replace every match in ONE transaction (one undo step). The untouched
-   * parts of the document are never re-serialized by this — byte fidelity
-   * rides on the lossless core the visual editor already guarantees. */
+  /** Replace every match in ONE transaction (one undo step). Only the
+   * matched ranges change here — but a visual-mode save always reserializes
+   * the document, so byte fidelity outside the replacements rides on the
+   * lossless core (#33), unlike the source mode's byte-exact replace-all. */
   searchReplaceAll(replacement: string): number {
     let count = 0;
     this.crepe?.editor.action((ctx) => {
@@ -1773,7 +1771,7 @@ export class VisualEditor {
       let tr = view.state.tr;
       for (let i = s.matches.length - 1; i >= 0; i--) {
         const m = s.matches[i];
-        const marks = tr.doc.resolve(m.from).marks();
+        const marks = tr.doc.nodeAt(m.from)?.marks ?? [];
         tr = tr.replaceWith(m.from, m.to, tr.doc.type.schema.text(replacement, marks));
       }
       count = s.matches.length;

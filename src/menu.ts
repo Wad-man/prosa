@@ -13,6 +13,7 @@
  * checkmarks on current state). Items suppress pointerdown so clicking one
  * never blurs the editor or collapses the selection the command acts on.
  */
+import { cssZoom } from './zoom';
 
 export interface MenuEntry {
   label: string;
@@ -143,8 +144,13 @@ export class MenuBar {
     btn.setAttribute('aria-expanded', 'true');
     const rect = btn.getBoundingClientRect();
     const width = menu.offsetWidth;
-    menu.style.left = `${Math.min(rect.left, window.innerWidth - width - 8)}px`;
-    menu.style.top = `${rect.bottom + 4}px`;
+    // rect is in VISUAL pixels (zoom-multiplied), style.left/top of a child
+    // of the zoomed <html> expect unzoomed CSS px — divide, or the dropdown
+    // drifts off its button at any zoom ≠ 100% (#25)
+    const z = cssZoom();
+    const widthVisual = width * z;
+    menu.style.left = `${Math.min(rect.left, window.innerWidth - widthVisual - 8) / z}px`;
+    menu.style.top = `${(rect.bottom + 4) / z}px`;
 
     document.addEventListener('pointerdown', this.onOutsidePointerDown, true);
     document.addEventListener('keydown', this.onKeyDown, true);

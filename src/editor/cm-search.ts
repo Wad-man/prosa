@@ -32,6 +32,9 @@ const searchField = StateField.define<SearchState>({
     const eff = tr.effects.find((e) => e.is(setSearchQuery));
     if (!eff && !tr.docChanged) return prev;
     const next = eff ? { ...prev, ...eff.value } : prev;
+    // no query, no scan — doc.toString() on every keystroke of an editor
+    // whose search bar has never been opened would be pure waste
+    if (!next.query) return { ...next, matches: [] };
     // recomputed unconditionally: query switches and document edits are
     // both rare compared to caret movement, and a stale count in the bar
     // would be worse than a redundant scan

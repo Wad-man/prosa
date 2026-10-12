@@ -62,12 +62,22 @@ export class FindReplaceBar {
     return this.isOpen;
   }
 
+  /** True while the caret sits in one of the bar's inputs — the central
+   * hotkey dispatch in main.ts treats it like an open modal (editor
+   * commands must not fire into the document under the bar). */
+  hasFocus(): boolean {
+    return this.isOpen && this.bar !== null && document.activeElement !== null && this.bar.contains(document.activeElement);
+  }
+
   /** Правка → Найти… / Ctrl+F; `withReplace` forces the replace row (Ctrl+H). */
   open(withReplace: boolean): void {
     if (this.deps.isOverlayOpen()) return;
     this.ensureBuilt();
     if (withReplace) this.replaceVisible = true;
     this.updateReplaceVisibility();
+    // a fresh (re)open re-runs the search: the active index refers to the
+    // previous match set and must not leak into the new one
+    this.activeIndex = -1;
     if (!this.isOpen) {
       this.isOpen = true;
       this.bar!.hidden = false;
@@ -100,6 +110,8 @@ export class FindReplaceBar {
    * visual editor rebuild (language change destroys the decorations). */
   reattach(): void {
     if (!this.isOpen) return;
+    // the new pane's match set is not the old one — restart navigation
+    this.activeIndex = -1;
     this.refreshEditable();
     this.applySearch();
   }
@@ -154,6 +166,10 @@ export class FindReplaceBar {
     }
     if (e.key === 'Escape' && !mod && !e.altKey) {
       if (this.deps.isOverlayOpen()) return; // the modal wins its own Esc
+      // only when the bar itself holds focus: with focus elsewhere, Esc
+      // belongs to whatever the user is in (open menu, link tooltip,
+      // autocomplete) — they close on it, the bar stays
+      if (!this.bar?.contains(document.activeElement)) return;
       e.preventDefault();
       e.stopPropagation();
       this.close();
@@ -336,6 +352,10 @@ export class FindReplaceBar {
     if (!ok) return;
     this.deps.onEdited();
     this.refreshCount();
+    // walk to the next match — also breaks the "a"→"aa" loop, where the
+    // replacement itself matches the query and the same spot would be
+    // replaced forever
+    if (this.count > 0) this.next();
     this.updateCountLabel();
   }
 

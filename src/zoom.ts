@@ -16,6 +16,7 @@ const WHEEL_THRESHOLD = 100;
 
 let level = loadLevel();
 let wheelAcc = 0;
+let lastWheelAt = 0;
 
 function loadLevel(): number {
   const stored = Number.parseFloat(localStorage.getItem(ZOOM_KEY) ?? '');
@@ -43,6 +44,15 @@ function step(dir: 1 | -1): void {
   apply();
 }
 
+/** Applied zoom as a number (1 when unset/broken) — popup positioning
+ * divides its VISUAL coordinates (getBoundingClientRect, clientX/Y) by it:
+ * those come zoom-multiplied, while style.left/top of an element inside the
+ * zoomed <html> expect unzoomed CSS px (double-scaling otherwise). */
+export function cssZoom(): number {
+  const z = Number.parseFloat(getComputedStyle(document.documentElement).zoom || '1');
+  return Number.isFinite(z) && z > 0 ? z : 1;
+}
+
 /** Called once from main.ts: applies the stored level and claims the wheel. */
 export function initZoom(): void {
   apply();
@@ -51,6 +61,11 @@ export function initZoom(): void {
     (e) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
+      // a fresh gesture (>300 ms gap) starts from zero — leftover sub-step
+      // accumulation must not make the first notch feel oversensitive
+      const now = performance.now();
+      if (now - lastWheelAt > 300) wheelAcc = 0;
+      lastWheelAt = now;
       wheelAcc += e.deltaY;
       while (wheelAcc <= -WHEEL_THRESHOLD) {
         step(1); // wheel up / pinch out — zoom in, the browser convention

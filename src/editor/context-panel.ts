@@ -10,6 +10,7 @@ import {
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm';
 
 import { editorStrings } from './crepe-locale';
+import { cssZoom } from '../zoom';
 import { applyVisualBlock, blockHotkey, type BlockId } from './actions';
 import { getLang, t } from '../i18n';
 
@@ -210,8 +211,11 @@ export class ContextPanel {
     document.body.append(panel);
     this.panel = panel;
     const r = panel.getBoundingClientRect();
-    panel.style.left = `${Math.min(Math.max(8, e.clientX), innerWidth - r.width - 8)}px`;
-    panel.style.top = `${Math.min(Math.max(8, e.clientY + 6), innerHeight - r.height - 8)}px`;
+    // e.clientX/Y and r are VISUAL pixels (zoom-multiplied), style.left/top
+    // of a child of the zoomed <html> expect unzoomed CSS px (#25)
+    const z = cssZoom();
+    panel.style.left = `${Math.min(Math.max(8, e.clientX), innerWidth - r.width - 8) / z}px`;
+    panel.style.top = `${Math.min(Math.max(8, e.clientY + 6), innerHeight - r.height - 8) / z}px`;
   };
 
   /** The «Параграф ▸» row: opens the block-type submenu on hover.
@@ -264,8 +268,9 @@ export class ContextPanel {
       this.submenu = sub;
       const ir = item.getBoundingClientRect();
       const sr = sub.getBoundingClientRect();
-      sub.style.left = `${Math.min(ir.right + 4, innerWidth - sr.width - 8)}px`;
-      sub.style.top = `${Math.min(Math.max(8, ir.top - 4), innerHeight - sr.height - 8)}px`;
+      const z = cssZoom();
+      sub.style.left = `${Math.min(ir.right + 4, innerWidth - sr.width - 8) / z}px`;
+      sub.style.top = `${Math.min(Math.max(8, ir.top - 4), innerHeight - sr.height - 8) / z}px`;
     });
     return item;
   }

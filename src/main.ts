@@ -998,7 +998,8 @@ function setMode(next: Mode): void {
   mode = next;
   visual.setReadonly(mode === 'reading');
   els.visualPane.classList.toggle('active', paneOf(mode) === 'visual');
-  els.sourcePane.classList.toggle('active', mode === 'source');  const buttons: [HTMLButtonElement, Mode][] = [
+  els.sourcePane.classList.toggle('active', mode === 'source');
+  const buttons: [HTMLButtonElement, Mode][] = [
     [els.btnReading, 'reading'],
     [els.btnVisual, 'visual'],
     [els.btnSource, 'source'],
@@ -1343,7 +1344,7 @@ async function init(): Promise<void> {
   window.addEventListener(
     'keydown',
     (e) => {
-      if (mode !== 'visual' || activeModalOverlay() !== null) return;
+      if (mode !== 'visual' || activeModalOverlay() !== null || findBar.hasFocus()) return;
       if (!(e.ctrlKey || e.metaKey)) return;
       const { code, shiftKey, altKey } = e;
       let block: BlockId | null = null;
@@ -1427,8 +1428,9 @@ async function init(): Promise<void> {
     frontMatter = fm;
     unparsedPrefix = up;
     suppressChange = true;
-      void visual.rebuild(body)
-      .then(() => {
+      void visual
+        .rebuild(body)
+        .then(() => {
         // rebuild wipes the pane (visual.rebuild replaceChildren) — bring the
         // front-matter record back above the fresh editor
         refreshFrontMatterView();
@@ -1489,8 +1491,10 @@ async function init(): Promise<void> {
     // software-remapped layout (Dvorak etc.) gets the physical key, an
     // accepted trade-off
     const code = e.code;
-    // editor-touching aliases are dead while a modal dialog is up
-    const modalOpen = activeModalOverlay() !== null;
+    // editor-touching aliases are dead while a modal dialog is up, or while
+    // the caret sits in the find bar's inputs (a non-modal surface — the
+    // hotkeys must not fire into the document underneath it)
+    const modalOpen = activeModalOverlay() !== null || findBar.hasFocus();
     if (code === 'KeyS') {
       e.preventDefault();
       void saveFile(e.shiftKey);
