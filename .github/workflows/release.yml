@@ -1,10 +1,16 @@
 name: Release
 
-# Tag push (v*) builds signed bundles and creates a DRAFT release in this
-# repo (Wad-man/prosa). Edit the notes there and publish — the in-app
-# updater serves from the latest release of this repo.
+# Tag push (v*) builds signed bundles for every platform (Windows NSIS +
+# portable exe, macOS universal dmg, Linux x64/arm64 AppImages) and creates
+# a DRAFT release in this repo (Wad-man/prosa). Edit the notes there and
+# publish — the in-app updater serves from the latest release of this repo.
 # (≤0.1.7 clients still poll Wad-man/prosa-releases; v0.1.8 was mirrored
 # there once as a transitional release, then that repo was frozen.)
+#
+# Publishing scheme: platform jobs only build and upload workflow artifacts;
+# the final `release` job (needs: all platforms) downloads them, generates
+# latest.json from all signatures and calls `gh release create` exactly
+# once — no job ever races on the release object.
 
 on:
   push:
@@ -14,8 +20,6 @@ jobs:
   windows:
     name: Windows release (x64)
     runs-on: windows-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,26 +37,181 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
-      - name: Create draft release
+      - name: Stage release files
         shell: bash
+        run: |
+          set -euo pipefail
+          V="${GITHUB_REF_NAME#v}"
+          mkdir -p stage/nsis
+          cp src-tauri/target/release/bundle/nsis/* stage/nsis/
+          cp src-tauri/target/release/prosa.exe "stage/ProsaMD-v${V}-portable-x64.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: stage
+          if-no-files-found: error
+
+  # Same shape as the CI smoke build (ci.yml macos-universal), but for
+  # release: createUpdaterArtifacts is true in tauri.conf.json and is NOT
+  # overridden here, so the macOS updater tarball (.app.tar.gz + .sig in
+  # bundle/macos/) gets a minisign signature from the same
+  # platform-independent TAURI_SIGNING_PRIVATE_KEY the Windows job uses.
+  # signingIdentity "-" keeps the ad-hoc signature (no Apple account; the
+  # arm64 slice needs at least that to survive macOS).
+  macos:
+    name: macOS release (universal)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # universal-apple-darwin builds both slices, so install both targets
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: macos-universal
+      - run: npm ci
+
+      - name: Build signed universal dmg
+        run: npx tauri build --target universal-apple-darwin --bundles dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      - name: Stage release files
+        run: |
+          set -euo pipefail
+          # dmg is the manual-install asset; the macOS UPDATER artifact is
+          # the .app.tar.gz (+ .sig) from bundle/macos/ — Tauri 2 updates
+          # from the tarball, not from the dmg.
+          mkdir -p stage/dmg stage/macos-updater
+          B=src-tauri/target/universal-apple-darwin/release/bundle
+          cp "$B"/dmg/*.dmg stage/dmg/
+          cp "$B"/macos/*.app.tar.gz "$B"/macos/*.app.tar.gz.sig stage/macos-updater/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: stage
+          if-no-files-found: error
+
+  # Same shape as the CI smoke builds (ci.yml linux matrix). The bundle
+  # target is overridden to appimage, but createUpdaterArtifacts stays true
+  # from tauri.conf.json, so each AppImage is signed with the minisign
+  # updater key — same secret as Windows, the key is platform-independent.
+  linux:
+    name: Linux release (${{ matrix.arch }}, AppImage)
+    strategy:
+      # a release needs BOTH legs; keep the other leg's logs on failure
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            # 22.04 (glibc 2.35), not latest: keeps the AppImage runnable
+            # on Debian 12 / Ubuntu 22.04-era systems
+            os: ubuntu-22.04
+          - arch: arm64
+            # native arm64 runner — free for public repositories
+            os: ubuntu-22.04-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri v2 system dependencies
+        # official list from https://tauri.app/start/prerequisites/
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: linux-${{ matrix.arch }}
+      - run: npm ci
+
+      - name: Build signed AppImage
+        run: npx tauri build --bundles appimage
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      - name: Stage release files
+        run: |
+          set -euo pipefail
+          # explicit masks only: the appimage bundle dir also holds the
+          # ProsaMD.AppDir build directory (hundreds of MB) which must
+          # not end up in the artifact
+          mkdir -p "stage/appimage-${{ matrix.arch }}"
+          cp src-tauri/target/release/bundle/appimage/*.AppImage \
+             src-tauri/target/release/bundle/appimage/*.AppImage.sig \
+             "stage/appimage-${{ matrix.arch }}/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: stage
+          if-no-files-found: error
+
+  # Single writer: downloads every platform's staged files, builds the
+  # updater manifest from all signatures, creates the draft release once.
+  release:
+    name: Create draft release
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
           V="${TAG#v}"
-          NSIS="src-tauri/target/release/bundle/nsis"
-          SETUP="ProsaMD_${V}_x64-setup.exe"
 
-          node scripts/make-updater-json.mjs "$TAG"
-          cp "src-tauri/target/release/prosa.exe" "ProsaMD-v${V}-portable-x64.exe"
+          node scripts/make-updater-json.mjs "$TAG" \
+            --nsis dist/nsis \
+            --macos dist/macos-updater \
+            --appimage-x64 dist/appimage-x64 \
+            --appimage-arm64 dist/appimage-arm64 \
+            --out dist/latest.json
+
           sed "s/__VERSION__/${V}/g" .github/release-notes-template.md > release-notes.md
 
           gh release create "$TAG" \
             --draft \
             --title "ProsaMD $TAG" \
             --notes-file release-notes.md \
-            "$NSIS/$SETUP" \
-            "$NSIS/$SETUP.sig" \
-            "ProsaMD-v${V}-portable-x64.exe" \
-            "src-tauri/target/release/bundle/latest.json"
+            dist/nsis/*_x64-setup.exe \
+            dist/nsis/*.sig \
+            "dist/ProsaMD-v${V}-portable-x64.exe" \
+            dist/dmg/*.dmg \
+            dist/macos-updater/* \
+            dist/appimage-x64/*.AppImage \
+            dist/appimage-x64/*.sig \
+            dist/appimage-arm64/*.AppImage \
+            dist/appimage-arm64/*.sig \
+            dist/latest.json
