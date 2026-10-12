@@ -1,0 +1,13 @@
+diff --git a/node_modules/@milkdown/components/lib/code-block/index.js b/node_modules/@milkdown/components/lib/code-block/index.js
+index 407bf7b..e95af42 100644
+--- a/node_modules/@milkdown/components/lib/code-block/index.js
++++ b/node_modules/@milkdown/components/lib/code-block/index.js
+@@ -309,7 +309,7 @@ const LanguagePicker = defineComponent({
+           onClick: onTogglePicker,
+           "data-expanded": String(showPicker.value)
+         },
+-        language.value || "Text",
++        language.value || config.defaultLanguageText || "Text",
+         /* @__PURE__ */ h("div", { class: "expand-icon" }, /* @__PURE__ */ h(Icon, { icon: config.expandIcon }))
+       ), /* @__PURE__ */ h("div", { ref: pickerRef, class: "language-picker" }, showPicker.value ? /* @__PURE__ */ h("div", { class: "list-wrapper" }, /* @__PURE__ */ h("div", { class: "search-box" }, /* @__PURE__ */ h("div", { class: "search-icon" }, /* @__PURE__ */ h(Icon, { icon: config.searchIcon })), /* @__PURE__ */ h(
+         "input",

@@ -44,6 +44,13 @@ export interface EditorStrings {
   link: string;
   /** context panel: title of the block-type submenu row */
   paragraph: string;
+  /**
+   * Code-block language trigger when no language is set (#84). Not a Crepe
+   * featureConfig key: @milkdown/components hardcodes the fallback, and a
+   * local patch makes it read `defaultLanguageText` from codeBlockConfig
+   * (visual.ts injects it; see patches/@milkdown/components).
+   */
+  codeLanguageDefault: string;
 }
 
 const STRINGS: Record<Lang, EditorStrings> = {
@@ -73,6 +80,7 @@ const STRINGS: Record<Lang, EditorStrings> = {
     inlineCode: 'Инлайн-код',
     link: 'Ссылка',
     paragraph: 'Параграф',
+    codeLanguageDefault: 'Текст',
   },
   en: {
     groupText: 'Text',
@@ -100,6 +108,7 @@ const STRINGS: Record<Lang, EditorStrings> = {
     inlineCode: 'Inline code',
     link: 'Link',
     paragraph: 'Paragraph',
+    codeLanguageDefault: 'Text',
   },
 };
 

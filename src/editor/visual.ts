@@ -20,8 +20,20 @@ import {
 // commonmark preset's `toggleLinkCommand`, which is a parameterized
 // toggleMark(link, payload) and throws without an href payload
 import { toggleLinkCommand } from '@milkdown/kit/component/link-tooltip';
+import { codeBlockConfig } from '@milkdown/kit/component/code-block';
+
+// #84: the language trigger fallback. @milkdown/components hardcodes
+// "Text" (7.22.3 upstream still does); a patch-package patch teaches the
+// component to read `defaultLanguageText` from the config slice first.
+// Augmenting the origin module (the kit path only re-exports it).
+declare module '@milkdown/components/code-block' {
+  interface CodeBlockConfig {
+    /** localized no-language label for the code-block language trigger */
+    defaultLanguageText?: string;
+  }
+}
 import { $remark, $shortcut, replaceAll } from '@milkdown/kit/utils';
-import { crepeLocaleConfigs } from './crepe-locale';
+import { crepeLocaleConfigs, editorStrings } from './crepe-locale';
 import { displaySrc, ensureImageTarget, writeImageFile } from './image-assets';
 import { ContextPanel, type PanelClipboardActions } from './context-panel';
 import { splitFrontMatter } from '../frontmatter';
@@ -1332,7 +1344,8 @@ export class VisualEditor {
     // #55: the whole-document source is scanned for link reference
     // definitions before the parse consumes them (see makeLinkReferenceFix)
     this.captureDefinitions(defaultValue, true);
-    const locale = crepeLocaleConfigs(getLang());
+    const lang = getLang();
+    const locale = crepeLocaleConfigs(lang);
     this.crepe = new Crepe({
       root,
       defaultValue,
@@ -1397,6 +1410,30 @@ export class VisualEditor {
         };
       }),
     );
+    // `bullet: '-'` keeps `-`-marked lists byte-identical on save (the
+    // serializer default is `*`, which flips every dash marker); a sibling
+    // list written with `*` still serializes as `*` — the serializer picks
+    // the "other" bullet for adjacent lists so they cannot merge.
+    // `rule: '-'` keeps `---` thematic breaks from turning into `***`.
+    //
+    // #59: heading auto-IDs follow the GitHub slug shape (lowercase,
+    // punctuation dropped, whitespace → dashes, unicode letters kept), so
+    // anchors typed by hand after GitHub's rendering resolve in ProsaMD too.
+    // The ids live only in the model/DOM — the heading serializer never
+    // writes them into the file.
+    // #84: the code-block language trigger falls back to "Text", hardcoded
+    // in @milkdown/components; the patch-package patch (patches/) reads
+    // `defaultLanguageText` from this slice. This config registers after
+    // the Crepe constructor wired its CodeMirror feature (which rewrites
+    // the slice with a fixed key set), and the $view factory captures the
+    // merged object only at create() time — so the key survives. The
+    // language switch rebuilds the editor through this same path.
+    this.crepe.editor.config((ctx) => {
+      ctx.update(codeBlockConfig.key, (prev) => ({
+        ...prev,
+        defaultLanguageText: editorStrings(lang).codeLanguageDefault,
+      }));
+    });
     // `bullet: '-'` keeps `-`-marked lists byte-identical on save (the
     // serializer default is `*`, which flips every dash marker); a sibling
     // list written with `*` still serializes as `*` — the serializer picks
