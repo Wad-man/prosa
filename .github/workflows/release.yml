@@ -78,7 +78,11 @@ jobs:
       - run: npm ci
 
       - name: Build signed universal dmg
-        run: npx tauri build --target universal-apple-darwin --bundles dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
+        # app,dmg — not dmg alone: the macOS updater artifact (.app.tar.gz +
+        # .sig in bundle/macos/) is derived from the `app` bundle; with only
+        # `dmg` Tauri skips it and the staging step below fails (first
+        # cross-tag run, 2026-10-12)
+        run: npx tauri build --target universal-apple-darwin --bundles app,dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
