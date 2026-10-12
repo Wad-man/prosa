@@ -35,7 +35,7 @@ declare module '@milkdown/components/code-block' {
   }
 }
 import { $remark, $shortcut, $prose, replaceAll } from '@milkdown/kit/utils';
-import { rawHtmlTagger, htmlTagNode, htmlBlockNode } from './raw-html';
+import { rawHtmlTagger, htmlKbdMark, htmlSubMark, htmlSupMark, htmlBlockNode } from './raw-html';
 import { crepeLocaleConfigs, editorStrings } from './crepe-locale';
 import { displaySrc, ensureImageTarget, writeImageFile } from './image-assets';
 import { ContextPanel, type PanelClipboardActions } from './context-panel';
@@ -1562,6 +1562,20 @@ export class VisualEditor {
           ...(options.handlers ?? {}),
           emphasis: emphasisAttentionHandler,
           strong: strongAttentionHandler,
+          // #61: the html_tag mark serializes into a custom mdast node —
+          // this handler writes the original tag bytes around the phrasing
+          // content (containerPhrasing keeps the library's escaping and
+          // needs the caller's `info` — before/after context)
+          prosaHtmlTag(
+            node: { rawOpen?: string; rawClose?: string; children?: unknown[] },
+            _parent: unknown,
+            rawState: unknown,
+            rawInfo: unknown,
+          ): string {
+            const state = rawState as { containerPhrasing?: (n: unknown, i: unknown) => string };
+            const inner = state.containerPhrasing?.(node, rawInfo) ?? '';
+            return `${node.rawOpen ?? ''}${inner}${node.rawClose ?? ''}`;
+          },
           break(node: { twoSpace?: boolean }, _parent: unknown, rawState: unknown, rawInfo: unknown): string {
             if (!node.twoSpace) return '\\\n';
             const state = rawState as {
@@ -1625,17 +1639,21 @@ export class VisualEditor {
     this.crepe.editor.use(emphasisMarkerFix);
     this.crepe.editor.use(emphasisIntrawordFix);
     this.crepe.editor.use(makeLinkReferenceFix(() => this.definitions));
-    // #61: raw HTML — the two schema nodes must be registered before
+    // #61: raw HTML — the mark and the block node must be registered before
     // create() (a ProseMirror schema is immutable once built), the tagger
     // before breakFlavorTagger (it pre-flavors `<br>`-converted break nodes;
     // the tagger skips nodes that already carry a flavor)
-    this.crepe.editor.use(htmlTagNode);
+    this.crepe.editor.use(htmlKbdMark);
+    this.crepe.editor.use(htmlSubMark);
+    this.crepe.editor.use(htmlSupMark);
     this.crepe.editor.use(htmlBlockNode);
     this.crepe.editor.use(rawHtmlTagger);
-    // registered before Crepe's own $remark plugins: it must see break nodes
-    // with their pristine positions to detect the source flavor (emphasis
-    // markers are tagged by the stock remarkMarker inside the commonmark
-    // preset, #80)
+    // the tagger's relative order to THIS list matters (both are app-level
+    // $remark plugins registered after Crepe's constructor-time presets):
+    // it must see break nodes with their pristine positions to detect the
+    // source flavor, before anything else normalizes them (emphasis markers
+    // are tagged by the stock remarkMarker inside the commonmark preset,
+    // #80, which runs even earlier)
     this.crepe.editor.use(breakFlavorTagger);
     // #32: the search decorations plugin (query/active are pushed in by
     // search.ts through setSearch/setSearchActive below)

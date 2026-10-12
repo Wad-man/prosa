@@ -5,15 +5,20 @@
 // upgrades three slices of that, everything else keeps the stock atom:
 //
 //  1. inline whitelist `kbd`/`sub`/`sup` — a paired STRICT simple-tag form
-//     (`<sub>`, `</sub>`; no attributes, no inner whitespace) becomes a real
-//     `html-tag` inline node: content stays editable and renders as the tag
-//     itself; the original open/close bytes ride in attrs and serialize
+//     (`<sub>`, `</sub>`; no attributes, no inner whitespace) becomes the
+//     `html_tag` MARK over the content (a mark, not an inline node-with-
+//     content: milkdown's parser resets its mark stack in closeNode and its
+//     serializer closes open marks after a nested container's last child —
+//     an outer `**bold <kbd>…</kbd>**` or a link spanning the tag would
+//     silently lose formatting, review MAJOR-1/2). The mark renders as the
+//     tag itself; the original open/close bytes ride in attrs and serialize
 //     verbatim (`<SUB>` stays `<SUB>`);
 //  2. inline `<br>` variants (`<br>`, `<br/>`, `<br />`) — become a hardbreak
 //     carrying the fourth flavor (`htmlRaw`), next to the two-space/backslash/
 //     soft flavors of #53/#80: renders as a line break, serializes as the
-//     original bytes. A `<br>` alone on a line is a CommonMark HTML BLOCK —
-//     that one goes to (3);
+//     original bytes. A lone `<br>` line is a CommonMark HTML block that the
+//     preset's preserve-empty-line plugin already treats as the empty-line
+//     placeholder — it opens as an empty paragraph, it does NOT reach (3);
 //  3. block-level HTML (a `<div>…</div>` block, an HTML table, `<!-- … -->`
 //     comments) — becomes an atom `html-block` node displayed as formatted
 //     code and NOT rendered as HTML (Obsidian-style rendering is a plugin
@@ -22,9 +27,9 @@
 //
 // Not upgraded (honest L0, byte-exact round-trip): tags outside the whitelist
 // (`<span>`, `<a id>`, …), attribute-carrying forms (`<sub class="x">`),
-// unclosed pairs and same-tag nesting (the inner pair stays literal inside
-// the outer tag). Editing of block HTML happens in the source mode.
-import { $node, $remark } from '@milkdown/kit/utils';
+// unclosed pairs. Same-tag nesting pairs again recursively — the bytes stay
+// correct either way. Editing of block HTML happens in the source mode.
+import { $mark, $node, $remark } from '@milkdown/kit/utils';
 
 /** Minimal mdast shape this walk needs (remark keeps extra keys untouched). */
 type MdNode = {
@@ -36,6 +41,7 @@ type MdNode = {
   tag?: string;
   rawOpen?: string;
   rawClose?: string;
+  pid?: number;
 };
 
 /** Containers whose DIRECT html children are block-level (CommonMark block contexts). */
@@ -45,6 +51,11 @@ const BLOCK_PARENTS = new Set(['root', 'blockquote', 'listItem', 'footnoteDefini
 const INLINE_OPEN = /^<(sub|sup|kbd)>$/i;
 const INLINE_CLOSE = /^<\/(sub|sup|kbd)>$/i;
 const BR_FORM = /^<br\s*\/?\s*>$/i;
+
+/** Pair discriminator, unique per parsed pair: two adjacent identical pairs
+ * (`<kbd>a</kbd><kbd>b</kbd>`) must not merge into one mark span — equal
+ * attrs would fold them into `<kbd>ab</kbd>` and change the file's bytes. */
+let pairSeq = 0;
 
 /** `<br>` variant → hardbreak with the `htmlRaw` flavor (see hardBreakFlavorFix). */
 const convertBr = (node: MdNode): MdNode =>
@@ -107,6 +118,7 @@ const pairInline = (children: MdNode[]): MdNode[] => {
               tag: top.tag,
               rawOpen: top.rawOpen,
               rawClose: node.value,
+              pid: ++pairSeq,
               children: pairInline(top.content),
               position: top.position,
             });
@@ -130,6 +142,12 @@ const pairInline = (children: MdNode[]): MdNode[] => {
   }
   return out;
 };
+
+const toHtmlBlock = (html: MdNode): MdNode => ({
+  type: 'prosaHtmlBlock',
+  value: typeof html.value === 'string' ? html.value : '',
+  position: html.position,
+});
 
 const walk = (node: MdNode): void => {
   if (!Array.isArray(node.children)) return;
@@ -160,11 +178,12 @@ const walk = (node: MdNode): void => {
   node.children.forEach(walk);
 };
 
-const toHtmlBlock = (html: MdNode): MdNode => ({
-  type: 'prosaHtmlBlock',
-  value: typeof html.value === 'string' ? html.value : '',
-  position: html.position,
-});
+/** The tree transform itself — reused by «Copy for Word» (markdown-html.ts):
+ * paired whitelist tags become `prosaHtmlTag`, `<br>` variants become break
+ * nodes, block HTML becomes `prosaHtmlBlock`. */
+export const prosaRawHtmlTransform = (tree: MdNode): void => {
+  walk(tree);
+};
 
 /**
  * Runs before breakFlavorTagger (registration order): br-converted break
@@ -175,63 +194,86 @@ export const rawHtmlTagger = $remark('prosa-raw-html', () => () => (tree: unknow
   if (tree && typeof tree === 'object' && 'type' in tree) walk(tree as MdNode);
 });
 
-/** Clipboard PM→DOM→PM round-trip: the raw bytes ride in data attributes. */
-const readTagAttrs = (dom: HTMLElement | string): Record<string, string> => {
-  if (typeof dom === 'string') return { tag: 'kbd', rawOpen: '<kbd>', rawClose: '</kbd>' };
-  const tag = dom.tagName.toLowerCase();
-  return {
-    tag,
-    rawOpen: dom.getAttribute('data-raw-open') ?? `<${tag}>`,
-    rawClose: dom.getAttribute('data-raw-close') ?? `</${tag}>`,
-  };
-};
-
 /**
- * The paired inline whitelist node. Serialized as two sibling mdast `html`
- * nodes (open tag, close tag) around the serialized content — mdast-util-to-
- * markdown writes html values verbatim, which is the byte-exact guarantee.
- * A rich-text paste from outside creates it with canonical `<tag>` bytes
- * (nothing to preserve there — it is new content, not a round-trip).
+ * The paired inline whitelist, as THREE separate marks (html_kbd / html_sub /
+ * html_sup) — a ProseMirror mark set cannot hold the same mark type twice,
+ * so one mark type carrying the tag in attrs would make nested forms like
+ * `<kbd>a<sub>b</sub>c</kbd>` impossible (the outer mark is silently
+ * replaced by the inner on the shared text, verified against stock
+ * prosemirror-model's DOM round-trip).
+ *
+ * Serialization: each mark's toMarkdown wraps the text into a custom
+ * `prosaHtmlTag` mdast node (with a `tag` prop); remark-stringify writes it
+ * through the `prosaHtmlTag` handler in visual.ts's remarkStringifyOptions
+ * (`rawOpen + containerPhrasing + rawClose`) — the handler, not a container
+ * node, because mdast's stock html handler writes `value` only and would
+ * drop the children. The `pid` attr keeps two ADJACENT identical pairs
+ * (`<kbd>a</kbd><kbd>b</kbd>`) from folding into one mark span.
  */
-export const htmlTagNode = $node('html-tag', () => ({
-  inline: true,
-  group: 'inline',
-  content: 'inline*',
-  attrs: {
-    tag: { default: 'kbd', validate: 'string' },
-    rawOpen: { default: '<kbd>', validate: 'string' },
-    rawClose: { default: '</kbd>', validate: 'string' },
-  },
-  toDOM: (node) => [
-    node.attrs.tag as string,
-    { 'data-raw-open': node.attrs.rawOpen, 'data-raw-close': node.attrs.rawClose },
-    0,
-  ],
-  parseDOM: [
-    { tag: 'kbd', getAttrs: readTagAttrs },
-    { tag: 'sub', getAttrs: readTagAttrs },
-    { tag: 'sup', getAttrs: readTagAttrs },
-  ],
-  parseMarkdown: {
-    match: (node) => node.type === 'prosaHtmlTag',
-    runner: (state, node, type) => {
-      state.openNode(type, { tag: node.tag, rawOpen: node.rawOpen, rawClose: node.rawClose });
-      state.next(node.children);
-      state.closeNode();
+const makeHtmlTagMark = (tag: 'kbd' | 'sub' | 'sup') =>
+  $mark(`html_${tag}`, () => ({
+    inclusive: false,
+    attrs: {
+      rawOpen: { default: `<${tag}>`, validate: 'string' },
+      rawClose: { default: `</${tag}>`, validate: 'string' },
+      pid: { default: 0, validate: 'number' },
     },
-  },
-  toMarkdown: {
-    match: (node) => node.type.name === 'html-tag',
-    runner: (state, node) => {
-      // FLAT siblings at the paragraph level, not a container: mdast's html
-      // handler writes `value` and ignores children, so an open-node wrapper
-      // would swallow the content on stringify
-      state.addNode('html', undefined, node.attrs.rawOpen);
-      state.next(node.content);
-      state.addNode('html', undefined, node.attrs.rawClose);
+    parseDOM: [
+      {
+        tag,
+        // external rich-text pastes carry the raw bytes in data attributes —
+        // validate them (review MINOR-3): an outside page must not write
+        // arbitrary bytes into the document
+        getAttrs: (dom) => {
+          if (typeof dom === 'string') return { pid: ++pairSeq };
+          const open = dom.getAttribute('data-raw-open');
+          const close = dom.getAttribute('data-raw-close');
+          const pid = Number(dom.getAttribute('data-pid'));
+          return {
+            rawOpen:
+              open != null && INLINE_OPEN.test(open) && open.toLowerCase() === `<${tag}>` ? open : `<${tag}>`,
+            rawClose:
+              close != null && INLINE_CLOSE.test(close) && close.toLowerCase() === `</${tag}>`
+                ? close
+                : `</${tag}>`,
+            pid: Number.isFinite(pid) && pid > 0 ? pid : ++pairSeq,
+          };
+        },
+      },
+    ],
+    toDOM: (mark) => [
+      tag,
+      {
+        'data-raw-open': mark.attrs.rawOpen as string,
+        'data-raw-close': mark.attrs.rawClose as string,
+        'data-pid': String(mark.attrs.pid),
+      },
+      0,
+    ],
+    parseMarkdown: {
+      match: (node) => node.type === 'prosaHtmlTag' && node.tag === tag,
+      runner: (state, node, markType) => {
+        state.openMark(markType, { rawOpen: node.rawOpen, rawClose: node.rawClose, pid: node.pid });
+        state.next(node.children);
+        state.closeMark(markType);
+      },
     },
-  },
-}));
+    toMarkdown: {
+      match: (mark) => mark.type.name === `html_${tag}`,
+      runner: (state, mark) => {
+        state.withMark(mark, 'prosaHtmlTag', undefined, {
+          tag,
+          rawOpen: mark.attrs.rawOpen,
+          rawClose: mark.attrs.rawClose,
+          pid: mark.attrs.pid,
+        });
+      },
+    },
+  }));
+
+export const htmlKbdMark = makeHtmlTagMark('kbd');
+export const htmlSubMark = makeHtmlTagMark('sub');
+export const htmlSupMark = makeHtmlTagMark('sup');
 
 /**
  * Block-level HTML as formatted code (NOT rendered). Atom: edits happen in

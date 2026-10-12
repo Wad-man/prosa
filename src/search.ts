@@ -57,6 +57,12 @@ export class FindReplaceBar {
     // capture on window: runs before CodeMirror's keymaps and before the
     // app's own bubble-phase handler — the combos below are fully ours
     window.addEventListener('keydown', (e) => this.onKeyDown(e), true);
+    // Esc lives in the BUBBLE phase: editor UI that owns Esc (slash menu,
+    // block menu, code-language picker, CM autocomplete, the link tooltip)
+    // handles the key on its own element first and calls preventDefault —
+    // by the time the event bubbles here it is already claimed, and the bar
+    // must not steal it (review MINOR-8)
+    window.addEventListener('keydown', (e) => this.onEscape(e), false);
   }
 
   isOpenBar(): boolean {
@@ -73,12 +79,21 @@ export class FindReplaceBar {
   /** Правка → Найти… / Ctrl+F; `withReplace` shows the replace row
    * (Ctrl+H). In the SOURCE mode both route to CodeMirror's own search
    * panel instead — its advanced toolset (regexp, word, per-hit buttons)
-   * is the right tool there (owner decision, post-RC2). */
+   * is the right tool there (owner decision, post-RC2). Ctrl+H focuses
+   * the panel's replace field (CM's keymap has no Mod-h binding). */
   open(withReplace: boolean): void {
     if (this.deps.isOverlayOpen()) return;
     if (this.deps.getMode() === 'source') {
       const src = this.deps.getSource();
-      if (src) openSearchPanel(src.view);
+      if (src) {
+        openSearchPanel(src.view);
+        if (withReplace) {
+          const replace = src.view.dom.querySelector<HTMLInputElement>(
+            '.cm-panel.cm-search input[name=replace]',
+          );
+          replace?.focus();
+        }
+      }
       return;
     }
     this.ensureBuilt();
@@ -168,9 +183,9 @@ export class FindReplaceBar {
       // while a modal dialog is up the combo belongs to it (nothing binds
       // Ctrl+F/H today, but the rule keeps future dialogs safe)
       if (!this.isOpen && this.deps.isOverlayOpen()) return;
-      // source mode: CodeMirror's own Mod-f panel is the tool — don't
-      // claim the event, let the editor keymap open it
-      if (this.deps.getMode() === 'source') return;
+      // source mode: the app opens CM's own panel itself — CM's keymap
+      // only sees Mod-f, and only when its editor holds focus (menu open,
+      // chrome focused → nothing would fire at all, review MINOR-7)
       e.preventDefault();
       e.stopPropagation();
       this.open(code === 'KeyH');
@@ -182,25 +197,28 @@ export class FindReplaceBar {
       e.stopPropagation();
       if (e.shiftKey) this.prev();
       else this.next();
-      return;
     }
-    if (e.key === 'Escape' && !mod && !e.altKey) {
-      if (this.deps.isOverlayOpen()) return; // the modal wins its own Esc
-      // the bar closes on Esc while IT holds focus or while the caret sits
-      // in one of the editor panes (the owner's "clicked into the text and
-      // pressed Esc" case). Elsewhere (menus, tooltips, chrome) Esc stays
-      // with whoever owns it. An open link-edit tooltip inside the editor
-      // outranks the bar — its own Esc handler must run first.
-      const active = document.activeElement;
-      const inBar = active !== null && this.bar !== null && this.bar.contains(active);
-      const inPanes =
-        active instanceof Element && active.closest('#visual-editor, #source-editor') !== null;
-      if (!inBar && !inPanes) return;
-      if (document.querySelector('.milkdown-link-edit[data-show="true"]')) return;
-      e.preventDefault();
-      e.stopPropagation();
-      this.close();
-    }
+  }
+
+  /** Bubble-phase Esc: see the constructor comment. */
+  private onEscape(e: KeyboardEvent): void {
+    if (!this.isOpen || e.isComposing) return;
+    if (e.key !== 'Escape' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.defaultPrevented) return; // someone inside the editor already used it
+    if (this.deps.isOverlayOpen()) return; // the modal wins its own Esc
+    // the bar closes on Esc while IT holds focus or while the caret sits
+    // in one of the editor panes (the owner's "clicked into the text and
+    // pressed Esc" case). Elsewhere (menus, tooltips, chrome) Esc stays
+    // with whoever owns it.
+    const active = document.activeElement;
+    const inBar = active !== null && this.bar !== null && this.bar.contains(active);
+    const inPanes =
+      active instanceof Element && active.closest('#visual-editor, #source-editor') !== null;
+    if (!inBar && !inPanes) return;
+    if (document.querySelector('.milkdown-link-edit[data-show="true"]')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    this.close();
   }
 
   private ensureBuilt(): void {

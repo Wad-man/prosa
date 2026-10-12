@@ -875,7 +875,6 @@ body {
   display: inline-block;
 }
 
-
 /* Re-skin Crepe's own components (code-block chrome, tooltips,
    slash menu, tables, list markers) through its token layer. */
 #visual-editor .milkdown {
