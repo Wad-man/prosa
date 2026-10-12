@@ -21,7 +21,6 @@ const strings = {
     saveError: 'Не удалось сохранить файл',
     notMarkdown: 'Это не Markdown-файл',
     toolbar: 'Панель инструментов',
-    langTip: 'Сменить язык интерфейса (RU / EN)',
     themeTip: 'Переключить тему (светлая / тёмная)',
     minShort: 'мин',
     emptyDrop: 'Перетащите .md-файл в окно — или просто начните писать',
@@ -81,6 +80,12 @@ const strings = {
     website: 'Веб-сайт',
     sourceCode: 'Исходный код',
     hotkeys: 'Горячие клавиши',
+    settings: 'Настройки…',
+    settingsTitle: 'Настройки',
+    settingsLangSection: 'Язык интерфейса',
+    // имена языков — эндонимы, не переводятся ни в одном из словарей
+    langRu: 'Русский',
+    langEn: 'English',
   },
   en: {
     open: 'Open…',
@@ -102,7 +107,6 @@ const strings = {
     saveError: 'Failed to save file',
     notMarkdown: 'Not a Markdown file',
     toolbar: 'Toolbar',
-    langTip: 'Switch interface language (RU / EN)',
     themeTip: 'Switch theme (light / dark)',
     minShort: 'min',
     emptyDrop: 'Drop a .md file into the window — or just start writing',
@@ -162,6 +166,12 @@ const strings = {
     website: 'Website',
     sourceCode: 'Source code',
     hotkeys: 'Keyboard shortcuts',
+    settings: 'Settings…',
+    settingsTitle: 'Settings',
+    settingsLangSection: 'Interface language',
+    // language names are endonyms — identical in both dictionaries
+    langRu: 'Русский',
+    langEn: 'English',
   },
 } as const;
 

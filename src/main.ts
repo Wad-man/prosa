@@ -41,7 +41,7 @@ import { TocPanel } from './toc';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
 import { applyWebView2DragFix } from './platform/webview2-dnd';
 import { getLang, t } from './i18n';
-import { applyTheme, currentTheme, toggleLang, toggleTheme } from './settings';
+import { applyTheme, currentTheme, onLangChanged, setLanguage, toggleTheme } from './settings';
 import './styles.css';
 
 // Must run before the editors mount: it re-routes DataTransfer writes so
@@ -77,13 +77,11 @@ const $ = (id: string): HTMLElement => {
 const els = {
   app: $('app'),
   menubar: $('menubar'),
-  btnLang: $('btn-lang') as HTMLButtonElement,
   btnTheme: $('btn-theme') as HTMLButtonElement,
   btnReading: $('btn-mode-reading') as HTMLButtonElement,
   btnVisual: $('btn-mode-visual') as HTMLButtonElement,
   btnSource: $('btn-mode-source') as HTMLButtonElement,
   modeSwitch: $('mode-switch'),
-  lblLang: $('lbl-lang'),
   editorHost: $('editor-host'),
   visualPane: $('visual-editor'),
   sourcePane: $('source-editor'),
@@ -115,6 +113,13 @@ const els = {
   hotkeysClose: $('hotkeys-close') as HTMLButtonElement,
   hotkeysTitle: $('hotkeys-title'),
   hotkeysBody: $('hotkeys-body'),
+  settingsOverlay: $('settings-overlay'),
+  settingsModal: document.querySelector('#settings-overlay .modal') as HTMLElement,
+  settingsClose: $('settings-close') as HTMLButtonElement,
+  settingsTitle: $('settings-title'),
+  settingsLangLabel: $('settings-lang-label'),
+  settingsLangRu: $('settings-lang-ru') as HTMLButtonElement,
+  settingsLangEn: $('settings-lang-en') as HTMLButtonElement,
 };
 
 const visual = new VisualEditor();
@@ -832,6 +837,7 @@ function buildMenuSections(): (() => MenuSection)[] {
       altKey: 'KeyH',
       entries: [
         { label: t('versionTip'), action: () => openAbout() },
+        { label: t('settings'), hotkey: 'Ctrl+,', action: () => openSettings() },
         { label: t('hotkeys'), action: () => openHotkeys() },
         { label: t('checkUpdates'), action: () => void checkForUpdates(true) },
         sep(),
@@ -1002,6 +1008,7 @@ function activeModalOverlay(): HTMLElement | null {
   if (!els.aboutOverlay.hidden) return els.aboutOverlay;
   if (!els.closeOverlay.hidden) return els.closeOverlay;
   if (!els.hotkeysOverlay.hidden) return els.hotkeysOverlay;
+  if (!els.settingsOverlay.hidden) return els.settingsOverlay;
   return null;
 }
 
@@ -1015,7 +1022,12 @@ function hideModal(overlay: HTMLElement): void {
   overlay.hidden = true;
   const back = modalReturnFocus;
   modalReturnFocus = null;
-  back?.focus();
+  // the return-focus node can be gone (e.g. the language switch rebuilt
+  // the visual editor while the dialog was open) — fall back to the
+  // editor of the current mode instead of dropping focus on <body>
+  if (back && back.isConnected) back.focus();
+  else if (mode === 'visual') visual.focus();
+  else if (mode === 'source') source?.focus();
 }
 
 // the focusable set shared by Tab trapping and arrow-key navigation
@@ -1127,6 +1139,16 @@ function openHotkeys(): void {
   showModal(els.hotkeysOverlay, els.hotkeysModal);
 }
 
+// ---------- settings dialog (#87, #88) ----------
+
+/** Opens the Settings dialog. Unlike the hotkeys dialog its content is not
+ * rebuilt per open — texts and the pressed language mark are maintained by
+ * applyStaticTexts, so they already follow any live language switch (even
+ * one made from inside the dialog itself). */
+function openSettings(): void {
+  showModal(els.settingsOverlay, els.settingsModal);
+}
+
 // ---------- window close guard ----------
 
 let forceClose = false;
@@ -1164,7 +1186,6 @@ function applyStaticTexts(): void {
   document.getElementById('toolbar')?.setAttribute('aria-label', t('toolbar'));
   els.menubar.setAttribute('aria-label', t('menuBar'));
   els.modeSwitch.setAttribute('aria-label', t('modeToggle'));
-  els.lblLang.textContent = getLang().toUpperCase();
   els.ehLine.textContent = t('emptyDrop');
   els.ehOpen.textContent = t('open').replace('…', '');
   els.ehMode.textContent = t('modeToggle');
@@ -1184,8 +1205,6 @@ function applyStaticTexts(): void {
   els.btnSource.setAttribute('aria-label', t('source'));
   tip(els.btnTheme, t('themeTip'));
   els.btnTheme.setAttribute('aria-label', t('themeTip'));
-  tip(els.btnLang, t('langTip'));
-  els.btnLang.setAttribute('aria-label', t('langTip'));
 
   els.stPath.textContent = filePath ?? t('untitled');
   els.stVersion.title = t('versionTip');
@@ -1204,6 +1223,15 @@ function applyStaticTexts(): void {
   tip(els.aboutClose, t('closeTip'));
   els.hotkeysClose.setAttribute('aria-label', t('closeTip'));
   tip(els.hotkeysClose, t('closeTip'));
+  els.settingsTitle.textContent = t('settingsTitle');
+  els.settingsLangLabel.textContent = t('settingsLangSection');
+  els.settingsLangRu.textContent = t('langRu');
+  els.settingsLangEn.textContent = t('langEn');
+  // the pressed button mirrors the live language (#88)
+  els.settingsLangRu.setAttribute('aria-pressed', String(getLang() === 'ru'));
+  els.settingsLangEn.setAttribute('aria-pressed', String(getLang() === 'en'));
+  els.settingsClose.setAttribute('aria-label', t('closeTip'));
+  tip(els.settingsClose, t('closeTip'));
   els.ccDontSave.textContent = t('dontSave');
   els.ccCancel.textContent = t('cancel');
   els.ccSave.textContent = t('save');
@@ -1351,8 +1379,10 @@ async function init(): Promise<void> {
   els.btnReading.addEventListener('click', () => setMode('reading'));
   els.btnVisual.addEventListener('click', () => setMode('visual'));
   els.btnSource.addEventListener('click', () => setMode('source'));
-  els.btnLang.addEventListener('click', () => {
-    toggleLang();
+  // #88: the Settings dialog flips the language via setLanguage; the whole
+  // live-switch machinery lives here, registered once (it used to be the
+  // #btn-lang click handler)
+  onLangChanged(() => {
     applyStaticTexts();
     refreshChrome();
     // Crepe bakes its feature strings in at construction — rebuild the
@@ -1365,15 +1395,24 @@ async function init(): Promise<void> {
     frontMatter = fm;
     unparsedPrefix = up;
     suppressChange = true;
-    void visual.rebuild(body).then(() => {
-      // rebuild wipes the pane (visual.rebuild replaceChildren) — bring the
-      // front-matter record back above the fresh editor
-      refreshFrontMatterView();
-      if (mode === 'visual') visual.focus();
-      window.setTimeout(() => {
-        suppressChange = false;
-      }, 0);
-    });
+    void visual.rebuild(body)
+      .then(() => {
+        // rebuild wipes the pane (visual.rebuild replaceChildren) — bring the
+        // front-matter record back above the fresh editor
+        refreshFrontMatterView();
+        // with a modal open (settings dialog) the focus must stay inside it,
+        // otherwise typing goes "blind" into the document under the overlay
+        const openOverlay = activeModalOverlay();
+        if (openOverlay) openOverlay.querySelector<HTMLElement>('.modal')?.focus();
+        else if (mode === 'visual') visual.focus();
+      })
+      .catch((err: unknown) => console.error('visual.rebuild failed:', err))
+      .finally(() => {
+        // reset in every branch — a stuck flag would freeze dirty tracking
+        window.setTimeout(() => {
+          suppressChange = false;
+        }, 0);
+      });
   });
   els.btnTheme.addEventListener('click', () => toggleTheme());
   // #86: real Ctrl+V pastes in either editor — the capture-phase event
@@ -1433,6 +1472,12 @@ async function init(): Promise<void> {
     } else if (code === 'Digit1' && e.shiftKey && !e.altKey) {
       e.preventDefault();
       toggleToc();
+    } else if (modalOpen === false && code === 'Comma' && !e.shiftKey && !e.altKey) {
+      // Ctrl+, opens Settings (#87) — the VS Code convention; the combo is
+      // free (no editor keymap or browser shortcut claims it, unlike the
+      // taken Ctrl+/)
+      e.preventDefault();
+      openSettings();
     } else if (modalOpen === false && code === 'KeyW' && !e.shiftKey && !e.altKey) {
       // Ctrl+W goes through the OS close path — the unsaved-changes guard
       // (onCloseRequested) intercepts it exactly like the × button
@@ -1538,6 +1583,15 @@ async function init(): Promise<void> {
   els.hotkeysOverlay.addEventListener('click', (e) => {
     if (e.target === els.hotkeysOverlay) hideModal(els.hotkeysOverlay);
   });
+  // settings dialog: same modal mechanics; the language buttons apply the
+  // switch live — setLanguage runs the onLangChanged machinery above, and
+  // applyStaticTexts re-labels the dialog (and its pressed mark) on the way
+  els.settingsClose.addEventListener('click', () => hideModal(els.settingsOverlay));
+  els.settingsOverlay.addEventListener('click', (e) => {
+    if (e.target === els.settingsOverlay) hideModal(els.settingsOverlay);
+  });
+  els.settingsLangRu.addEventListener('click', () => setLanguage('ru'));
+  els.settingsLangEn.addEventListener('click', () => setLanguage('en'));
   for (const link of els.aboutLinks) {
     link.addEventListener('click', (e) => {
       e.preventDefault();

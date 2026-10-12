@@ -27,7 +27,6 @@
         <nav id="menubar" role="menubar"></nav>
         <div class="tb-spacer"></div>
         <div class="tb-group">
-          <button id="btn-lang" class="btn btn-icon"><span id="lbl-lang">EN</span></button>
           <button id="btn-theme" class="btn btn-icon" data-tip-pos="end">
             <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
             <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
@@ -122,6 +121,22 @@
         </button>
         <h2 class="hotkeys-title" id="hotkeys-title"></h2>
         <div class="hotkeys-body" id="hotkeys-body"></div>
+      </div>
+    </div>
+
+    <div id="settings-overlay" class="modal-overlay" hidden>
+      <!-- texts and the pressed marks are maintained by applyStaticTexts, so
+           they follow a live language switch even while the dialog is open -->
+      <div class="modal modal-settings" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1">
+        <button id="settings-close" class="modal-x" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="settings-title" id="settings-title"></h2>
+        <h3 class="settings-section-title" id="settings-lang-label"></h3>
+        <div class="settings-lang" role="group" aria-labelledby="settings-lang-label">
+          <button id="settings-lang-ru" class="modal-btn" type="button" aria-pressed="false"></button>
+          <button id="settings-lang-en" class="modal-btn" type="button" aria-pressed="false"></button>
+        </div>
       </div>
     </div>
 

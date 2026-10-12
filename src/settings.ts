@@ -1,10 +1,10 @@
 // App-level user settings: the theme (light/dark, persisted under
-// prosa.theme) and the interface-language toggle. The language state itself
+// prosa.theme) and the interface-language switch. The language state itself
 // (the prosa.lang key, autodetection and the string dictionaries) lives in
-// i18n.ts — this module only flips it. The stored theme is applied at cold
-// start by an inline script in index.html (before first paint, to avoid a
-// flash); every runtime switch goes through here.
-import { getLang, setLang } from './i18n';
+// i18n.ts — this module only flips it and notifies the app. The stored theme
+// is applied at cold start by an inline script in index.html (before first
+// paint, to avoid a flash); every runtime switch goes through here.
+import { getLang, setLang, type Lang } from './i18n';
 
 const THEME_KEY = 'prosa.theme';
 
@@ -23,9 +23,29 @@ export function toggleTheme(): void {
   applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
 }
 
-/** The #btn-lang action: flip RU/EN. Re-applying the UI strings and
- * rebuilding the visual editor (Crepe bakes its locale in at construction)
- * stays with the #btn-lang listener in main.ts. */
-export function toggleLang(): void {
-  setLang(getLang() === 'ru' ? 'en' : 'ru');
+// ---------- interface language (#88) ----------
+
+// main.ts registers the switch machinery once (re-apply every live string,
+// refresh the chrome, rebuild the visual editor — Crepe bakes its locale in
+// at construction); UI entry points — today the Settings dialog — only call
+// setLanguage and stay dumb, so the live switch is never duplicated.
+
+/** Listeners run after the language flips; registered by main.ts. */
+const langListeners: Array<() => void> = [];
+
+export function onLangChanged(listener: () => void): void {
+  langListeners.push(listener);
+}
+
+/** Switch the UI language and notify (the old #btn-lang flip, now shared by
+ * every entry point). Re-selecting the active language only pins it in
+ * storage (an autodetected lang becomes explicit) — the Crepe rebuild
+ * resets the undo history and must not run for nothing. */
+export function setLanguage(lang: Lang): void {
+  if (getLang() === lang) {
+    setLang(lang);
+    return;
+  }
+  setLang(lang);
+  for (const listener of langListeners) listener();
 }
