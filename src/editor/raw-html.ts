@@ -27,8 +27,18 @@
 //
 // Not upgraded (honest L0, byte-exact round-trip): tags outside the whitelist
 // (`<span>`, `<a id>`, …), attribute-carrying forms (`<sub class="x">`),
-// unclosed pairs. Same-tag nesting pairs again recursively — the bytes stay
-// correct either way. Editing of block HTML happens in the source mode.
+// unclosed pairs, EMPTY pairs (`<sub></sub>`) and same-tag nesting
+// (`<kbd>a<kbd>b</kbd>c</kbd>` — the inner pair stays literal text inside
+// the outer tag; two PM marks of one type cannot coexist). Editing of block
+// HTML happens in the source mode.
+//
+// Accepted L1 normalizations (byte changes on RE-SAVE, semantics preserved —
+// documented in MARKDOWN-SUPPORT.md): emphasis nesting `**<sub>a</sub>**`
+// re-serializes as `<sub>**a**</sub>` (tags always sort outside emphasis;
+// the reverse spelling cannot survive the mark model); edge spaces of a
+// pair move outside the tags (`<sub>a </sub>` → `<sub>a</sub> `); text
+// escaping inside tags follows the tag bytes' context (the stock html-sibling
+// semantics), which may escape a character the literal-text era did not.
 import { $mark, $node, $remark } from '@milkdown/kit/utils';
 
 /** Minimal mdast shape this walk needs (remark keeps extra keys untouched). */
@@ -50,7 +60,7 @@ const BLOCK_PARENTS = new Set(['root', 'blockquote', 'listItem', 'footnoteDefini
 /** Strict forms only — attribute-carrying or spaced tags stay literal text. */
 const INLINE_OPEN = /^<(sub|sup|kbd)>$/i;
 const INLINE_CLOSE = /^<\/(sub|sup|kbd)>$/i;
-const BR_FORM = /^<br\s*\/?\s*>$/i;
+export const BR_FORM = /^<br\s*\/?\s*>$/i;
 
 /** Pair discriminator, unique per parsed pair: two adjacent identical pairs
  * (`<kbd>a</kbd><kbd>b</kbd>`) must not merge into one mark span — equal
@@ -73,6 +83,8 @@ type Frame = {
   content: MdNode[];
   /** opens of the SAME tag seen inside this frame — their closes stay literal */
   sameTagDepth: number;
+  /** a same-tag pair sits in the content: the whole frame stays literal */
+  hasSameTagNesting: boolean;
   position: unknown;
 };
 
@@ -80,8 +92,15 @@ type Frame = {
  * Pair whitelisted inline tags in one inline-content array. Unmatched opens
  * and stray/cross-nested closes degrade back to stock html atoms (literal
  * text), so a typo in the source never loses bytes.
+ *
+ * `parentTag` — the tag of the enclosing pair: a SAME-tag pair inside
+ * another pair of the same tag stays LITERAL even in the recursive call (two
+ * ProseMirror marks of one type cannot coexist — addToSet silently evicts
+ * the outer one, so re-pairing would drop the outer pair's tail; control
+ * review MAJOR-3). An empty pair (`<sub></sub>`) also stays literal: a mark
+ * with no content to sit on would vanish from the document (MAJOR-4).
  */
-const pairInline = (children: MdNode[]): MdNode[] => {
+const pairInline = (children: MdNode[], parentTag?: string): MdNode[] => {
   const out: MdNode[] = [];
   const stack: Frame[] = [];
   const sink = (): MdNode[] => (stack.length > 0 ? stack[stack.length - 1].content : out);
@@ -93,13 +112,23 @@ const pairInline = (children: MdNode[]): MdNode[] => {
       if (open) {
         const tag = open[1].toLowerCase();
         const same = stack.find((f) => f.tag === tag);
-        if (same) {
+        if (same || tag === parentTag) {
           // same-tag nesting: the inner pair renders as literal text inside
           // the outer tag (documented limit — no nested whitelist rendering)
-          same.sameTagDepth += 1;
+          if (same) {
+            same.sameTagDepth += 1;
+            same.hasSameTagNesting = true;
+          }
           sink().push(node);
         } else {
-          stack.push({ tag, rawOpen: node.value, content: [], sameTagDepth: 0, position: node.position });
+          stack.push({
+            tag,
+            rawOpen: node.value,
+            content: [],
+            sameTagDepth: 0,
+            hasSameTagNesting: false,
+            position: node.position,
+          });
         }
         continue;
       }
@@ -113,15 +142,26 @@ const pairInline = (children: MdNode[]): MdNode[] => {
             sink().push(node);
           } else {
             stack.pop();
-            sink().push({
-              type: 'prosaHtmlTag',
-              tag: top.tag,
-              rawOpen: top.rawOpen,
-              rawClose: node.value,
-              pid: ++pairSeq,
-              children: pairInline(top.content),
-              position: top.position,
-            });
+            // degenerate frames keep their raw bytes literal: an EMPTY pair
+            // cannot hold a mark, and a pair with same-tag literals inside
+            // cannot span them (inline atoms do not carry marks through the
+            // clipboard DOM round-trip — the span would split and rewrite
+            // the bytes, control review MAJOR-3/4)
+            if (top.content.length === 0 || top.hasSameTagNesting) {
+              sink().push({ type: 'html', value: top.rawOpen, position: top.position });
+              sink().push(...pairInline(top.content, top.tag));
+              sink().push(node);
+            } else {
+              sink().push({
+                type: 'prosaHtmlTag',
+                tag: top.tag,
+                rawOpen: top.rawOpen,
+                rawClose: node.value,
+                pid: ++pairSeq,
+                children: pairInline(top.content, top.tag),
+                position: top.position,
+              });
+            }
           }
         } else {
           sink().push(node); // stray or cross-nested close — stays literal
@@ -138,7 +178,7 @@ const pairInline = (children: MdNode[]): MdNode[] => {
     const frame = stack.pop()!;
     const host = sink();
     host.push({ type: 'html', value: frame.rawOpen, position: frame.position });
-    host.push(...pairInline(frame.content));
+    host.push(...pairInline(frame.content, parentTag));
   }
   return out;
 };
@@ -213,19 +253,40 @@ export const rawHtmlTagger = $remark('prosa-raw-html', () => () => (tree: unknow
 const makeHtmlTagMark = (tag: 'kbd' | 'sub' | 'sup') =>
   $mark(`html_${tag}`, () => ({
     inclusive: false,
+    // serializer's mark order: the LOWEST priority opens FIRST = becomes the
+    // OUTERMOST mdast wrapper. 40 puts the tag outside emphasis/strong/link,
+    // so the idiomatic `<kbd>**bold**</kbd>` and `**text <kbd>key</kbd>
+    // text**` keep their bytes, and a mixed `<kbd>**a** b</kbd>` does not
+    // split into two pairs (control review MAJOR-2). The reverse spelling
+    // `**<sub>a</sub>**` re-serializes as `<sub>**a**</sub>` — an accepted
+    // L1 normalization (one of the two nesting orders must lose).
+    priority: 40,
     attrs: {
       rawOpen: { default: `<${tag}>`, validate: 'string' },
       rawClose: { default: `</${tag}>`, validate: 'string' },
+      /** pair discriminator: two adjacent identical pairs must not fold into one mark span */
       pid: { default: 0, validate: 'number' },
     },
     parseDOM: [
       {
         tag,
-        // external rich-text pastes carry the raw bytes in data attributes —
-        // validate them (review MINOR-3): an outside page must not write
-        // arbitrary bytes into the document
+        // (a) elements marked with another consumer's data-type are not ours:
+        // footnote_reference renders `<sup data-type="footnote_reference">`
+        // and must fall through to ITS rule — a bare sup rule would swallow
+        // it and destroy the footnote on every clipboard DOM round (review
+        // MAJOR-1); (b) the raw bytes ride in data attributes only for OUR
+        // round-trips — validate them, an outside page must not write
+        // arbitrary bytes into the document (MINOR-3); (c) pid is TRUSTED
+        // from data-pid: the DOM render splits one mark span into several
+        // same-tag elements, and only the shared pid reunites them into one
+        // span after the DOM round-trip (fresh-per-element ids would split
+        // `<kbd>**a** b</kbd>` into two pairs on every paste). The known
+        // cost: pasting the SAME copied pair twice in a row glues the copies
+        // into one span — an edit-path-only nicety, file round-trips never
+        // pass through the DOM (review MINOR-E).
         getAttrs: (dom) => {
           if (typeof dom === 'string') return { pid: ++pairSeq };
+          if (dom.hasAttribute('data-type')) return false;
           const open = dom.getAttribute('data-raw-open');
           const close = dom.getAttribute('data-raw-close');
           const pid = Number(dom.getAttribute('data-pid'));

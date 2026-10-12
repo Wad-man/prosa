@@ -30,8 +30,10 @@ const processor = unified()
   .use(remarkGfm)
   .use(prosaPairPlugin)
   .use(remarkRehype, {
-    // paired whitelist tags → real elements; block HTML (prosaHtmlBlock) and
-    // non-whitelisted inline html stay unknown to rehype → dropped
+    // paired whitelist tags → real elements; block HTML (prosaHtmlBlock)
+    // drops OUT entirely — left to its unknown-type default it leaks into
+    // the buffer as escaped visible text; non-whitelisted inline html is
+    // unknown to rehype and drops the same way
     handlers: {
       prosaHtmlTag: (
         state: { all: (node: unknown) => unknown[] },
@@ -42,6 +44,7 @@ const processor = unified()
         properties: {},
         children: state.all(node),
       }),
+      prosaHtmlBlock: () => ({ type: 'text', value: '' }),
     },
   } as Parameters<typeof remarkRehype>[0])
   .use(rehypeStringify);

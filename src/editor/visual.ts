@@ -35,7 +35,7 @@ declare module '@milkdown/components/code-block' {
   }
 }
 import { $remark, $shortcut, $prose, replaceAll } from '@milkdown/kit/utils';
-import { rawHtmlTagger, htmlKbdMark, htmlSubMark, htmlSupMark, htmlBlockNode } from './raw-html';
+import { rawHtmlTagger, htmlKbdMark, htmlSubMark, htmlSupMark, htmlBlockNode, BR_FORM } from './raw-html';
 import { crepeLocaleConfigs, editorStrings } from './crepe-locale';
 import { displaySrc, ensureImageTarget, writeImageFile } from './image-assets';
 import { ContextPanel, type PanelClipboardActions } from './context-panel';
@@ -740,7 +740,7 @@ const hardBreakFlavorFix: MilkdownPlugin = (ctx) => {
             getAttrs: (dom: HTMLElement) => ({
               isInline: false,
               twoSpace: dom.getAttribute('data-twospace') === 'true',
-              htmlRaw: dom.getAttribute('data-htmlraw') ?? '',
+              htmlRaw: (() => { const raw = dom.getAttribute('data-htmlraw') ?? ''; return BR_FORM.test(raw) ? raw : ''; })(),
             }),
           }
         : rule,
@@ -1573,7 +1573,16 @@ export class VisualEditor {
             rawInfo: unknown,
           ): string {
             const state = rawState as { containerPhrasing?: (n: unknown, i: unknown) => string };
-            const inner = state.containerPhrasing?.(node, rawInfo) ?? '';
+            // the escape context the content would see if the tags were
+            // stock html SIBLINGS (before='>', after='<') — keeps text
+            // escaping convergent with the non-whitelisted html path
+            // (control review MINOR-B)
+            const info = {
+              ...(rawInfo as Record<string, unknown>),
+              before: String(node.rawOpen ?? '').slice(-1),
+              after: String(node.rawClose ?? '').charAt(0),
+            };
+            const inner = state.containerPhrasing?.(node, info) ?? '';
             return `${node.rawOpen ?? ''}${inner}${node.rawClose ?? ''}`;
           },
           break(node: { twoSpace?: boolean }, _parent: unknown, rawState: unknown, rawInfo: unknown): string {
