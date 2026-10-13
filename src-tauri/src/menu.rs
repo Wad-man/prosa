@@ -116,15 +116,17 @@ pub fn install(app: &AppHandle, lang: &str) -> tauri::Result<()> {
         .minimize_with_text(t.minimize)
         .close_window_with_text(t.close_window)
         .build()?;
-    // register as the NSApp windows menu: macOS then lists every open
-    // document window here automatically (every document is its own window)
-    window.set_as_windows_menu_for_nsapp()?;
     let menu: Menu<tauri::Wry> = MenuBuilder::new(app)
         .item(&app_menu)
         .item(&edit)
         .item(&window)
         .build()?;
     app.set_menu(menu)?;
+    // register as the NSApp windows menu — AFTER set_menu: the muda lookup
+    // reads NSApp.mainMenu() and finds the new submenu only once it is the
+    // main menu (called earlier it silently no-ops). macOS then lists every
+    // open document window here automatically (one window per document).
+    window.set_as_windows_menu_for_nsapp()?;
     Ok(())
 }
 

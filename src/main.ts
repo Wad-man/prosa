@@ -898,20 +898,20 @@ async function saveBeforeUpdate(): Promise<boolean> {
 
 async function checkForUpdates(manual: boolean): Promise<void> {
   if (!inTauri || updateBusy) return;
-  // a .deb install has no in-app update path: the updater would download the
-  // AppImage and die on install (#105 review); deb users install the next
-  // package. APPIMAGE is set only inside an AppImage launch.
-  try {
-    if (!(await invoke<boolean>('is_updater_install'))) {
-      if (manual) void message(t('updateDebPackage'), { title: 'ProsaMD', kind: 'info' });
-      return;
-    }
-  } catch {
-    // command unavailable — behave as before
-  }
   updateBusy = true;
   els.aboutCheck.disabled = true;
   try {
+    // a .deb install has no in-app update path: the updater would download
+    // the AppImage and die on install (#105 review); deb users install the
+    // next package. APPIMAGE is set only inside an AppImage launch.
+    try {
+      if (!(await invoke<boolean>('is_updater_install'))) {
+        if (manual) void message(t('updateDebPackage'), { title: 'ProsaMD', kind: 'info' });
+        return;
+      }
+    } catch {
+      // command unavailable — behave as before
+    }
     let update: Awaited<ReturnType<typeof check>> = null;
     try {
       update = await check();
