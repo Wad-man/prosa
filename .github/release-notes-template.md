@@ -1,16 +1,22 @@
 ## ProsaMD v__VERSION__
 
+Кросс-платформенный релиз по итогам первого живого теста macOS и Linux.
+
 **RU** — что нового:
 
-- **HTML в визуальном режиме**: инлайн-теги `kbd`, `sub`, `sup` и `<br>` рендерятся как настоящие теги — `H<sub>2</sub>O`, `x<sup>2</sup>`, клавиши `<kbd>Ctrl</kbd>`; выделение, ссылки и жирный работают поверх. Блочный HTML (`<div>`, HTML-таблицы, комментарии) показывается стилизованным кодом, а не рендерится. Файл сохраняется побайтово: регистр тегов (`<BR/>`) и формы (`<br />`/`<br>`) переживают редактирование, «Копировать для Word» уносит те же теги. Редкие записи — вложенность одного тега в такой же, пустые пары `<sub></sub>`, теги с атрибутами — остаются текстом без потерь байтов; запись вида `**<sub>a</sub>**` при сохранении переставляется в `<sub>**a**</sub>` (эквивалентная разметка). Остальной HTML остаётся текстом.
-- **Поиск в режиме «Код»**: Ctrl+F и Ctrl+H открывают штатную панель CodeMirror (регекс, «целое слово», кнопки) в любом месте фокуса; Ctrl+H сразу ставит курсор в поле замены. Esc панели больше не перехватывает клавишу у меню и подсказок редактора.
-- Исправлено (по прогону rc.2): панель поиска не закрывалась и всегда показывала строку замены; кнопка регистра была пустой.
+- **macOS Monterey: приложение ожило.** WKWebView на схеме `tauri://` бросал `SecurityError` на само обращение к `localStorage` — один такой бросок на старте убивал весь фронтенд: пустое меню, нерабочие кнопки (отчёт с MacBook Air 2017). Все обращения к хранилищу ушли в безопасную обёртку с фолбэком в память, пол сборки зафиксирован явно. Замечание: визуальному редактору нужен Safari/WebKit 16.4+ (обновлённый Monterey с Safari 17.6 подходит; необновлённые 15.x открывают меню, но редактор не поднимется).
+- **macOS: нативная строка меню** на языке интерфейса: ProsaMD (О программе, Настройки… `Cmd+,`, Службы, Скрыть, Завершить) · Правка · Окно со списком открытых документов. Больше никакого шаблонного английского File/Edit/View; `Cmd+C/X/V/A/Z` теперь доходят до редактора (WKWebView получает их только через нативное меню Правка).
+- **Linux: основной формат — `.deb`** (x64 и ARM64): системный webkit2gtk вместо вшитого стека — единицы мегабайт вместо 84 МБ, после `apt install` появляются иконка в лаунчере и ассоциации `.md`. AppImage остаётся портативным вариантом для дистрибутивов без webkit2gtk-4.1. Обновление deb-установки — установкой нового пакета (кнопка проверки обновлений в приложении честно об этом сообщает).
+- **Окно «Справка» (F1)**: перечень горячих клавиш (тот же источник, что меню) + ссылка на онлайн-справку по разметке — prosamd.ru/markdown, открывается в системном браузере.
+- Также с прошлого RC: плавная смена темы (кроссфейд 280 мс, уважает «уменьшить движение») и кнопка хоткеев в строке состояния.
 
 **EN** — what's new:
 
-- **HTML in the visual mode**: the inline `kbd`, `sub`, `sup` and `<br>` tags render as real tags — `H<sub>2</sub>O`, `x<sup>2</sup>`, `<kbd>Ctrl</kbd>` keycaps — with bold/links working across them. Block-level HTML (`<div>`, HTML tables, comments) shows as styled code instead of rendering. The file saves byte-exactly: tag case (`<BR/>`) and forms (`<br />`/`<br>`) survive editing, and Copy-for-Word carries the same tags. Rare spellings — a tag nested in the same tag, empty pairs like `<sub></sub>`, tags with attributes — stay literal text without losing bytes; `**<sub>a</sub>**` re-serializes as `<sub>**a**</sub>` (equivalent markup). Everything else stays literal text.
-- **Search in the Source mode**: Ctrl+F and Ctrl+H open CodeMirror's own panel (regexp, whole word, buttons) no matter where the focus is; Ctrl+H lands the caret in the replace field. The panel's Esc no longer steals the key from menus and editor hints.
-- Fixed (from the rc.2 owner run): the find bar would not close and always showed the replace row; the case-sensitivity button was empty.
+- **macOS Monterey: the frontend lives again.** WKWebView on the `tauri://` scheme throws a `SecurityError` on merely touching `localStorage` — one such throw at startup killed the whole frontend: empty menu, dead buttons (reported on a 2017 MacBook Air). All storage access now goes through a safe wrapper with an in-memory fallback, and the build floor is pinned explicitly. Note: the visual editor needs Safari/WebKit 16.4+ (an up-to-date Monterey on 17.6 is fine; unpatched 15.x boots the menu but the editor won't mount).
+- **macOS: a native menu bar** in the UI language: ProsaMD (About, Settings… `Cmd+,`, Services, Hide, Quit) · Edit · Window with the open-document list. No more template English File/Edit/View; `Cmd+C/X/V/A/Z` now reach the editor (WKWebView only receives them through a native Edit menu).
+- **Linux: `.deb` is the primary format** (x64 and ARM64): system webkit2gtk instead of the bundled stack — single-digit megabytes instead of 84 MB, and `apt install` registers the launcher icon and `.md` associations. The AppImage stays as the portable option for distros without webkit2gtk-4.1. Deb installs update by installing the newer package (the in-app update check says so honestly).
+- **The Help window (F1)**: the shortcut list (same source as the menu) plus a link to the online Markdown docs — prosamd.ru/markdown, opened in the system browser.
+- Also since the previous RC: smooth theme crossfade (280 ms, respects reduced motion) and the shortcuts button in the status bar.
 
 ---
 
@@ -19,7 +25,8 @@
 - **Windows** — установщик `*_x64-setup.exe` или портативный `*-portable-x64.exe` · installer or portable exe.
 - **macOS** (Intel и Apple Silicon, один пакет) — `*.dmg`. Сборка без подписи разработчика: первый запуск через ПКМ по ProsaMD.app → «Открыть», либо `xattr -cr /Applications/ProsaMD.app`.
   Unsigned build: right-click ProsaMD.app → Open on first launch, or `xattr -cr /Applications/ProsaMD.app`.
-- **Linux** — AppImage: `chmod +x ProsaMD_*_amd64.AppImage && ./ProsaMD_*_amd64.AppImage` (ARM64 — `*_aarch64.AppImage`).
+- **Linux** — Ubuntu/Debian: `sudo apt install ./ProsaMD_*_amd64.deb` (ARM64 — `*_arm64.deb`). Прочие дистрибутивы — AppImage: `chmod +x ProsaMD_*_amd64.AppImage && ./ProsaMD_*_amd64.AppImage`.
+  Ubuntu/Debian: install the `.deb`; other distros: make the AppImage executable and run.
 
-<sub>Обновления устанавливаются прямо из приложения: клик по версии в статусной строке (проверено на Windows; на macOS/Linux — обновление следующим пакетом).
-Updates install right from the app: click the version in the status bar (verified on Windows; on macOS/Linux — install the next package over the old one).</sub>
+<sub>Обновления устанавливаются прямо из приложения (Windows): клик по версии в статусной строке. macOS/Linux — обновление следующим пакетом.
+Updates install right from the app on Windows: click the version in the status bar. On macOS/Linux — install the next package.</sub>
