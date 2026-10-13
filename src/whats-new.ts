@@ -15,6 +15,20 @@ import type { Lang } from './i18n';
 
 const KEY = 'prosa.whats-new';
 
+/**
+ * Whether the install predates the whats-new key — captured at module
+ * load, BEFORE init() runs initZoom(), which writes prosa.zoom on every
+ * boot; reading storage inside checkWhatsNew would then light the dot
+ * for fresh installs too (control-round BLOCK). A user updating from
+ * ≤ rc.4 carries these keys from previous runs; a brand-new profile has
+ * none at import time.
+ */
+const HAD_PRIOR_STATE =
+  storageGet('prosa.lang') !== null ||
+  storageGet('prosa.theme') !== null ||
+  storageGet('prosa.zoom') !== null ||
+  storageGet('prosa.features') !== null;
+
 export const CHANGELOG_URL = 'https://prosamd.ru/changelog.html';
 
 /** User-facing summary of the current release, refreshed per release. */
@@ -42,21 +56,17 @@ export function whatsNewItems(lang: Lang): string[] {
  * verdict through the callback (`pending: true` = updated since the last
  * view). A first run just records the version — with one upgrade carve-out
  * (review M2): a user updating from a build that predated this key (≤ rc.4)
- * has no `prosa.whats-new`, but usually carries other prosa.* keys; the
- * debut release must still show them the dot. The heuristic is
- * deliberately conservative: no keys at all = a genuinely fresh install.
+ * has no `prosa.whats-new`, but carries other prosa.* keys from past runs;
+ * the debut release must still show them the dot. The snapshot is taken at
+ * module load (see HAD_PRIOR_STATE): no keys at import time = a genuinely
+ * fresh install.
  */
 export function checkWhatsNew(appVersion: string, onPending: (pending: boolean) => void): void {
   if (!appVersion) return;
   const seen = storageGet(KEY);
   if (seen === null) {
-    const upgraded =
-      storageGet('prosa.lang') !== null ||
-      storageGet('prosa.theme') !== null ||
-      storageGet('prosa.zoom') !== null ||
-      storageGet('prosa.features') !== null;
     storageSet(KEY, appVersion);
-    if (upgraded) onPending(true);
+    if (HAD_PRIOR_STATE) onPending(true);
     return;
   }
   onPending(seen !== appVersion);
