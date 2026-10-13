@@ -97,6 +97,7 @@ const els = {
   stCount: $('st-count'),
   stVersion: $('st-version') as HTMLButtonElement,
   stToc: $('st-toc') as HTMLButtonElement,
+  stHotkeys: $('st-hotkeys') as HTMLButtonElement,
   aboutOverlay: $('about-overlay'),
   aboutModal: document.querySelector('#about-overlay .modal') as HTMLElement,
   aboutClose: $('about-close') as HTMLButtonElement,
@@ -862,7 +863,7 @@ function buildMenuSections(): (() => MenuSection)[] {
       entries: [
         { label: t('versionTip'), action: () => openAbout() },
         { label: t('settings'), hotkey: 'Ctrl+,', action: () => openSettings() },
-        { label: t('hotkeys'), action: () => openHotkeys() },
+        { label: t('hotkeys'), hotkey: 'F1', action: () => openHotkeys() },
         { label: t('checkUpdates'), action: () => void checkForUpdates(true) },
         sep(),
         { label: t('website'), action: () => openExternal('https://prosamd.ru') },
@@ -1239,6 +1240,10 @@ function applyStaticTexts(): void {
   els.stVersion.setAttribute('aria-label', t('versionTip'));
   tip(els.stToc, `${t('tocTitle')} · Ctrl+Shift+1`);
   els.stToc.setAttribute('aria-label', `${t('tocTitle')} · Ctrl+Shift+1`);
+  // #23: the shortcuts list is one click away in the statusbar; the tip
+  // carries the F1 binding (the menu entry lists it too)
+  tip(els.stHotkeys, `${t('hotkeys')} · F1`);
+  els.stHotkeys.setAttribute('aria-label', `${t('hotkeys')} · F1`);
   // #31: the 7px modified dot gets a name on hover
   tip(els.stModified, t('unsaved'));
   els.stModified.setAttribute('aria-label', t('unsaved'));
@@ -1471,6 +1476,14 @@ async function init(): Promise<void> {
         return;
       }
     }
+    // F1 opens the shortcuts list (#23) — a physical key, so the RU layout
+    // can't break it (the Ctrl+? idea from the request needs Shift+7 on RU);
+    // suppressed while a modal is up: showModal does not stack dialogs
+    if (e.key === 'F1' && activeModalOverlay() === null) {
+      e.preventDefault();
+      openHotkeys();
+      return;
+    }
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) {
       const overlay = activeModalOverlay();
@@ -1618,6 +1631,8 @@ async function init(): Promise<void> {
   els.stVersion.addEventListener('click', () => openAbout());
   // statusbar outline toggle — same code path as View → Outline
   els.stToc.addEventListener('click', () => toggleToc());
+  // #23: statusbar entry point for the shortcuts list
+  els.stHotkeys.addEventListener('click', () => openHotkeys());
   els.aboutClose.addEventListener('click', () => hideModal(els.aboutOverlay));
   els.aboutCheck.addEventListener('click', () => {
     hideModal(els.aboutOverlay);

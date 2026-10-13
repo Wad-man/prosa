@@ -8,9 +8,29 @@ import { getLang, setLang, type Lang } from './i18n';
 
 const THEME_KEY = 'prosa.theme';
 
+// Runtime switches fade instead of snapping (#106): applyTheme plants a
+// one-shot .theme-fade class on <html> (styles.css turns every color into a
+// var(--t-theme) transition) and drops it after the transition ends, so
+// nothing else ever animates. Cold start (the index.html inline script)
+// never passes through here — no fade on launch.
+const THEME_FADE_MS = 340; // var(--t-theme) 280ms + a frame of slack
+let themeFadeTimer = 0;
+
 export function applyTheme(theme: 'light' | 'dark'): void {
-  document.documentElement.dataset.theme = theme;
+  const root = document.documentElement;
+  if (root.dataset.theme !== theme) fadeThemeSwitch();
+  root.dataset.theme = theme;
   localStorage.setItem(THEME_KEY, theme);
+}
+
+/** Plant the fade class unless the user asked for reduced motion — the
+ * class CSS would otherwise override the global reduced-motion reset. */
+function fadeThemeSwitch(): void {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const root = document.documentElement;
+  root.classList.add('theme-fade');
+  window.clearTimeout(themeFadeTimer);
+  themeFadeTimer = window.setTimeout(() => root.classList.remove('theme-fade'), THEME_FADE_MS);
 }
 
 /** The theme currently applied to <html data-theme>; "light" when unset. */

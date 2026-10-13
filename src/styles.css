@@ -67,6 +67,7 @@
   /* motion */
   --t-1: 120ms;
   --t-2: 200ms;
+  --t-theme: 280ms; /* the one full-window transition: runtime theme switch */
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -343,6 +344,21 @@ body {
 
   [data-tip-pos='up-start']:hover::after,
   [data-tip-pos='up-start']:focus-visible::after {
+    transform: translateY(0);
+  }
+
+  /* bottom-right (#st-hotkeys): same upward lift, anchored to the right
+     edge — centered would stick out past the window border */
+  [data-tip-pos='up-end']::after {
+    top: auto;
+    bottom: calc(100% + 8px);
+    left: auto;
+    right: 0;
+    transform: translateY(2px);
+  }
+
+  [data-tip-pos='up-end']:hover::after,
+  [data-tip-pos='up-end']:focus-visible::after {
     transform: translateY(0);
   }
 }
@@ -1500,8 +1516,8 @@ body {
   min-width: 0;
 }
 
-/* outline (sidebar) show/hide toggle */
-.st-toc {
+/* quiet icon buttons (statusbar): the outline toggle and the hotkeys help */
+.st-btn {
   appearance: none;
   border: 0;
   margin: 0;
@@ -1516,18 +1532,18 @@ body {
   flex: none;
 }
 
-.st-toc .icon {
+.st-btn .icon {
   width: 15px;
   height: 15px;
 }
 
-.st-toc:hover,
-.st-toc:focus-visible {
+.st-btn:hover,
+.st-btn:focus-visible {
   color: var(--fg);
 }
 
-/* pressed = the outline sidebar is visible: the pane fills in (and the
-   whole icon takes the accent color) */
+/* outline (sidebar) show/hide toggle: pressed = the sidebar is visible,
+   the pane fills in and the whole icon takes the accent color */
 .st-toc .st-toc-pane {
   opacity: 0;
   transition: opacity var(--t-2) var(--ease);
@@ -2253,6 +2269,26 @@ body {
   color: var(--fg);
 }
 
+/* ---------- theme switch fade (#106) ---------- */
+
+/* settings.ts adds .theme-fade to <html> just before flipping data-theme
+   and removes it ~340ms later: every color-token consumer crossfades to the
+   new theme instead of snapping. !important outranks the per-element
+   transitions above so the whole window moves as one; the class is gone
+   long before any hover state could be affected. */
+html.theme-fade,
+html.theme-fade *,
+html.theme-fade *::before,
+html.theme-fade *::after {
+  transition:
+    background-color var(--t-theme) var(--ease),
+    border-color var(--t-theme) var(--ease),
+    box-shadow var(--t-theme) var(--ease),
+    color var(--t-theme) var(--ease),
+    fill var(--t-theme) var(--ease),
+    stroke var(--t-theme) var(--ease) !important;
+}
+
 /* ---------- reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {
@@ -2262,5 +2298,15 @@ body {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  /* the fade shorthand above would outrank the duration reset by
+     specificity; settings.ts also guards in JS — this keeps the CSS
+     self-contained */
+  html.theme-fade,
+  html.theme-fade *,
+  html.theme-fade *::before,
+  html.theme-fade *::after {
+    transition: none !important;
   }
 }
