@@ -132,8 +132,15 @@ pub fn install(app: &AppHandle, lang: &str) -> tauri::Result<()> {
 
 /// Deliver a custom menu item activation to the focused document window —
 /// every window is an isolated editor, so only one may open the dialog.
+/// (`Manager::get_focused_window` sits behind the `unstable` cargo feature
+/// in tauri 2.12; this is the same lookup over the stable API.)
 pub fn emit_settings(app: &AppHandle) {
-    if let Some(window) = app.get_focused_window() {
+    let focused = app
+        .webview_windows()
+        .values()
+        .find(|w| w.is_focused().unwrap_or(false))
+        .cloned();
+    if let Some(window) = focused {
         let _ = app.emit_to(window.label(), MENU_EVENT, "settings");
     }
 }
