@@ -82,6 +82,9 @@ const strings = {
     website: 'Веб-сайт',
     sourceCode: 'Исходный код',
     hotkeys: 'Горячие клавиши',
+    // #107: the F1 window — shortcut list plus a link to the site docs
+    help: 'Справка',
+    helpOnline: 'Онлайн-справка: разметка Markdown',
     settings: 'Настройки…',
     settingsTitle: 'Настройки',
     settingsLangSection: 'Язык интерфейса',
@@ -184,6 +187,9 @@ const strings = {
     website: 'Website',
     sourceCode: 'Source code',
     hotkeys: 'Keyboard shortcuts',
+    // #107: the F1 window — shortcut list plus a link to the site docs
+    help: 'Help',
+    helpOnline: 'Online help: Markdown reference',
     settings: 'Settings…',
     settingsTitle: 'Settings',
     settingsLangSection: 'Interface language',

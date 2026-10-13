@@ -14,6 +14,7 @@ import {
   writeHtml as writeClipboardHtml,
 } from '@tauri-apps/plugin-clipboard-manager';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { VisualEditor } from './editor/visual';
@@ -62,6 +63,10 @@ const paneOf = (m: Mode): 'visual' | 'source' => (m === 'source' ? 'source' : 'v
 
 const MD_FILTER = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] }];
 const MD_PATH_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
+
+// Online help destination of the Help (F1) window (#107): the site's
+// Markdown docs hub; to be re-pointed at the full manual once site#4 lands
+const HELP_URL = 'https://prosamd.ru/markdown/';
 
 // In a plain browser (no Tauri shell) native APIs are unavailable;
 // the editor core still works — only window/file integration is skipped.
@@ -1148,6 +1153,18 @@ function buildHotkeysBody(): void {
     }
     if (rows > 0) body.append(group);
   }
+
+  // online help (#107): the dialog is a help window — the shortcut list
+  // plus a link out to the site docs; opens in the system browser
+  const link = document.createElement('a');
+  link.className = 'hk-online';
+  link.href = HELP_URL;
+  link.textContent = t('helpOnline');
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    openExternal(HELP_URL);
+  });
+  body.append(link);
 }
 
 function hkRow(label: string, hotkey: string): HTMLElement {
@@ -1163,7 +1180,9 @@ function hkRow(label: string, hotkey: string): HTMLElement {
 }
 
 function openHotkeys(): void {
-  els.hotkeysTitle.textContent = t('hotkeys');
+  // titled "Help" (#107): the window carries the shortcut list plus the
+  // online-help link, not shortcuts alone
+  els.hotkeysTitle.textContent = t('help');
   buildHotkeysBody();
   showModal(els.hotkeysOverlay, els.hotkeysModal);
 }
@@ -1242,8 +1261,8 @@ function applyStaticTexts(): void {
   els.stToc.setAttribute('aria-label', `${t('tocTitle')} · Ctrl+Shift+1`);
   // #23: the shortcuts list is one click away in the statusbar; the tip
   // carries the F1 binding (the menu entry lists it too)
-  tip(els.stHotkeys, `${t('hotkeys')} · F1`);
-  els.stHotkeys.setAttribute('aria-label', `${t('hotkeys')} · F1`);
+  tip(els.stHotkeys, `${t('help')} · F1`);
+  els.stHotkeys.setAttribute('aria-label', `${t('help')} · F1`);
   // #31: the 7px modified dot gets a name on hover
   tip(els.stModified, t('unsaved'));
   els.stModified.setAttribute('aria-label', t('unsaved'));
@@ -1423,6 +1442,9 @@ async function init(): Promise<void> {
   onLangChanged(() => {
     applyStaticTexts();
     refreshChrome();
+    // the native macOS menu re-localizes from the resolved language (#104);
+    // a no-op command wherever there is no native menu
+    if (inTauri) void invoke('set_menu_language', { lang: getLang() }).catch(() => {});
     // Crepe bakes its feature strings in at construction — rebuild the
     // visual editor so its menus/tooltips follow the new language (undo
     // history resets; a rare action, accepted). Works in source mode too:
@@ -1657,6 +1679,14 @@ async function init(): Promise<void> {
   });
   els.settingsLangRu.addEventListener('click', () => setLanguage('ru'));
   els.settingsLangEn.addEventListener('click', () => setLanguage('en'));
+  // #104: native macOS menu — report the resolved language once at boot
+  // (the bar starts Russian) and receive its "Settings…" item back
+  if (inTauri) {
+    void invoke('set_menu_language', { lang: getLang() }).catch(() => {});
+    void listen<string>('prosa://menu', (e) => {
+      if (e.payload === 'settings') openSettings();
+    });
+  }
   for (const link of els.aboutLinks) {
     link.addEventListener('click', (e) => {
       e.preventDefault();
