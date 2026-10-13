@@ -106,6 +106,12 @@ const strings = {
     zoomIn: 'Увеличить',
     zoomOut: 'Уменьшить',
     zoomReset: 'Масштаб 100%',
+    // #24: print (File menu) + its failure dialog
+    print: 'Печать…',
+    printError: 'Не удалось создать PDF',
+    // #37: what's new (Help menu + modal)
+    whatsNew: 'Что нового',
+    changelogFull: 'Полная история версий',
     // имена языков — эндонимы, не переводятся ни в одном из словарей
     langRu: 'Русский',
     langEn: 'English',
@@ -213,6 +219,12 @@ const strings = {
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
     zoomReset: 'Actual size',
+    // #24: print (File menu) + its failure dialog
+    print: 'Print…',
+    printError: 'Failed to create the PDF',
+    // #37: what's new (Help menu + modal)
+    whatsNew: "What's new",
+    changelogFull: 'Full version history',
     // language names are endonyms — identical in both dictionaries
     langRu: 'Русский',
     langEn: 'English',

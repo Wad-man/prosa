@@ -148,6 +148,20 @@
       </div>
     </div>
 
+    <!-- #37: shown after an update (dot on «Справка»); content is rebuilt
+         from the bundled release summary on every open -->
+    <div id="whatsnew-overlay" class="modal-overlay" hidden>
+      <div class="modal modal-whatsnew" role="dialog" aria-modal="true" aria-labelledby="whatsnew-title" tabindex="-1">
+        <button id="whatsnew-close" class="modal-x" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <h2 class="whatsnew-title" id="whatsnew-title"></h2>
+        <p class="whatsnew-version" id="whatsnew-version"></p>
+        <ul class="whatsnew-list" id="whatsnew-list"></ul>
+        <a id="whatsnew-link" class="whatsnew-link" href="https://prosamd.ru/changelog.html" target="_blank" rel="noreferrer"></a>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -1,0 +1,121 @@
+//! Printing (#24). Two platform commands behind one «Print…» menu entry:
+//!
+//! - `print_document` — macOS/Linux: the system print sheet
+//!   (`WebviewWindow::print()`, wry drives NSPrintOperation on macOS and
+//!   the webkit2gtk print dialog on Linux; both can save a PDF too).
+//! - `print_to_pdf` — Windows: silent `ICoreWebView2_7::PrintToPdf` with
+//!   no print dialog; the frontend hands over the path from a Save
+//!   dialog. Settings: A4 portrait, 2 cm margins, backgrounds on, no
+//!   header/footer. The completion is reported back over a channel, so
+//!   the command thread never pumps the main-thread message loop.
+//!
+//! The approach (hidden #print-root re-rendered from the source, silent
+//! WebView2 PDF) follows Markpad 2.8.4 (BSD-3, © 2023 Alec Ames) as
+//! recorded by the scout in RESEARCH-MDVIEW-MARKPAD-2026-10-12.md; the
+//! code below is written against the same COM API surface.
+
+use std::sync::mpsc;
+
+#[tauri::command]
+pub fn print_document(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        window.print().map_err(|e| e.to_string())
+    }
+    #[cfg(windows)]
+    {
+        let _ = window;
+        Err("silent PDF is used on Windows".into())
+    }
+}
+
+#[tauri::command]
+pub async fn print_to_pdf(window: tauri::WebviewWindow, path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::time::Duration;
+        use webview2_com::{
+            Microsoft::Web::WebView2::Win32::{ICoreWebView2Environment6, ICoreWebView2_7},
+            PrintToPdfCompletedHandler,
+        };
+        use windows_core::{HSTRING, Interface};
+
+        let (sender, receiver) = mpsc::sync_channel(1);
+        window
+            .with_webview(move |platform_webview| unsafe {
+                let result = (|| -> Result<(), String> {
+                    let controller = platform_webview.controller();
+                    let webview = controller
+                        .CoreWebView2()
+                        .map_err(|e| format!("failed to access WebView2: {e}"))?
+                        .cast::<ICoreWebView2_7>()
+                        .map_err(|e| format!("WebView2 runtime cannot print: {e}"))?;
+                    let settings = platform_webview
+                        .environment()
+                        .cast::<ICoreWebView2Environment6>()
+                        .map_err(|e| format!("WebView2 runtime has no print settings: {e}"))?
+                        .CreatePrintSettings()
+                        .map_err(|e| format!("failed to create print settings: {e}"))?;
+
+                    // A4 portrait, 2 cm margins, paper-true colors, clean
+                    // edges (the page geometry is set here, not in @page —
+                    // CSS margins would double with the COM ones)
+                    settings.SetPageWidth(8.2677) // 210 mm
+                        .map_err(|e| format!("failed to apply print settings: {e}"))?;
+                    settings.SetPageHeight(11.6929) // 297 mm
+                        .map_err(|e| format!("failed to apply print settings: {e}"))?;
+                    settings.SetMarginTop(0.7874) // 20 mm
+                        .map_err(|e| format!("failed to apply print settings: {e}"))?;
+                    settings.SetMarginBottom(0.7874)
+                        .map_err(|e| format!("failed to apply print settings: {e}"))?;
+                    settings.SetMarginLeft(0.7874)
+                        .map_err(|e| format!("failed to apply print settings: {e}"))?;
+                    settings.SetMarginRight(0.7874)
+                        .map_err(|e| format!("failed to apply print settings: {e}"))?;
+                    settings
+                        .SetShouldPrintBackgrounds(true)
+                        .map_err(|e| format!("failed to enable backgrounds: {e}"))?;
+                    settings
+                        .SetShouldPrintHeaderAndFooter(false)
+                        .map_err(|e| format!("failed to disable headers: {e}"))?;
+
+                    let callback_sender = sender.clone();
+                    let completion =
+                        PrintToPdfCompletedHandler::create(Box::new(move |status, succeeded| {
+                            let result = status
+                                .map_err(|e| format!("PDF export failed: {e}"))
+                                .and_then(|_| {
+                                    if succeeded {
+                                        Ok(())
+                                    } else {
+                                        Err("WebView2 did not create the PDF file".to_string())
+                                    }
+                                });
+                            let _ = callback_sender.send(result);
+                            Ok(())
+                        }));
+
+                    webview
+                        .PrintToPdf(&HSTRING::from(path.as_str()), &settings, &completion)
+                        .map_err(|e| format!("could not start PDF export: {e}"))
+                })();
+
+                if let Err(error) = result {
+                    let _ = sender.send(Err(error));
+                }
+            })
+            .map_err(|e| format!("failed to schedule PDF export: {e}"))?;
+
+        tauri::async_runtime::spawn_blocking(move || {
+            receiver.recv_timeout(Duration::from_secs(120))
+        })
+        .await
+        .map_err(|e| format!("PDF export task failed: {e}"))?
+        .map_err(|e| format!("PDF export timed out or failed: {e}"))?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, path);
+        Err("silent PDF export is only available on Windows".into())
+    }
+}

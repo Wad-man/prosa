@@ -36,6 +36,8 @@ import {
 import type { BlockId, MarkId } from './editor/actions';
 import { splitFrontMatter } from './frontmatter';
 import { markdownToHtml } from './markdown-html';
+import { printDocument } from './print';
+import { CHANGELOG_URL, checkWhatsNew, markWhatsNewSeen, whatsNewItems } from './whats-new';
 import { MenuBar, type MenuSection } from './menu';
 import { TocPanel } from './toc';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
@@ -127,6 +129,13 @@ const els = {
   settingsLangLabel: $('settings-lang-label'),
   settingsLangRu: $('settings-lang-ru') as HTMLButtonElement,
   settingsLangEn: $('settings-lang-en') as HTMLButtonElement,
+  whatsnewOverlay: $('whatsnew-overlay'),
+  whatsnewModal: document.querySelector('#whatsnew-overlay .modal') as HTMLElement,
+  whatsnewClose: $('whatsnew-close') as HTMLButtonElement,
+  whatsnewTitle: $('whatsnew-title'),
+  whatsnewVersion: $('whatsnew-version'),
+  whatsnewList: $('whatsnew-list'),
+  whatsnewLink: $('whatsnew-link') as HTMLAnchorElement,
 };
 
 const visual = new VisualEditor();
@@ -745,6 +754,11 @@ function buildMenuSections(): (() => MenuSection)[] {
         sep(),
         { label: t('save'), hotkey: 'Ctrl+S', action: () => void saveFile(false) },
         { label: t('saveAs'), hotkey: 'Ctrl+Shift+S', action: () => void saveFile(true) },
+        sep(),
+        // #24: a system-level «Save» peer, not an export feature — Windows
+        // writes a silent PDF (path via the Save dialog), macOS/Linux open
+        // the system print sheet
+        { label: t('print'), hotkey: 'Ctrl+P', action: () => printCurrentDocument() },
       ],
     }),
     (): MenuSection => ({
@@ -867,6 +881,7 @@ function buildMenuSections(): (() => MenuSection)[] {
       entries: [
         { label: t('versionTip'), action: () => openAbout() },
         { label: t('settings'), hotkey: 'Ctrl+,', action: () => openSettings() },
+        { label: t('whatsNew'), action: () => openWhatsNew() },
         { label: t('hotkeys'), hotkey: 'F1', action: () => openHotkeys() },
         { label: t('checkUpdates'), action: () => void checkForUpdates(true) },
         sep(),
@@ -1053,6 +1068,7 @@ function activeModalOverlay(): HTMLElement | null {
   if (!els.closeOverlay.hidden) return els.closeOverlay;
   if (!els.hotkeysOverlay.hidden) return els.hotkeysOverlay;
   if (!els.settingsOverlay.hidden) return els.settingsOverlay;
+  if (!els.whatsnewOverlay.hidden) return els.whatsnewOverlay;
   return null;
 }
 
@@ -1205,6 +1221,40 @@ function openHotkeys(): void {
  * one made from inside the dialog itself). */
 function openSettings(): void {
   showModal(els.settingsOverlay, els.settingsModal);
+}
+
+// ---------- what's new dialog (#37) ----------
+
+/** Opens the «What's new» modal: the current release's summary plus a link
+ * out to the full changelog. Merely opening it marks the version viewed —
+ * the Help-menu dot goes out even if the dialog is closed immediately
+ * (per spec). */
+function openWhatsNew(): void {
+  els.whatsnewTitle.textContent = t('whatsNew');
+  els.whatsnewVersion.textContent = appVersion ? `v${appVersion}` : '';
+  els.whatsnewList.replaceChildren(
+    ...whatsNewItems(getLang()).map((line) => {
+      const li = document.createElement('li');
+      li.textContent = line;
+      return li;
+    }),
+  );
+  els.whatsnewLink.href = `${CHANGELOG_URL}?from=prosamd${appVersion ? `&v=${encodeURIComponent(appVersion)}` : ''}`;
+  els.whatsnewLink.textContent = t('changelogFull');
+  markWhatsNewSeen(appVersion);
+  menuBar.setBadge('KeyH', false);
+  showModal(els.whatsnewOverlay, els.whatsnewModal);
+}
+
+// ---------- print (#24) ----------
+
+/** The whole document — front-matter and the #83 prefix are metadata and
+ * never reach the paper (printDocument splits them back out, same as
+ * Copy-for-Word). An empty document is a silent no-op. */
+function printCurrentDocument(): void {
+  void printDocument(currentFullText(), fileName()).catch((err: unknown) => {
+    void message(`${t('printError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
+  });
 }
 
 // ---------- window close guard ----------
@@ -1546,6 +1596,11 @@ async function init(): Promise<void> {
     } else if (code === 'KeyO') {
       e.preventDefault();
       void openFile();
+    } else if (code === 'KeyP' && !e.shiftKey && !e.altKey) {
+      // #24: print works in every mode and over any dialog (it re-renders
+      // from the source, it never reads the live screen)
+      e.preventDefault();
+      printCurrentDocument();
     } else if (code === 'Slash') {
       e.preventDefault();
       toggleMode();
@@ -1687,6 +1742,16 @@ async function init(): Promise<void> {
   els.settingsOverlay.addEventListener('click', (e) => {
     if (e.target === els.settingsOverlay) hideModal(els.settingsOverlay);
   });
+  // what's new dialog: same modal mechanics; the changelog link opens in
+  // the system browser (the WebView must not navigate away, #66 pattern)
+  els.whatsnewClose.addEventListener('click', () => hideModal(els.whatsnewOverlay));
+  els.whatsnewOverlay.addEventListener('click', (e) => {
+    if (e.target === els.whatsnewOverlay) hideModal(els.whatsnewOverlay);
+  });
+  els.whatsnewLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    openExternal(els.whatsnewLink.href);
+  });
   els.settingsLangRu.addEventListener('click', () => setLanguage('ru'));
   els.settingsLangEn.addEventListener('click', () => setLanguage('en'));
   // #104: native macOS menu — report the resolved language once at boot
@@ -1781,6 +1846,11 @@ async function init(): Promise<void> {
         els.stVersion.textContent = `v${v}`;
         els.stVersion.hidden = false;
         refreshAboutVersion();
+        // #37: an updated app lights the «What's new» dot on Справка until
+        // the summary is opened; a fresh install records the version silently
+        checkWhatsNew(v, (pending) => {
+          if (pending) menuBar.setBadge('KeyH', true);
+        });
       })
       .catch(() => {});
     // background update check shortly after launch; only the main window runs

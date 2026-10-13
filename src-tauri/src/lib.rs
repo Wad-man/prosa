@@ -14,6 +14,10 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 #[cfg(target_os = "macos")]
 mod menu;
 
+// printing commands (#24): system sheet on macOS/Linux, silent WebView2
+// PDF on Windows
+mod print;
+
 /// First non-flag CLI argument — the file Windows/shell passes when the user
 /// double-clicks a document associated with Prosa (cold start).
 #[tauri::command]
@@ -326,7 +330,9 @@ pub fn run() {
             has_dirty_windows,
             open_document_window,
             set_menu_language,
-            is_updater_install
+            is_updater_install,
+            print::print_document,
+            print::print_to_pdf
         ])
         .run(tauri::generate_context!())
         .expect("error while running prosa");

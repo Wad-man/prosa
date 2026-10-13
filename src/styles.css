@@ -2326,3 +2326,285 @@ html.theme-fade *::after {
     transition: none !important;
   }
 }
+
+/* ---------- menu notification dot (#37) ---------- */
+
+/* The «What's new» badge on the Help button: semantically a notification
+   (not a file state like .st-mod), so it sits in the button's corner with
+   a short pulse. Color = var(--accent) (вариант Б); the vermilion option
+   (А) is an owner gate away. */
+.menu-btn[data-badge] {
+  position: relative;
+}
+
+.menu-btn[data-badge]::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  /* three quiet beats, then it rests fully visible — attention without a
+     permanent flicker (prefers-reduced-motion freezes it via the global
+     reset at the end of this file) */
+  animation: menu-badge-pulse 0.9s var(--ease) 3;
+}
+
+@keyframes menu-badge-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.45);
+    opacity: 0.6;
+  }
+}
+
+/* ---------- what's new dialog (#37) ---------- */
+
+.modal-whatsnew {
+  width: min(480px, calc(100vw - 64px));
+}
+
+.whatsnew-title {
+  margin: 2px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding-right: 36px; /* clear of the × button */
+}
+
+.whatsnew-version {
+  margin: 4px 0 12px;
+  font-size: 13px;
+  color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.whatsnew-list {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.whatsnew-link {
+  color: var(--accent);
+}
+
+/* ---------- print (#24) ---------- */
+
+/* The hidden print copy: rebuilt from the markdown source on every print
+   (print.ts), rendered only for the print pipeline. Display:none on
+   screen keeps it out of layout entirely. */
+#print-root {
+  display: none;
+}
+
+@media print {
+  /* the paper sees only the print copy: the app shell, any open modal,
+     dropdown, the find bar and the context panel are all direct children
+     of <body> */
+  body > *:not(#print-root) {
+    display: none !important;
+  }
+
+  /* the UI zoom (#25) is a screen convenience — paper starts at 100% */
+  html {
+    zoom: 1 !important;
+    background: #ffffff;
+  }
+
+  /* backgrounds print (code blocks keep their tint), so the page paint
+   must be forced light: a dark-theme document prints in a light layout */
+  body {
+    background: #ffffff !important;
+  }
+
+  #print-root {
+    display: block;
+    color: #181a23;
+    font-family: var(--font-ui);
+    font-size: 11pt;
+    line-height: 1.65;
+  }
+
+  #print-root > :first-child {
+    margin-top: 0;
+  }
+
+  #print-root p {
+    margin: 0 0 7pt;
+    orphans: 2;
+    widows: 2;
+  }
+
+  #print-root h1,
+  #print-root h2,
+  #print-root h3,
+  #print-root h4,
+  #print-root h5,
+  #print-root h6 {
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 14pt 0 6pt;
+    break-after: avoid;
+  }
+
+  #print-root h1 {
+    font-size: 20pt;
+    margin-top: 0;
+  }
+
+  #print-root h2 {
+    font-size: 15.5pt;
+  }
+
+  #print-root h3 {
+    font-size: 13pt;
+  }
+
+  #print-root h4 {
+    font-size: 11.5pt;
+  }
+
+  #print-root h5 {
+    font-size: 11pt;
+  }
+
+  #print-root h6 {
+    font-size: 10pt;
+  }
+
+  #print-root ul,
+  #print-root ol {
+    margin: 0 0 7pt;
+    padding-left: 18pt;
+  }
+
+  #print-root li {
+    margin: 0 0 2pt;
+  }
+
+  #print-root li > p {
+    margin: 0;
+  }
+
+  #print-root blockquote {
+    margin: 0 0 7pt;
+    padding: 1pt 0 1pt 10pt;
+    border-left: 2pt solid #b9bcc7;
+    color: #3f4149;
+    break-inside: avoid;
+  }
+
+  #print-root code {
+    font-family: var(--font-mono);
+    font-size: 9.5pt;
+    background: #f2f3f7;
+    border-radius: 2pt;
+    padding: 0.5pt 2pt;
+  }
+
+  #print-root pre {
+    background: #f2f3f7;
+    border-radius: 3pt;
+    padding: 6pt 8pt;
+    margin: 0 0 7pt;
+    white-space: pre-wrap;
+    break-inside: avoid;
+  }
+
+  #print-root pre code {
+    background: none;
+    padding: 0;
+    font-size: 9pt;
+    line-height: 1.5;
+  }
+
+  /* block-level HTML prints as code (the editor shows it as code too) */
+  #print-root pre[data-html-block] {
+    border: 0.5pt dashed #b9bcc7;
+    background: #ffffff;
+  }
+
+  #print-root table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0 0 7pt;
+    font-size: 10pt;
+    break-inside: avoid;
+  }
+
+  #print-root th,
+  #print-root td {
+    border: 0.5pt solid #b9bcc7;
+    padding: 3pt 6pt;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  #print-root th {
+    background: #eef0f5;
+  }
+
+  #print-root img {
+    max-width: 100%;
+    break-inside: avoid;
+  }
+
+  #print-root hr {
+    border: none;
+    border-top: 0.5pt solid #b9bcc7;
+    margin: 10pt 0;
+  }
+
+  #print-root a {
+    color: #4c52c5;
+  }
+
+  #print-root del {
+    text-decoration-color: #6f7179;
+  }
+
+  /* GFM task checkboxes: quiet boxes, no interactive chrome; the list
+     item drops its bullet — box + bullet would say the same thing twice */
+  #print-root li.task-list-item {
+    list-style: none;
+    margin-left: -18pt;
+  }
+
+  #print-root input[type='checkbox'] {
+    width: 8pt;
+    height: 8pt;
+    margin-right: 3pt;
+    vertical-align: baseline;
+    accent-color: #181a23;
+  }
+
+  /* GFM footnotes (remark-rehype emits them as a trailing section with an
+     English screen-reader-only heading — hide the heading, keep the notes;
+     a visible "Footnotes" in a Russian document would be a typo) */
+  #print-root section[data-footnotes] {
+    font-size: 9pt;
+    border-top: 0.5pt solid #b9bcc7;
+    margin-top: 12pt;
+    padding-top: 6pt;
+    break-before: avoid;
+  }
+
+  #print-root section[data-footnotes] h2 {
+    display: none;
+  }
+
+  #print-root sup {
+    font-size: 8pt;
+    line-height: 0;
+  }
+}

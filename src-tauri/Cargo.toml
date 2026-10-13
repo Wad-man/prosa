@@ -32,6 +32,12 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
+# Windows-only: silent PrintToPdf (#24) — versions match what tauri's
+# webview stack already resolves, so nothing extra enters the tree
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
+
 # Size optimization guideline: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1

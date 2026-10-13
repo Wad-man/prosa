@@ -38,6 +38,8 @@ export class MenuBar {
   private buttons: HTMLButtonElement[] = [];
   private dropdown: HTMLElement | null = null;
   private openIndex = -1;
+  /** #37: sections (by altKey) currently carrying a notification dot */
+  private badges = new Set<string>();
 
   mount(host: HTMLElement, sections: (() => MenuSection)[]): void {
     this.host = host;
@@ -72,6 +74,9 @@ export class MenuBar {
         btn.setAttribute('aria-keyshortcuts', `Alt+${key}`);
       }
       btn.addEventListener('pointerdown', (e) => e.preventDefault());
+      // #37: the notification dot is a style hook on the button itself, so
+      // it survives every relabel/re-render
+      if (section.altKey && this.badges.has(section.altKey)) btn.dataset.badge = 'true';
       btn.addEventListener('click', () => {
         if (this.openIndex === i) this.close();
         else this.open(i);
@@ -87,6 +92,23 @@ export class MenuBar {
 
   isOpen(): boolean {
     return this.openIndex >= 0;
+  }
+
+  /**
+   * #37: toggle the notification dot on a section's top-level button,
+   * identified by its altKey (e.g. 'KeyH' for Справка). Applies to the
+   * live button when the bar is mounted; the state is remembered across
+   * relabel() re-renders.
+   */
+  setBadge(altKey: string, on: boolean): void {
+    if (on) this.badges.add(altKey);
+    else this.badges.delete(altKey);
+    const index = this.sections.findIndex((factory) => factory().altKey === altKey);
+    if (index === -1) return;
+    const btn = this.buttons[index];
+    if (!btn) return;
+    if (on) btn.dataset.badge = 'true';
+    else delete btn.dataset.badge;
   }
 
   open(index: number): void {
