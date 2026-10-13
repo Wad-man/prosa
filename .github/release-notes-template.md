@@ -4,7 +4,7 @@
 
 **RU** — что нового:
 
-- **macOS Monterey: приложение ожило.** WKWebView на схеме `tauri://` бросал `SecurityError` на само обращение к `localStorage` — один такой бросок на старте убивал весь фронтенд: пустое меню, нерабочие кнопки (отчёт с MacBook Air 2017). Все обращения к хранилищу ушли в безопасную обёртку с фолбэком в память, пол сборки зафиксирован явно. Замечание: визуальному редактору нужен Safari/WebKit 16.4+ (обновлённый Monterey с Safari 17.6 подходит; необновлённые 15.x открывают меню, но редактор не поднимется).
+- **macOS Monterey: приложение ожило.** WKWebView на схеме `tauri://` бросал `SecurityError` на само обращение к `localStorage` — один такой бросок на старте убивал весь фронтенд: пустое меню, нерабочие кнопки (отчёт с MacBook Air 2017). Все обращения к хранилищу ушли в безопасную обёртку с фолбэком в память, нижняя граница целей сборки зафиксирована явно. Замечание: визуальному редактору нужен Safari/WebKit 16.4+ (обновлённый Monterey с Safari 17.6 подходит; необновлённые 15.x открывают меню, но редактор не поднимется).
 - **macOS: нативная строка меню** на языке интерфейса: ProsaMD (О программе, Настройки… `Cmd+,`, Службы, Скрыть, Завершить) · Правка · Окно со списком открытых документов. Больше никакого шаблонного английского File/Edit/View; `Cmd+C/X/V/A/Z` теперь доходят до редактора (WKWebView получает их только через нативное меню Правка).
 - **Linux: основной формат — `.deb`** (x64 и ARM64): системный webkit2gtk вместо вшитого стека — единицы мегабайт вместо 84 МБ, после `apt install` появляются иконка в лаунчере и ассоциации `.md`. AppImage остаётся портативным вариантом для дистрибутивов без webkit2gtk-4.1. Обновление deb-установки — установкой нового пакета (кнопка проверки обновлений в приложении честно об этом сообщает).
 - **Окно «Справка» (F1)**: перечень горячих клавиш (тот же источник, что меню) + ссылка на онлайн-справку по разметке — prosamd.ru/markdown, открывается в системном браузере.
@@ -28,5 +28,5 @@
 - **Linux** — Ubuntu/Debian: `sudo apt install ./ProsaMD_*_amd64.deb` (ARM64 — `*_arm64.deb`). Прочие дистрибутивы — AppImage: `chmod +x ProsaMD_*_amd64.AppImage && ./ProsaMD_*_amd64.AppImage`.
   Ubuntu/Debian: install the `.deb`; other distros: make the AppImage executable and run.
 
-<sub>Обновления устанавливаются прямо из приложения (Windows): клик по версии в статусной строке. macOS/Linux — обновление следующим пакетом.
-Updates install right from the app on Windows: click the version in the status bar. On macOS/Linux — install the next package.</sub>
+<sub>Обновления — из окна «О программе» (клик по версии в статусной строке): работают на Windows, macOS и AppImage-установках Linux; установка из .deb обновляется новым пакетом.
+Updates live in the About window (click the version in the status bar): available on Windows, macOS and AppImage installs on Linux; a .deb install upgrades by installing the newer package.</sub>
