@@ -1851,6 +1851,14 @@ async function init(): Promise<void> {
         checkWhatsNew(v, (pending) => {
           if (pending) menuBar.setBadge('KeyH', true);
         });
+        // every document window runs the same check — when another window
+        // views the summary first, its storage write must put this dot out
+        // too (the storage event only fires in the OTHER same-origin windows)
+        window.addEventListener('storage', (e) => {
+          if (e.key === 'prosa.whats-new' && e.newValue !== null && e.newValue === appVersion) {
+            menuBar.setBadge('KeyH', false);
+          }
+        });
       })
       .catch(() => {});
     // background update check shortly after launch; only the main window runs

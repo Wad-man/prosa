@@ -21,22 +21,18 @@ import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import remarkRehype from 'remark-rehype';
 import rehypeStringify from 'rehype-stringify';
-import { prosaRawHtmlTransform } from './editor/raw-html';
+import { prosaPairPlugin, prosaHtmlTagHandler } from './markdown-html';
 import { displaySrc } from './editor/image-assets';
 import { splitFrontMatter } from './frontmatter';
 import { t } from './i18n';
 
 const inTauri = '__TAURI_INTERNALS__' in window;
 
-type MdTree = Parameters<typeof prosaRawHtmlTransform>[0];
-
-const prosaPairPlugin: Plugin = () => (tree) => {
-  prosaRawHtmlTransform(tree as MdTree);
-};
-
 /** Rewrites <img> src through displaySrc — the print copy resolves
  * relative paths to the asset protocol exactly like the editor's display
- * layer, so `![](assets/x.png)` shows its pixels on paper. */
+ * layer, so `![](assets/x.png)` shows its pixels on paper. Also strips
+ * exotic link schemes (`javascript:` and friends never belong on paper;
+ * http/https/mailto and scheme-less hrefs stay). */
 const printImages: Plugin = () => (tree) => {
   const walk = (node: unknown): void => {
     if (node && typeof node === 'object') {
@@ -44,31 +40,31 @@ const printImages: Plugin = () => (tree) => {
       if (n.tagName === 'img' && typeof n.properties?.src === 'string') {
         n.properties.src = displaySrc(n.properties.src);
       }
+      if (n.tagName === 'a' && typeof n.properties?.href === 'string') {
+        const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(n.properties.href)?.[1]?.toLowerCase();
+        if (scheme && scheme !== 'http' && scheme !== 'https' && scheme !== 'mailto') {
+          delete n.properties.href;
+        }
+      }
       n.children?.forEach(walk);
     }
   };
   walk(tree);
 };
 
-// handlers mirror markdown-html.ts with two print-only differences:
+// handlers mirror markdown-html.ts with print-only differences:
 // prosaHtmlBlock becomes a code block (the editor shows block HTML as
 // code too — silently dropping a user's content would print a lie), and
-// images are rewritten afterwards by printImages
+// leftover inline html (non-whitelisted tags, which the editor keeps as
+// literal text) prints as that literal text for the same reason;
+// images/links are rewritten afterwards by printImages
 const processor = unified()
   .use(remarkParse)
   .use(remarkGfm)
   .use(prosaPairPlugin)
   .use(remarkRehype, {
     handlers: {
-      prosaHtmlTag: (
-        state: { all: (node: unknown) => unknown[] },
-        node: { tag: string; children?: unknown[] },
-      ) => ({
-        type: 'element',
-        tagName: node.tag,
-        properties: {},
-        children: state.all(node),
-      }),
+      prosaHtmlTag: prosaHtmlTagHandler,
       prosaHtmlBlock: (
         _state: unknown,
         node: { value?: string },
@@ -85,6 +81,7 @@ const processor = unified()
           },
         ],
       }),
+      html: (_state: unknown, node: { value?: string }) => ({ type: 'text', value: node.value ?? '' }),
     },
   } as Parameters<typeof remarkRehype>[0])
   .use(printImages)
@@ -124,12 +121,27 @@ function isWindows(): boolean {
   return /Windows/i.test(navigator.userAgent);
 }
 
+/** One print at a time: a second Ctrl+P while the Save dialog is up or
+ * PrintToPdf is running would rebuild #print-root under the running
+ * export — the first PDF could come out partial (review M1). */
+let printing = false;
+
 /**
  * Print the given document. `suggestedName` seeds the Save dialog's file
  * name on Windows. Empty documents (nothing after the front-matter) print
  * nothing — a silent no-op, like an empty Copy-for-Word.
  */
 export async function printDocument(source: string, suggestedName: string): Promise<void> {
+  if (printing) return;
+  printing = true;
+  try {
+    await printOnce(source, suggestedName);
+  } finally {
+    printing = false;
+  }
+}
+
+async function printOnce(source: string, suggestedName: string): Promise<void> {
   const { body } = splitFrontMatter(source);
   if (!body.trim()) return;
   const root = ensurePrintRoot();

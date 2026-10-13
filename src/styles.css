@@ -2415,10 +2415,20 @@ html.theme-fade *::after {
     display: none !important;
   }
 
-  /* the UI zoom (#25) is a screen convenience — paper starts at 100% */
+  /* the UI zoom (#25) is a screen convenience — paper starts at 100%;
+     color-scheme flips to light (dark theme must not paint checkboxes and
+     controls dark) and the app's fixed-height/overflow layout unclips, or
+     WebKit would print one screenful (review M4) */
   html {
     zoom: 1 !important;
     background: #ffffff;
+    color-scheme: light !important;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
   }
 
   /* backgrounds print (code blocks keep their tint), so the page paint

@@ -91,7 +91,7 @@ pub async fn print_to_pdf(window: tauri::WebviewWindow, path: String) -> Result<
                                         Err("WebView2 did not create the PDF file".to_string())
                                     }
                                 });
-                            let _ = callback_sender.send(result);
+                            let _ = callback_sender.try_send(result);
                             Ok(())
                         }));
 
@@ -101,7 +101,9 @@ pub async fn print_to_pdf(window: tauri::WebviewWindow, path: String) -> Result<
                 })();
 
                 if let Err(error) = result {
-                    let _ = sender.send(Err(error));
+                    // try_send: a second write must never block the UI
+                    // thread the closure runs on (review M6)
+                    let _ = sender.try_send(Err(error));
                 }
             })
             .map_err(|e| format!("failed to schedule PDF export: {e}"))?;
@@ -111,7 +113,14 @@ pub async fn print_to_pdf(window: tauri::WebviewWindow, path: String) -> Result<
         })
         .await
         .map_err(|e| format!("PDF export task failed: {e}"))?
-        .map_err(|e| format!("PDF export timed out or failed: {e}"))?
+        .map_err(|e| match e {
+            std::sync::mpsc::RecvTimeoutError::Timeout => {
+                "the PDF export did not finish within 120 s".to_string()
+            }
+            std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                "the print worker dropped the result".to_string()
+            }
+        })?
     }
     #[cfg(not(windows))]
     {

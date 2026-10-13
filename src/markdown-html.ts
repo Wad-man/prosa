@@ -21,9 +21,23 @@ import { prosaRawHtmlTransform } from './editor/raw-html';
 
 type MdTree = Parameters<typeof prosaRawHtmlTransform>[0];
 
-const prosaPairPlugin: Plugin = () => (tree) => {
+/** Контур-A glue shared by every render path built on this pipeline
+ * (Copy-for-Word, print #24): pairs the inline-HTML whitelist from
+ * raw-html.ts into an mdast transform. */
+export const prosaPairPlugin: Plugin = () => (tree) => {
   prosaRawHtmlTransform(tree as MdTree);
 };
+
+/** prosaHtmlTag (a whitelisted kbd/sub/sup pair) → a real element. */
+export const prosaHtmlTagHandler = (
+  state: { all: (node: unknown) => unknown[] },
+  node: { tag: string; children?: unknown[] },
+): unknown => ({
+  type: 'element',
+  tagName: node.tag,
+  properties: {},
+  children: state.all(node),
+});
 
 const processor = unified()
   .use(remarkParse)
@@ -35,15 +49,7 @@ const processor = unified()
     // the buffer as escaped visible text; non-whitelisted inline html is
     // unknown to rehype and drops the same way
     handlers: {
-      prosaHtmlTag: (
-        state: { all: (node: unknown) => unknown[] },
-        node: { tag: string; children?: unknown[] },
-      ) => ({
-        type: 'element',
-        tagName: node.tag,
-        properties: {},
-        children: state.all(node),
-      }),
+      prosaHtmlTag: prosaHtmlTagHandler,
       prosaHtmlBlock: () => ({ type: 'text', value: '' }),
     },
   } as Parameters<typeof remarkRehype>[0])

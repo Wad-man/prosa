@@ -40,13 +40,23 @@ export function whatsNewItems(lang: Lang): string[] {
 /**
  * Decide whether the «What's new» dot should light up. Returns the
  * verdict through the callback (`pending: true` = updated since the last
- * view); a first run just records the version.
+ * view). A first run just records the version — with one upgrade carve-out
+ * (review M2): a user updating from a build that predated this key (≤ rc.4)
+ * has no `prosa.whats-new`, but usually carries other prosa.* keys; the
+ * debut release must still show them the dot. The heuristic is
+ * deliberately conservative: no keys at all = a genuinely fresh install.
  */
 export function checkWhatsNew(appVersion: string, onPending: (pending: boolean) => void): void {
   if (!appVersion) return;
   const seen = storageGet(KEY);
   if (seen === null) {
+    const upgraded =
+      storageGet('prosa.lang') !== null ||
+      storageGet('prosa.theme') !== null ||
+      storageGet('prosa.zoom') !== null ||
+      storageGet('prosa.features') !== null;
     storageSet(KEY, appVersion);
+    if (upgraded) onPending(true);
     return;
   }
   onPending(seen !== appVersion);
