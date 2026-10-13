@@ -9,6 +9,11 @@ use std::{
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
+// the native menu bar is macOS-only (#104) — see the module docs for why
+// Windows and Linux never build one
+#[cfg(target_os = "macos")]
+mod menu;
+
 /// First non-flag CLI argument — the file Windows/shell passes when the user
 /// double-clicks a document associated with Prosa (cold start).
 #[tauri::command]
@@ -56,6 +61,33 @@ fn has_dirty_windows(window: tauri::WebviewWindow, state: tauri::State<Docs>) ->
         .unwrap()
         .iter()
         .any(|(label, doc)| *label != window.label() && doc.dirty)
+}
+
+/// UI language of the native macOS menu bar. The frontend reports it right
+/// after i18n resolves and on every change (#104); until then the bar starts
+/// in Russian — the product's primary language, corrected within a moment.
+// the stored language is only consulted on macOS (the only platform with a
+// native menu); elsewhere the state just keeps the command shape uniform
+#[derive(Default)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct MenuLang(std::sync::Mutex<String>);
+
+#[tauri::command]
+fn set_menu_language(app: AppHandle, state: tauri::State<MenuLang>, lang: String) {
+    #[cfg(target_os = "macos")]
+    {
+        let mut current = state.0.lock().unwrap();
+        if *current != lang {
+            *current = lang.clone();
+            drop(current);
+            if let Err(err) = menu::install(&app, &lang) {
+                eprintln!("prosa: failed to rebuild the native menu: {err}");
+            }
+        }
+    }
+    // no native menu bar anywhere else — nothing to rebuild
+    #[cfg(not(target_os = "macos"))]
+    let _ = (&app, &state, &lang);
 }
 
 fn is_markdown(path: &str) -> bool {
@@ -194,11 +226,27 @@ fn open_doc_external(app: &AppHandle, state: &Docs, path: &str) {
 pub fn run() {
     let builder = tauri::Builder::default()
         .manage(Docs::default())
+        .manage(MenuLang::default())
         .setup(|app| {
             // the main window starts hidden (visible: false in the config,
             // #34) — if its frontend never calls show(), reveal it anyway
             show_fallback(app.handle(), std::time::Duration::from_secs(3));
+            // Russian until the frontend reports the resolved UI language
+            #[cfg(target_os = "macos")]
+            if let Err(err) = menu::install(app.handle(), "ru") {
+                eprintln!("prosa: failed to build the native menu: {err}");
+            }
             Ok(())
+        })
+        // the only native item with an in-app action: "Settings…" opens the
+        // same dialog as Ctrl+, in the focused window
+        .on_menu_event(|app, event| {
+            #[cfg(target_os = "macos")]
+            if event.id().as_ref() == menu::SETTINGS_ID {
+                menu::emit_settings(app);
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
         })
         // drop document state of closed windows
         .on_window_event(|window, event| {
@@ -255,7 +303,8 @@ pub fn run() {
             get_initial_file,
             report_doc_state,
             has_dirty_windows,
-            open_document_window
+            open_document_window,
+            set_menu_language
         ])
         .run(tauri::generate_context!())
         .expect("error while running prosa");
