@@ -51,7 +51,7 @@ fn texts(lang: &str) -> Texts {
             cut: "Вырезать",
             copy: "Скопировать",
             paste: "Вставить",
-            select_all: "Выделить всё",
+            select_all: "Выбрать все",
             window: "Окно",
             minimize: "Свернуть",
             close_window: "Закрыть окно",
@@ -82,7 +82,9 @@ fn texts(lang: &str) -> Texts {
 /// Build and install the menu bar for `lang` (two-letter i18n code such as
 /// "ru"/"en"). Rebuilding wholesale is the only way to re-localize — muda
 /// items cannot swap their accelerator-bound role, and item texts created by
-/// the predefined builders are baked in.
+/// the predefined builders are baked in. The bar is global: it shows the
+/// language of whichever window reported last (accepted — per-window UI
+/// languages in one app instance are exotic).
 pub fn install(app: &AppHandle, lang: &str) -> tauri::Result<()> {
     let t = texts(lang);
     // "Settings…" opens the same in-app dialog as Ctrl+, — the native item is
@@ -114,6 +116,9 @@ pub fn install(app: &AppHandle, lang: &str) -> tauri::Result<()> {
         .minimize_with_text(t.minimize)
         .close_window_with_text(t.close_window)
         .build()?;
+    // register as the NSApp windows menu: macOS then lists every open
+    // document window here automatically (every document is its own window)
+    window.set_as_windows_menu_for_nsapp()?;
     let menu: Menu<tauri::Wry> = MenuBuilder::new(app)
         .item(&app_menu)
         .item(&edit)

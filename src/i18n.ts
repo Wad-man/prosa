@@ -85,6 +85,8 @@ const strings = {
     // #107: the F1 window — shortcut list plus a link to the site docs
     help: 'Справка',
     helpOnline: 'Онлайн-справка: разметка Markdown',
+    // #105: .deb installs update by installing the next package
+    updateDebPackage: 'Установка из .deb обновляется новым пакетом со страницы релизов.',
     settings: 'Настройки…',
     settingsTitle: 'Настройки',
     settingsLangSection: 'Язык интерфейса',
@@ -190,6 +192,8 @@ const strings = {
     // #107: the F1 window — shortcut list plus a link to the site docs
     help: 'Help',
     helpOnline: 'Online help: Markdown reference',
+    // #105: .deb installs update by installing the next package
+    updateDebPackage: 'The .deb install updates by installing the newer package from the releases page.',
     settings: 'Settings…',
     settingsTitle: 'Settings',
     settingsLangSection: 'Interface language',

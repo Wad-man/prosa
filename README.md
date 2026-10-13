@@ -17,7 +17,7 @@ A minimal open-source Markdown editor & viewer — a "notepad" for `.md` files.
 <summary>Установка на macOS и Linux (сборки пока без подписи разработчика)</summary>
 
 - **macOS**: универсальный `.dmg`. Приложения без Apple Developer ID первый запуск пропускает только через Gatekeeper: ПКМ по ProsaMD.app → «Открыть» → «Открыть» в диалоге; либо снять карантин в Терминале: `xattr -cr /Applications/ProsaMD.app`.
-- **Linux**: для Ubuntu/Debian — пакет `.deb`: `sudo apt install ./prosamd_*_amd64.deb` (ставит иконку в лаунчер и ассоциации `.md`; на ARM-машинах — `*_arm64.deb`). Для остальных дистрибутивов — портативный AppImage: `chmod +x ProsaMD_*_amd64.AppImage && ./ProsaMD_*_amd64.AppImage`.
+- **Linux**: для Ubuntu/Debian — пакет `.deb`: `sudo apt install ./ProsaMD_*_amd64.deb` (ставит иконку в лаунчер и ассоциации `.md`; на ARM-машинах — `*_arm64.deb`). Для остальных дистрибутивов — портативный AppImage: `chmod +x ProsaMD_*_amd64.AppImage && ./ProsaMD_*_amd64.AppImage`.
 </details>
 
 ## Чем ProsaMD отличается

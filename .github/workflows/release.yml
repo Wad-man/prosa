@@ -105,9 +105,12 @@ jobs:
   # Same shape as the CI smoke builds (ci.yml linux matrix). The AppImage
   # is signed with the minisign updater key (createUpdaterArtifacts stays
   # true from tauri.conf.json — same secret as Windows, the key is
-  # platform-independent). The deb carries no updater artifacts: Tauri's
-  # Linux updater only serves AppImages, deb users upgrade by installing
-  # the next package.
+  # platform-independent). The deb deliberately carries no updater role:
+  # the updater plugin detects a deb install and refuses the AppImage
+  # artifact, so deb builds skip the in-app check entirely
+  # (is_updater_install, #105 review) and upgrade by installing the next
+  # package — whether debs ever join the updater manifest is the owner's
+  # mac/linux-channel gate (#90).
   linux:
     name: Linux release (${{ matrix.arch }}, AppImage + deb)
     strategy:

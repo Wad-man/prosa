@@ -14,7 +14,6 @@ import {
   writeHtml as writeClipboardHtml,
 } from '@tauri-apps/plugin-clipboard-manager';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { VisualEditor } from './editor/visual';
@@ -899,6 +898,17 @@ async function saveBeforeUpdate(): Promise<boolean> {
 
 async function checkForUpdates(manual: boolean): Promise<void> {
   if (!inTauri || updateBusy) return;
+  // a .deb install has no in-app update path: the updater would download the
+  // AppImage and die on install (#105 review); deb users install the next
+  // package. APPIMAGE is set only inside an AppImage launch.
+  try {
+    if (!(await invoke<boolean>('is_updater_install'))) {
+      if (manual) void message(t('updateDebPackage'), { title: 'ProsaMD', kind: 'info' });
+      return;
+    }
+  } catch {
+    // command unavailable — behave as before
+  }
   updateBusy = true;
   els.aboutCheck.disabled = true;
   try {
@@ -1680,11 +1690,15 @@ async function init(): Promise<void> {
   els.settingsLangRu.addEventListener('click', () => setLanguage('ru'));
   els.settingsLangEn.addEventListener('click', () => setLanguage('en'));
   // #104: native macOS menu — report the resolved language once at boot
-  // (the bar starts Russian) and receive its "Settings…" item back
+  // (the bar starts Russian) and receive its "Settings…" item back. The
+  // listener must sit on THIS window (a global listen() matches in every
+  // webview, so the focused-window routing from menu.rs would leak into
+  // all of them — review MAJOR-1)
   if (inTauri) {
     void invoke('set_menu_language', { lang: getLang() }).catch(() => {});
-    void listen<string>('prosa://menu', (e) => {
-      if (e.payload === 'settings') openSettings();
+    void currentWindow?.listen<string>('prosa://menu', (e) => {
+      // same modal gate as the Ctrl+, handler — no stacking over Help/About
+      if (e.payload === 'settings' && activeModalOverlay() === null) openSettings();
     });
   }
   for (const link of els.aboutLinks) {

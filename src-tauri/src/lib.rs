@@ -63,14 +63,35 @@ fn has_dirty_windows(window: tauri::WebviewWindow, state: tauri::State<Docs>) ->
         .any(|(label, doc)| *label != window.label() && doc.dirty)
 }
 
+/// True when this install can use the in-app updater. An AppImage launch
+/// sets the APPIMAGE env var; a .deb install has none, and its update flow
+/// would download the AppImage artifact just to die on install (updater
+/// plugin detects the deb bundle and refuses the AppImage) — deb users
+/// upgrade by installing the next package (#105 review MAJOR-2).
+#[tauri::command]
+fn is_updater_install() -> bool {
+    if cfg!(target_os = "linux") {
+        std::env::var_os("APPIMAGE").is_some()
+    } else {
+        true
+    }
+}
+
 /// UI language of the native macOS menu bar. The frontend reports it right
 /// after i18n resolves and on every change (#104); until then the bar starts
 /// in Russian — the product's primary language, corrected within a moment.
 // the stored language is only consulted on macOS (the only platform with a
-// native menu); elsewhere the state just keeps the command shape uniform
-#[derive(Default)]
+// native menu); elsewhere the state just keeps the command shape uniform.
+// Starts as "ru" — the same bar setup() installs, so the first report of a
+// Russian UI does not rebuild the menu for nothing.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 struct MenuLang(std::sync::Mutex<String>);
+
+impl MenuLang {
+    fn new() -> Self {
+        Self(std::sync::Mutex::new("ru".to_string()))
+    }
+}
 
 #[tauri::command]
 fn set_menu_language(app: AppHandle, state: tauri::State<MenuLang>, lang: String) {
@@ -226,7 +247,7 @@ fn open_doc_external(app: &AppHandle, state: &Docs, path: &str) {
 pub fn run() {
     let builder = tauri::Builder::default()
         .manage(Docs::default())
-        .manage(MenuLang::default())
+        .manage(MenuLang::new())
         .setup(|app| {
             // the main window starts hidden (visible: false in the config,
             // #34) — if its frontend never calls show(), reveal it anyway
@@ -304,7 +325,8 @@ pub fn run() {
             report_doc_state,
             has_dirty_windows,
             open_document_window,
-            set_menu_language
+            set_menu_language,
+            is_updater_install
         ])
         .run(tauri::generate_context!())
         .expect("error while running prosa");
