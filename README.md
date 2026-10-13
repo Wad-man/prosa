@@ -11,13 +11,13 @@ A minimal open-source Markdown editor & viewer — a "notepad" for `.md` files.
 Сайт проекта — **[prosamd.ru](https://prosamd.ru)** · [Скачать последнюю версию](https://github.com/Wad-man/prosa/releases/latest)
 
 Стабильные сборки — Windows 10/11 x64: установщик (~4 МБ) и переносная версия (~8 МБ).
-С версии v0.2.0-rc.1 — ранние сборки macOS (универсальная: Intel + Apple Silicon) и Linux (AppImage, x64/ARM64); iOS и Android — в планах (v0.4).
+С версии v0.2.0-rc.1 — ранние сборки macOS (универсальная: Intel + Apple Silicon) и Linux (`.deb` и AppImage, x64/ARM64); iOS и Android — в планах (v0.4).
 
 <details>
 <summary>Установка на macOS и Linux (сборки пока без подписи разработчика)</summary>
 
 - **macOS**: универсальный `.dmg`. Приложения без Apple Developer ID первый запуск пропускает только через Gatekeeper: ПКМ по ProsaMD.app → «Открыть» → «Открыть» в диалоге; либо снять карантин в Терминале: `xattr -cr /Applications/ProsaMD.app`.
-- **Linux**: AppImage — сделать исполняемым и запустить: `chmod +x ProsaMD_*_amd64.AppImage && ./ProsaMD_*_amd64.AppImage` (на ARM-машинах — `*_aarch64.AppImage`).
+- **Linux**: для Ubuntu/Debian — пакет `.deb`: `sudo apt install ./prosamd_*_amd64.deb` (ставит иконку в лаунчер и ассоциации `.md`; на ARM-машинах — `*_arm64.deb`). Для остальных дистрибутивов — портативный AppImage: `chmod +x ProsaMD_*_amd64.AppImage && ./ProsaMD_*_amd64.AppImage`.
 </details>
 
 ## Чем ProsaMD отличается

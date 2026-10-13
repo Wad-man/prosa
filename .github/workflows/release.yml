@@ -1,8 +1,8 @@
 name: Release
 
 # Tag push (v*) builds signed bundles for every platform (Windows NSIS +
-# portable exe, macOS universal dmg, Linux x64/arm64 AppImages) and creates
-# a DRAFT release in this repo (Wad-man/prosa). Edit the notes there and
+# portable exe, macOS universal dmg, Linux x64/arm64 AppImages + debs) and
+# creates a DRAFT release in this repo (Wad-man/prosa). Edit the notes there and
 # publish — the in-app updater serves from the latest release of this repo.
 # (≤0.1.7 clients still poll Wad-man/prosa-releases; v0.1.8 was mirrored
 # there once as a transitional release, then that repo was frozen.)
@@ -102,12 +102,14 @@ jobs:
           path: stage
           if-no-files-found: error
 
-  # Same shape as the CI smoke builds (ci.yml linux matrix). The bundle
-  # target is overridden to appimage, but createUpdaterArtifacts stays true
-  # from tauri.conf.json, so each AppImage is signed with the minisign
-  # updater key — same secret as Windows, the key is platform-independent.
+  # Same shape as the CI smoke builds (ci.yml linux matrix). The AppImage
+  # is signed with the minisign updater key (createUpdaterArtifacts stays
+  # true from tauri.conf.json — same secret as Windows, the key is
+  # platform-independent). The deb carries no updater artifacts: Tauri's
+  # Linux updater only serves AppImages, deb users upgrade by installing
+  # the next package.
   linux:
-    name: Linux release (${{ matrix.arch }}, AppImage)
+    name: Linux release (${{ matrix.arch }}, AppImage + deb)
     strategy:
       # a release needs BOTH legs; keep the other leg's logs on failure
       fail-fast: false
@@ -148,8 +150,8 @@ jobs:
           key: linux-${{ matrix.arch }}
       - run: npm ci
 
-      - name: Build signed AppImage
-        run: npx tauri build --bundles appimage
+      - name: Build signed AppImage and deb
+        run: npx tauri build --bundles appimage,deb
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
@@ -159,10 +161,11 @@ jobs:
           # explicit masks only: the appimage bundle dir also holds the
           # ProsaMD.AppDir build directory (hundreds of MB) which must
           # not end up in the artifact
-          mkdir -p "stage/appimage-${{ matrix.arch }}"
+          mkdir -p "stage/appimage-${{ matrix.arch }}" "stage/deb-${{ matrix.arch }}"
           cp src-tauri/target/release/bundle/appimage/*.AppImage \
              src-tauri/target/release/bundle/appimage/*.AppImage.sig \
              "stage/appimage-${{ matrix.arch }}/"
+          cp src-tauri/target/release/bundle/deb/*.deb "stage/deb-${{ matrix.arch }}/"
       - uses: actions/upload-artifact@v4
         with:
           name: release-linux-${{ matrix.arch }}
@@ -218,4 +221,6 @@ jobs:
             dist/appimage-x64/*.sig \
             dist/appimage-arm64/*.AppImage \
             dist/appimage-arm64/*.sig \
+            dist/deb-x64/*.deb \
+            dist/deb-arm64/*.deb \
             dist/latest.json

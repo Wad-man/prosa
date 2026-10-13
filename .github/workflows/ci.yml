@@ -86,7 +86,11 @@ jobs:
           if-no-files-found: error
 
   linux:
-    name: Linux build (${{ matrix.arch }}, AppImage)
+    name: Linux build (${{ matrix.arch }}, AppImage + deb)
+    # deb is the primary Linux format (#105): it declares webkit2gtk-4.1 a
+    # system dependency (units of MB instead of the ~84 MB self-contained
+    # AppImage) and installs the icon and .md associations; AppImage stays
+    # as the portable option for distros without that package
     strategy:
       # keep the x64 leg's result even if arm64 fails (and vice versa)
       fail-fast: false
@@ -126,10 +130,12 @@ jobs:
           workspaces: src-tauri
           key: linux-${{ matrix.arch }}
       - run: npm ci
-      - name: Build unsigned AppImage
-        run: npx tauri build --bundles appimage --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Build unsigned AppImage and deb
+        run: npx tauri build --bundles appimage,deb --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - uses: actions/upload-artifact@v4
         with:
           name: prosamd-linux-${{ matrix.arch }}
-          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
