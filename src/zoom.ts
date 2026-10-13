@@ -6,6 +6,8 @@
 // tauri.conf.json sets zoomHotkeysEnabled: false, so WebView2's own
 // Ctrl+±/Ctrl+0 zoom never races this one; the wheel gesture is claimed
 // here with preventDefault (Chromium respects that for ctrl+wheel).
+import { storageGet, storageSet } from './storage';
+
 const ZOOM_KEY = 'prosa.zoom';
 const MIN = 0.5;
 const MAX = 2.0;
@@ -19,7 +21,7 @@ let wheelAcc = 0;
 let lastWheelAt = 0;
 
 function loadLevel(): number {
-  const stored = Number.parseFloat(localStorage.getItem(ZOOM_KEY) ?? '');
+  const stored = Number.parseFloat(storageGet(ZOOM_KEY) ?? '');
   if (!Number.isFinite(stored)) return 1;
   return clamp(round(stored));
 }
@@ -34,7 +36,7 @@ function round(v: number): number {
 
 function apply(): void {
   document.documentElement.style.zoom = level.toFixed(2);
-  localStorage.setItem(ZOOM_KEY, String(level));
+  storageSet(ZOOM_KEY, String(level));
 }
 
 function step(dir: 1 | -1): void {

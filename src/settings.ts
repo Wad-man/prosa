@@ -5,6 +5,7 @@
 // is applied at cold start by an inline script in index.html (before first
 // paint, to avoid a flash); every runtime switch goes through here.
 import { getLang, setLang, type Lang } from './i18n';
+import { storageSet } from './storage';
 
 const THEME_KEY = 'prosa.theme';
 
@@ -20,7 +21,7 @@ export function applyTheme(theme: 'light' | 'dark'): void {
   const root = document.documentElement;
   if (root.dataset.theme !== theme) fadeThemeSwitch();
   root.dataset.theme = theme;
-  localStorage.setItem(THEME_KEY, theme);
+  storageSet(THEME_KEY, theme);
 }
 
 /** Plant the fade class unless the user asked for reduced motion — the

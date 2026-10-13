@@ -14,6 +14,15 @@ export default defineConfig(() => ({
     __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false,
   },
 
+  // Explicit floor (#103): Vite's default baseline (~Safari 16.4) drops
+  // unpatched Monterey boxes (WKWebView Safari 15). Syntax floor only —
+  // milkdown builds lookbehind regexes at editor init, so the visual
+  // editor still needs Safari 16.4+; the real #90 target class is an
+  // up-to-date Monterey (Safari 17.6)
+  build: {
+    target: ["safari15", "chrome107"],
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

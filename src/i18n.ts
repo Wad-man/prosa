@@ -1,3 +1,5 @@
+import { storageGet, storageSet } from './storage';
+
 export type Lang = 'ru' | 'en';
 
 const STORAGE_KEY = 'prosa.lang';
@@ -212,7 +214,7 @@ export type StrKey = keyof (typeof strings)['ru'];
 let current: Lang = detectLang();
 
 function detectLang(): Lang {
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = storageGet(STORAGE_KEY);
   if (saved === 'ru' || saved === 'en') return saved;
   return navigator.language.toLowerCase().startsWith('ru') ? 'ru' : 'en';
 }
@@ -223,7 +225,7 @@ export function getLang(): Lang {
 
 export function setLang(lang: Lang): void {
   current = lang;
-  localStorage.setItem(STORAGE_KEY, lang);
+  storageSet(STORAGE_KEY, lang);
 }
 
 export function t(key: StrKey): string {
