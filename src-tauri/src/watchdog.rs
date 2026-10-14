@@ -36,11 +36,14 @@ pub struct Recovery {
 
 #[derive(Default)]
 pub struct Watchdog {
-    /// last pong per label; an entry means the frontend booted far enough
-    /// to start the heartbeat
-    pongs: Mutex<HashMap<String, Instant>>,
-    /// window label → creation time — bounds the never-booted mode
-    created: Mutex<HashMap<String, Instant>>,
+    /// last pong per label with the page's own visibility at that moment;
+    /// an entry means the frontend booted far enough to start the heartbeat
+    pongs: Mutex<HashMap<String, (Instant, bool)>>,
+    /// window label → (creation time, the file the window was created
+    /// with) — the time bounds the never-booted mode; the file is the
+    /// recovery route of a white window that never got far enough to
+    /// report its document
+    created: Mutex<HashMap<String, (Instant, Option<String>)>>,
     /// last tick the window was seen unfocused — the focus grace below
     unfocused_since: Mutex<HashMap<String, Instant>>,
     /// dirty-document drafts per label, cleared when the window reports a
@@ -49,7 +52,9 @@ pub struct Watchdog {
     drafts: Mutex<HashMap<String, String>>,
     /// recovery payload waiting for the freshly created replacement window
     recovery: Mutex<HashMap<String, Recovery>>,
-    /// timestamps of recent recoveries — the anti-storm budget
+    /// timestamps of recent recoveries — the anti-storm budget (macOS
+    /// checker only)
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     recoveries: Mutex<Vec<Instant>>,
     /// labels already reported as given up — the budget message must not
     /// repeat on every check tick while the window stays frozen
@@ -57,14 +62,17 @@ pub struct Watchdog {
 }
 
 impl Watchdog {
-    pub fn register(&self, label: &str) {
-        self.created.lock().unwrap().insert(label.to_string(), Instant::now());
+    pub fn register(&self, label: &str, path: Option<String>) {
+        self.created
+            .lock()
+            .unwrap()
+            .insert(label.to_string(), (Instant::now(), path));
     }
 
     pub fn unregister(&self, label: &str) {
-        for map in [&self.pongs, &self.created, &self.unfocused_since] {
-            map.lock().unwrap().remove(label);
-        }
+        self.pongs.lock().unwrap().remove(label);
+        self.created.lock().unwrap().remove(label);
+        self.unfocused_since.lock().unwrap().remove(label);
         self.drafts.lock().unwrap().remove(label);
         self.gave_up.lock().unwrap().remove(label);
     }
@@ -81,13 +89,25 @@ impl Watchdog {
     }
 }
 
+/// The frontend heartbeat. async and off the main thread on purpose: a
+/// synchronous command would run there and could meet the checker holding
+/// a watchdog lock while itself waiting on a main-thread round-trip —
+/// the classic mutual block (review BLOCK-1). `visible` carries the page's
+/// own visibility: a page the system suspended (display sleep, occlusion,
+/// another Space) cannot ping on schedule and says so instead of being
+/// judged dead (review MAJOR-в).
 #[tauri::command]
-pub fn watchdog_pong(window: tauri::WebviewWindow, state: tauri::State<Watchdog>) {
+pub async fn watchdog_pong(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, Watchdog>,
+    visible: bool,
+) -> Result<(), String> {
     state
         .pongs
         .lock()
         .unwrap()
-        .insert(window.label().to_string(), Instant::now());
+        .insert(window.label().to_string(), (Instant::now(), visible));
+    Ok(())
 }
 
 /// The frontend attaches the full text while its document is dirty (and
@@ -95,19 +115,22 @@ pub fn watchdog_pong(window: tauri::WebviewWindow, state: tauri::State<Watchdog>
 /// two-second heartbeat into a megabyte-per-tick IPC stream — its recovery
 /// falls back to the last save on disk.
 #[tauri::command]
-pub fn watchdog_draft(
+pub async fn watchdog_draft(
     window: tauri::WebviewWindow,
-    state: tauri::State<Watchdog>,
+    state: tauri::State<'_, Watchdog>,
     content: String,
-) {
+) -> Result<(), String> {
     const MAX_DRAFT_BYTES: usize = 1_000_000;
+    let mut drafts = state.drafts.lock().unwrap();
     if content.len() <= MAX_DRAFT_BYTES {
-        state
-            .drafts
-            .lock()
-            .unwrap()
-            .insert(window.label().to_string(), content);
+        drafts.insert(window.label().to_string(), content);
+    } else {
+        // a refused oversized update must not leave an OLDER draft behind:
+        // recovery then falls back to the last save on disk instead of
+        // resurrecting stale text (review MAJOR-б)
+        drafts.remove(window.label());
     }
+    Ok(())
 }
 
 #[tauri::command]
@@ -164,20 +187,43 @@ mod checker {
         let watchdog = app.state::<Watchdog>();
         let now = Instant::now();
 
+        // Pass 1 — no watchdog lock may be held here: visibility, minimize
+        // and focus getters are synchronous round-trips to the main thread,
+        // and holding a lock across one could block it against the pong
+        // commands — the mutual block that froze whole sessions (review
+        // BLOCK-1)
+        let mut candidates = Vec::new();
+        for (label, window) in app.webview_windows() {
+            let engaged = window.is_visible().unwrap_or(false)
+                && !window.is_minimized().unwrap_or(false)
+                && window.is_focused().unwrap_or(false);
+            candidates.push((label, engaged));
+        }
+
+        // Pass 2 — brief lock windows around plain map reads
         let mut dead = Vec::new();
         {
             let pongs = watchdog.pongs.lock().unwrap();
             let created = watchdog.created.lock().unwrap();
             let mut unfocused = watchdog.unfocused_since.lock().unwrap();
-            for (label, window) in app.webview_windows() {
+            for (label, engaged) in candidates {
                 // hidden and minimized windows legitimately pause their
                 // timers — and nobody is looking at a dead one until it is
                 // visible and focused again, which re-arms this check
-                if !window.is_visible().unwrap_or(false)
-                    || window.is_minimized().unwrap_or(false)
-                    || !window.is_focused().unwrap_or(false)
+                if !engaged {
+                    unfocused.insert(label, now);
+                    continue;
+                }
+                // a page the system suspended (display sleep, occlusion,
+                // another Space) throttles its timers while its window
+                // keeps focus — it self-reports hidden with every pong and
+                // is skipped until its visibilitychange ping says otherwise
+                // (review MAJOR-в)
+                if pongs
+                    .get(&label)
+                    .is_some_and(|(_, page_visible)| !page_visible)
                 {
-                    unfocused.insert(label.clone(), now);
+                    unfocused.insert(label, now);
                     continue;
                 }
                 // focus grace: a window focused less than FOCUS_GRACE ago
@@ -186,16 +232,16 @@ mod checker {
                     .get(&label)
                     .is_none_or(|lost| now.duration_since(*lost) >= FOCUS_GRACE);
                 let silent = match pongs.get(&label) {
-                    Some(last) => {
+                    Some((last, _)) => {
                         past_grace && now.duration_since(*last) > PING_DEAD_AFTER
                     }
                     // no pong ever: the white-page mode, judged from birth
                     None => created
                         .get(&label)
-                        .is_some_and(|born| now.duration_since(*born) > BOOT_DEAD_AFTER),
+                        .is_some_and(|(born, _)| now.duration_since(*born) > BOOT_DEAD_AFTER),
                 };
                 if silent {
-                    dead.push(label.clone());
+                    dead.push(label);
                 }
             }
         }
@@ -206,6 +252,38 @@ mod checker {
 
     fn recover(app: &AppHandle, label: &str) {
         let watchdog = app.state::<Watchdog>();
+        // a window the storm budget gave up on stays frozen for the rest of
+        // the session — the storm window sliding past must not resume
+        // flashing a systematically broken webview every couple of minutes
+        if watchdog.gave_up.lock().unwrap().contains(label) {
+            return;
+        }
+
+        let Some(old) = app.get_webview_window(label) else {
+            return;
+        };
+
+        // document route: the last reported state, falling back to the file
+        // the window was CREATED with — a white window never reported
+        // anything and must still recover to its birth file, not to an
+        // untitled document (review MAJOR-а)
+        let doc = app.state::<crate::Docs>().0.lock().unwrap().get(label).cloned();
+        let birth_path = watchdog
+            .created
+            .lock()
+            .unwrap()
+            .get(label)
+            .and_then(|(_, path)| path.clone());
+        let (path, dirty) = match &doc {
+            Some(doc) => (doc.path.clone().or(birth_path), doc.dirty),
+            None => (birth_path, false),
+        };
+        let draft = if dirty {
+            watchdog.drafts.lock().unwrap().get(label).cloned()
+        } else {
+            None
+        };
+
         {
             let mut recoveries = watchdog.recoveries.lock().unwrap();
             let cutoff = now_checked_sub(STORM_WINDOW);
@@ -220,25 +298,7 @@ mod checker {
                 }
                 return;
             }
-            recoveries.push(Instant::now());
         }
-
-        let Some(old) = app.get_webview_window(label) else {
-            return;
-        };
-
-        // document route: the last reported state plus the freshest draft —
-        // the draft only exists while the document was dirty
-        let doc = app.state::<crate::Docs>().0.lock().unwrap().get(label).cloned();
-        let (path, dirty) = match &doc {
-            Some(doc) => (doc.path.clone(), doc.dirty),
-            None => (None, false),
-        };
-        let draft = if dirty {
-            watchdog.drafts.lock().unwrap().get(label).cloned()
-        } else {
-            None
-        };
 
         // the replacement must land exactly where the frozen window was
         let scale = old.scale_factor().unwrap_or(1.0);
@@ -277,10 +337,28 @@ mod checker {
                 content: draft,
             }),
         );
-        if let Err(err) = result {
-            eprintln!("prosa: watchdog recovery failed: {err}");
-            return;
-        }
+        let new_label = match result {
+            Ok(new_label) => new_label,
+            Err(err) => {
+                // a failed build eats no anti-storm budget — only an
+                // actually recreated window counts (review MINOR)
+                eprintln!("prosa: watchdog recovery failed: {err}");
+                return;
+            }
+        };
+        watchdog.recoveries.lock().unwrap().push(Instant::now());
+        // preinsert the replacement's document state: until its frontend
+        // reports, file routing must already see the file open in the NEW
+        // window, or an external open flashes a duplicate window (review
+        // MINOR)
+        app.state::<crate::Docs>().0.lock().unwrap().insert(
+            new_label,
+            crate::DocState {
+                path: path.clone(),
+                dirty: draft.is_some(),
+                empty: false,
+            },
+        );
         // destroy, not close: close() waits for the dead frontend's
         // close-requested handler, which would never answer
         if let Err(err) = old.destroy() {

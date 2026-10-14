@@ -180,18 +180,20 @@ struct Geometry {
 /// untitled document (#60): no `?file=` query, the frontend boots into the
 /// empty state.
 fn create_doc_window(app: &AppHandle, path: &str) -> tauri::Result<()> {
-    build_doc_window(app, path, None, None)
+    build_doc_window(app, path, None, None).map(|_| ())
 }
 
 /// Shared window factory: the normal path takes the defaults, the watchdog
 /// (#114) passes the dead window's geometry and a recovery draft stashed
-/// for the new label before its frontend can ask for it.
+/// for the new label before its frontend can ask for it. Returns the new
+/// window's label — the watchdog records the replacement's document state
+/// under it right away.
 fn build_doc_window(
     app: &AppHandle,
     path: &str,
     geometry: Option<Geometry>,
     recovery: Option<watchdog::Recovery>,
-) -> tauri::Result<()> {
+) -> tauri::Result<String> {
     static COUNTER: AtomicU32 = AtomicU32::new(1);
     let label = format!("doc-{}", COUNTER.fetch_add(1, Ordering::Relaxed));
     let query = if path.is_empty() {
@@ -236,16 +238,21 @@ fn build_doc_window(
     // and on Linux disabling it would kill OS file drops entirely.
     #[cfg(windows)]
     let builder = builder.drag_and_drop(false);
-    if let Some(recovery) = recovery {
-        app.state::<watchdog::Watchdog>()
-            .stash_recovery(&label, recovery);
-    }
     // only the Windows focus dance below consumes the handle; every other
     // platform drops it right away
     #[cfg_attr(not(windows), allow(unused_variables))]
     let window = builder.build()?;
-    // #114: the watchdog judges this window's frontend from its birth
-    app.state::<watchdog::Watchdog>().register(&label);
+    // stash the recovery AFTER a successful build — a failed one would leak
+    // the payload under a label that never exists (review MINOR)
+    if let Some(recovery) = recovery {
+        app.state::<watchdog::Watchdog>()
+            .stash_recovery(&label, recovery);
+    }
+    // #114: the watchdog judges this window's frontend from its birth and
+    // remembers the file it was created with — a white window that never
+    // reports still recovers to that file (review MAJOR-а)
+    app.state::<watchdog::Watchdog>()
+        .register(&label, (!path.is_empty()).then(|| path.to_string()));
     show_fallback(app, std::time::Duration::from_secs(3));
     // Windows denies foreground to a window created by an already-running
     // background process: the document would open behind the user's current
@@ -260,7 +267,7 @@ fn build_doc_window(
             eprintln!("prosa: failed to drop topmost flag on {label}: {err}");
         }
     }
-    Ok(())
+    Ok(label)
 }
 
 /// Open a file as a new document window (or focus the window already showing
@@ -322,9 +329,12 @@ pub fn run() {
             // #34) — if its frontend never calls show(), reveal it anyway
             show_fallback(app.handle(), std::time::Duration::from_secs(3));
             // #114: the config-created main window is judged by the
-            // watchdog like every window built later
+            // watchdog like every window built later; its birth file is
+            // the CLI argument a cold start was launched with — a white
+            // main window must recover to the document the user opened
             for label in app.webview_windows().keys() {
-                app.state::<watchdog::Watchdog>().register(label);
+                let birth = if label == "main" { get_initial_file() } else { None };
+                app.state::<watchdog::Watchdog>().register(label, birth);
             }
             #[cfg(target_os = "macos")]
             watchdog::spawn_checker(app.handle().clone());

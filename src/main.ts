@@ -196,6 +196,9 @@ let savedRaw = '';
 let baseline = '';
 let editedSinceSave = false;
 let dirtyCheckTimer: number | undefined;
+// the pending applyLoaded anchor — a recovery landing on top of a fresh
+// load must cancel it, or it would anchor the clean state to the draft
+let loadAnchorTimer: number | undefined;
 
 /**
  * #83 review: a prefix/front-matter block that ended at EOF carries no
@@ -463,7 +466,8 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
   editedSinceSave = false;
   window.clearTimeout(dirtyCheckTimer);
   // let programmatic editor updates land before unmasking change events
-  window.setTimeout(() => {
+  window.clearTimeout(loadAnchorTimer);
+  loadAnchorTimer = window.setTimeout(() => {
     suppressChange = false;
     baseline = currentFullText();
     refreshChrome();
@@ -471,6 +475,49 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
     toc.refresh();
     // #71: a document landing in this window puts the caret at its start
     // (file open, drop, Ctrl+N, __prosaOpen into a pristine window)
+    focusActiveEditor();
+  }, 0);
+}
+
+/**
+ * #114 review BLOCK-2: a watchdog recovery draft is unsaved work on top of
+ * the bytes the boot just loaded from disk. The clean anchors (savedRaw/
+ * baseline) must stay with the FILE: anchoring them to the draft would let
+ * a type-and-full-undo clear the dirty flag (content equal to the
+ * "baseline" draft), and the file window would then close without a
+ * question — silently losing the draft, the disk copy being stale.
+ */
+function applyRecovered(text: string, path: string | null): void {
+  suppressChange = true;
+  // the anchors of the document on disk (an untitled boot anchors to
+  // emptiness) — captured before the draft lands in the editors
+  const diskSavedRaw = savedRaw;
+  const diskBaseline = currentFullText();
+  const { frontMatter: fm, unparsedPrefix: up, body } = splitFrontMatter(text);
+  frontMatter = fm;
+  unparsedPrefix = up;
+  filePath = path;
+  fileSuggestion = null;
+  if (paneOf(mode) === 'visual') visual.setMarkdown(body);
+  else source?.setContent((fm ?? '') + body);
+  refreshFrontMatterView();
+  findBar.close();
+  // the draft is unsaved work: the raw-bytes passthrough must not fire for
+  // it, and the unsaved dot stays whatever the user does short of saving or
+  // undoing all the way back to the disk state
+  editedSinceSave = true;
+  dirty = true;
+  window.clearTimeout(dirtyCheckTimer);
+  // cancel the boot load's pending anchor — it would fire after the draft
+  // landed and anchor the clean state to the draft's serialization
+  window.clearTimeout(loadAnchorTimer);
+  loadAnchorTimer = window.setTimeout(() => {
+    suppressChange = false;
+    savedRaw = diskSavedRaw;
+    baseline = diskBaseline;
+    refreshChrome();
+    reportDocState();
+    toc.refresh();
     focusActiveEditor();
   }, 0);
 }
@@ -1831,11 +1878,11 @@ async function init(): Promise<void> {
           'pop_recovery',
         );
         if (rec && typeof rec.content === 'string') {
-          applyLoaded(rec.content, typeof rec.path === 'string' ? rec.path : null);
-          // the draft was unsaved work when the channel died — keep the
-          // unsaved dot and the close guard honest (applyLoaded alone
-          // would present the draft as a freshly loaded clean document)
-          dirty = true;
+          // BLOCK-2: the draft must stay unsaved work over the disk bytes
+          // — applyRecovered keeps the clean anchors with the file, so a
+          // full undo back to the draft cannot silently clear the unsaved
+          // flag and lose it on close
+          applyRecovered(rec.content, typeof rec.path === 'string' ? rec.path : null);
         }
       } catch {
         // command unavailable — a normal window, nothing to recover
@@ -1910,17 +1957,33 @@ function prosaOpen(path: string): void {
 // #114: macOS can sever the UI↔WebContent channel at random (the WebKit
 // 274818 family) — the Rust watchdog watches these pings and recreates the
 // webview when they stop. Runs at module load, before init()'s slow work:
-// the watchdog judges silence from the window's birth. A dirty document
-// rides along with the ping, so a recovery loses at most one interval of
-// typing.
+// the watchdog judges silence from the window's birth, so the first ping
+// goes out immediately — a long synchronous init must not read as the
+// never-booted white window. A dirty document rides along with the ping,
+// so a recovery loses at most one interval of typing.
+const utf8Len = (text: string): number => new TextEncoder().encode(text).length;
 if (inTauri && isMac) {
+  const ping = (): void => {
+    // every pong carries the page's own visibility: a page the system
+    // suspended (display sleep, occlusion, another Space) cannot ping on
+    // schedule and must not be judged dead while its window keeps focus
+    // (review MAJOR-в)
+    void invoke('watchdog_pong', {
+      visible: document.visibilityState === 'visible',
+    }).catch(() => {});
+  };
+  ping();
+  // resume announces itself — the visibilitychange fires the moment the
+  // system un-suspends the page, before any throttled timer would
+  document.addEventListener('visibilitychange', ping);
   window.setInterval(() => {
-    void invoke('watchdog_pong').catch(() => {});
+    ping();
     if (unsavedContent()) {
       const text = currentFullText();
-      // mirrors the Rust-side MAX_DRAFT_BYTES: a pathological document
-      // falls back to recovering from its last save on disk
-      if (text.length <= 1_000_000) {
+      // mirrors the Rust-side MAX_DRAFT_BYTES, measured in UTF-8 bytes:
+      // text.length counts UTF-16 code units and halves the budget for
+      // Cyrillic text (review MAJOR-б)
+      if (utf8Len(text) <= 1_000_000) {
         void invoke('watchdog_draft', { content: text }).catch(() => {});
       }
     }
