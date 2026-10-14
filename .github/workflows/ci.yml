@@ -6,8 +6,13 @@ on:
   pull_request:
 
 jobs:
+  # The macOS line lives in Wad-man/prosa-mac (#121): every job here is
+  # pinned to this repository so the fork's synced copy of this file never
+  # runs the Windows/Linux matrix there (prosa-mac carries its own
+  # ci-macos.yml).
   frontend:
     name: Typecheck & build frontend
+    if: github.repository == 'Wad-man/prosa'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +26,7 @@ jobs:
 
   windows:
     name: Windows build (x64)
+    if: github.repository == 'Wad-man/prosa'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,47 +52,21 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
 
   # Cross-platform smoke builds: prove the app compiles and bundles on
-  # macOS/Linux on every push/PR to main. No release, no code signing, no
-  # updater artifacts — that stays a Windows-only release concern for now.
-  # These jobs have no `needs:` and nothing depends on them, so a red
-  # cross-build never blocks the tsc/vite gate or the Windows build.
+  # Linux on every push/PR to main (macOS moved to prosa-mac, #121). No
+  # release, no code signing, no updater artifacts — that stays a
+  # Windows/Linux-only release concern. These jobs have no `needs:` and
+  # nothing depends on them, so a red cross-build never blocks the
+  # tsc/vite gate or the Windows build.
   #
   # tauri.conf.json ships bundle.targets=["nsis"] (Windows-only) and
   # createUpdaterArtifacts=true (requires TAURI_SIGNING_PRIVATE_KEY), so
-  # each cross job overrides both on the CLI:
+  # the cross job overrides both on the CLI:
   #   --bundles <platform format>              instead of the "nsis" target
   #   --config createUpdaterArtifacts=false    skip updater signing entirely
 
-  macos-universal:
-    name: macOS build (universal)
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          # universal-apple-darwin builds both slices, so install both targets
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-          key: macos-universal
-      - run: npm ci
-      - name: Build ad-hoc-signed universal dmg
-        # ad-hoc signature ("-"): no Apple account needed, but the arm64
-        # slice is killed by macOS unless it carries at least this
-        run: npx tauri build --target universal-apple-darwin --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":"-"}}}'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: prosamd-macos-universal
-          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-          if-no-files-found: error
-
   linux:
     name: Linux build (${{ matrix.arch }}, AppImage + deb)
+    if: github.repository == 'Wad-man/prosa'
     # deb is the primary Linux format (#105): it declares webkit2gtk-4.1 a
     # system dependency (units of MB instead of the ~84 MB self-contained
     # AppImage) and installs the icon and .md associations; AppImage stays

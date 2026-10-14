@@ -1,11 +1,15 @@
 name: Release
 
-# Tag push (v*) builds signed bundles for every platform (Windows NSIS +
-# portable exe, macOS universal dmg, Linux x64/arm64 AppImages + debs) and
-# creates a DRAFT release in this repo (Wad-man/prosa). Edit the notes there and
-# publish — the in-app updater serves from the latest release of this repo.
-# (≤0.1.7 clients still poll Wad-man/prosa-releases; v0.1.8 was mirrored
-# there once as a transitional release, then that repo was frozen.)
+# Tag push (v*) builds signed bundles for Windows (NSIS + portable exe) and
+# Linux (x64/arm64 AppImages + debs) and creates a DRAFT release in this
+# repo (Wad-man/prosa). Edit the notes there and publish — the in-app
+# updater serves from the latest release of this repo. (≤0.1.7 clients
+# still poll Wad-man/prosa-releases; v0.1.8 was mirrored there once as a
+# transitional release, then that repo was frozen.)
+#
+# macOS releases moved to the dedicated prosa-mac repository (#121); every
+# job here is pinned to this repository so the fork's synced copy of this
+# file never builds Windows/Linux packages there.
 #
 # Publishing scheme: platform jobs only build and upload workflow artifacts;
 # the final `release` job (needs: all platforms) downloads them, generates
@@ -19,6 +23,7 @@ on:
 jobs:
   windows:
     name: Windows release (x64)
+    if: github.repository == 'Wad-man/prosa'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,56 +56,9 @@ jobs:
           path: stage
           if-no-files-found: error
 
-  # Same shape as the CI smoke build (ci.yml macos-universal), but for
-  # release: createUpdaterArtifacts is true in tauri.conf.json and is NOT
-  # overridden here, so the macOS updater tarball (.app.tar.gz + .sig in
-  # bundle/macos/) gets a minisign signature from the same
-  # platform-independent TAURI_SIGNING_PRIVATE_KEY the Windows job uses.
-  # signingIdentity "-" keeps the ad-hoc signature (no Apple account; the
-  # arm64 slice needs at least that to survive macOS).
-  macos:
-    name: macOS release (universal)
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          # universal-apple-darwin builds both slices, so install both targets
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-          key: macos-universal
-      - run: npm ci
-
-      - name: Build signed universal dmg
-        # app,dmg — not dmg alone: the macOS updater artifact (.app.tar.gz +
-        # .sig in bundle/macos/) is derived from the `app` bundle; with only
-        # `dmg` Tauri skips it and the staging step below fails (first
-        # cross-tag run, 2026-10-12)
-        run: npx tauri build --target universal-apple-darwin --bundles app,dmg --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-
-      - name: Stage release files
-        run: |
-          set -euo pipefail
-          # dmg is the manual-install asset; the macOS UPDATER artifact is
-          # the .app.tar.gz (+ .sig) from bundle/macos/ — Tauri 2 updates
-          # from the tarball, not from the dmg.
-          mkdir -p stage/dmg stage/macos-updater
-          B=src-tauri/target/universal-apple-darwin/release/bundle
-          cp "$B"/dmg/*.dmg stage/dmg/
-          cp "$B"/macos/*.app.tar.gz "$B"/macos/*.app.tar.gz.sig stage/macos-updater/
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-macos
-          path: stage
-          if-no-files-found: error
+  # The macOS release job moved to prosa-mac together with the whole macOS
+  # line (#121, owner decision 2026-10-14); mac artifacts and darwin
+  # entries in latest.json are that repository's concern now.
 
   # Same shape as the CI smoke builds (ci.yml linux matrix). The AppImage
   # is signed with the minisign updater key (createUpdaterArtifacts stays
@@ -113,6 +71,7 @@ jobs:
   # mac/linux-channel gate (#90).
   linux:
     name: Linux release (${{ matrix.arch }}, AppImage + deb)
+    if: github.repository == 'Wad-man/prosa'
     strategy:
       # a release needs BOTH legs; keep the other leg's logs on failure
       fail-fast: false
@@ -179,7 +138,8 @@ jobs:
   # updater manifest from all signatures, creates the draft release once.
   release:
     name: Create draft release
-    needs: [windows, macos, linux]
+    needs: [windows, linux]
+    if: github.repository == 'Wad-man/prosa'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -204,7 +164,6 @@ jobs:
 
           node scripts/make-updater-json.mjs "$TAG" \
             --nsis dist/nsis \
-            --macos dist/macos-updater \
             --appimage-x64 dist/appimage-x64 \
             --appimage-arm64 dist/appimage-arm64 \
             --out dist/latest.json
@@ -218,8 +177,6 @@ jobs:
             dist/nsis/*_x64-setup.exe \
             dist/nsis/*.sig \
             "dist/ProsaMD-v${V}-portable-x64.exe" \
-            dist/dmg/*.dmg \
-            dist/macos-updater/* \
             dist/appimage-x64/*.AppImage \
             dist/appimage-x64/*.sig \
             dist/appimage-arm64/*.AppImage \

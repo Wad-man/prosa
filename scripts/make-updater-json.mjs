@@ -8,7 +8,9 @@
 // the flag the platform is simply skipped, so the script keeps working for
 // a pure-Windows release (this guarded the pipeline before the first
 // cross-platform tags). A flag that points to a missing dir is an error —
-// that means the pipeline lost its artifacts.
+// that means the pipeline lost its artifacts. The --macos flag outlived
+// this repository's macOS releases: it serves the prosa-mac fork, which
+// syncs this script (#121).
 //
 // Usage: node scripts/make-updater-json.mjs <tag> [options]
 //   tag                    release tag; must match the app version (v0.1.4 <-> 0.1.4)

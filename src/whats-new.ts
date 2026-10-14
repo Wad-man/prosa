@@ -36,13 +36,13 @@ const RELEASE_SUMMARY: Record<Lang, string[]> = {
   ru: [
     'Печать и экспорт в PDF: Ctrl+P, тихий PDF на Windows, системный лист на macOS и Linux',
     'Настройки (Ctrl+,), поиск и замена, Raw HTML, масштаб, «Скопировать для Word»',
-    'Сборки для macOS (universal) и Linux (AppImage, deb)',
+    'Сборки для Linux (AppImage, deb); macOS — отдельной версией (prosa-mac)',
     'Диалог «Справка» (F1) со всеми горячими клавишами',
   ],
   en: [
     'Print & PDF export: Ctrl+P — silent PDF on Windows, system print sheet on macOS and Linux',
     'Settings (Ctrl+,), find & replace, raw HTML, zoom, "Copy for Word"',
-    'macOS (universal) and Linux (AppImage, deb) builds',
+    'Linux (AppImage, deb) builds; macOS ships as a separate version (prosa-mac)',
     'The Help dialog (F1) with every keyboard shortcut',
   ],
 };

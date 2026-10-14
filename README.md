@@ -11,12 +11,11 @@ A minimal open-source Markdown editor & viewer — a "notepad" for `.md` files.
 Сайт проекта — **[prosamd.ru](https://prosamd.ru)** · [Скачать последнюю версию](https://github.com/Wad-man/prosa/releases/latest)
 
 Стабильные сборки — Windows 10/11 x64: установщик (~4 МБ) и переносная версия (~8 МБ).
-С версии v0.2.0-rc.1 — ранние сборки macOS (универсальная: Intel + Apple Silicon) и Linux (`.deb` и AppImage, x64/ARM64); iOS и Android — в планах (v0.4).
+С версии v0.2.0-rc.1 — ранние сборки Linux (`.deb` и AppImage, x64/ARM64); rc.1–rc.6 включали и macOS, с rc.7 она развивается отдельной версией — [Wad-man/prosa-mac](https://github.com/Wad-man/prosa-mac). iOS и Android — в планах (v0.4).
 
 <details>
-<summary>Установка на macOS и Linux (сборки пока без подписи разработчика)</summary>
+<summary>Установка на Linux (сборки без подписи)</summary>
 
-- **macOS**: универсальный `.dmg`. Приложения без Apple Developer ID первый запуск пропускает только через Gatekeeper: ПКМ по ProsaMD.app → «Открыть» → «Открыть» в диалоге; либо снять карантин в Терминале: `xattr -cr /Applications/ProsaMD.app`.
 - **Linux**: для Ubuntu/Debian — пакет `.deb`: `sudo apt install ./ProsaMD_*_amd64.deb` (ставит иконку в лаунчер и ассоциации `.md`; на ARM-машинах — `*_arm64.deb`). Для остальных дистрибутивов — портативный AppImage: `chmod +x ProsaMD_*_amd64.AppImage && ./ProsaMD_*_amd64.AppImage`.
 </details>
 
@@ -106,7 +105,7 @@ ProsaMD проверяет обновления при запуске (тихо,
 - [x] v0.1.7 — ПКМ-панель форматирования, локализация Crepe RU/EN, дублирующие сочетания клавиш (как в Typora)
 - [x] v0.1.9 — панель меню, оглавление, типографика; буфер обмена и хоткеи в обоих режимах
 - [x] v0.1.10 «Lossless core» — побайтовое сохранение из визуального режима (#33), режим «Просмотр» (#66), сноски Obsidian (#64), «Копировать для Word» (#63), картинки с относительными путями (#68)
-- [ ] v0.2 — macOS (универсальная сборка) и Linux (x64/ARM64), настройки, печать/PDF, поиск, Raw HTML, масштаб, панель хоткеев, «Что нового»
+- [ ] v0.2 — Linux (x64/ARM64), настройки, печать/PDF, поиск, Raw HTML, масштаб, панель хоткеев, «Что нового»; macOS — отдельной версией в [prosa-mac](https://github.com/Wad-man/prosa-mac)
 - [ ] v0.3 — плагины и темы от сообщества (API + каталог)
 - [ ] v0.4 — iOS / Android
 - [ ] Экспорт: печать/PDF — в ядре (v0.2); DOCX/HTML/epub — first-party плагин после платформы

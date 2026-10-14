@@ -15,9 +15,10 @@
 //! force-destroyed. The channel cannot be probed from the Rust side; only
 //! the frontend's silence is observable.
 //!
-//! The bookkeeping commands compile everywhere, but only macOS runs the
-//! checker — Windows (WebView2) and Linux (webkit2gtk) have never shown
-//! this failure, and their windows never ping.
+//! The bookkeeping commands compile everywhere, but only the prosa-mac fork
+//! (the `prosa_mac` cfg, #121) runs the checker — Windows (WebView2) and
+//! Linux (webkit2gtk) have never shown this failure, and their windows
+//! never ping.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -52,9 +53,9 @@ pub struct Watchdog {
     drafts: Mutex<HashMap<String, String>>,
     /// recovery payload waiting for the freshly created replacement window
     recovery: Mutex<HashMap<String, Recovery>>,
-    /// timestamps of recent recoveries — the anti-storm budget (macOS
-    /// checker only)
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    /// timestamps of recent recoveries — the anti-storm budget (the
+    /// prosa-mac checker only)
+    #[cfg_attr(not(prosa_mac), allow(dead_code))]
     recoveries: Mutex<Vec<Instant>>,
     /// labels already reported as given up — the budget message must not
     /// repeat on every check tick while the window stays frozen
@@ -141,12 +142,12 @@ pub fn pop_recovery(
     state.recovery.lock().unwrap().remove(window.label())
 }
 
-// ---------- macOS-only detection and recovery ----------
+// ---------- prosa-mac-only detection and recovery ----------
 
-#[cfg(target_os = "macos")]
+#[cfg(prosa_mac)]
 pub use checker::spawn as spawn_checker;
 
-#[cfg(target_os = "macos")]
+#[cfg(prosa_mac)]
 mod checker {
     use std::time::{Duration, Instant};
 
