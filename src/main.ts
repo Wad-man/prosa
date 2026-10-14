@@ -76,6 +76,10 @@ const nativeWindow = (): ReturnType<typeof getCurrentWindow> | null =>
   inTauri ? getCurrentWindow() : null;
 const currentWindow = nativeWindow();
 
+// #114: the Rust-side channel watchdog exists only on macOS — other
+// platforms never ping and never get their webviews recreated
+const isMac = /Mac/i.test(navigator.userAgent);
+
 const $ = (id: string): HTMLElement => {
   const el = document.getElementById(id);
   if (!el) throw new Error(`#${id} not found`);
@@ -1817,6 +1821,27 @@ async function init(): Promise<void> {
       }
     }
 
+    // #114: if the Rust watchdog recreated this window over a dead
+    // UI↔WebContent channel, its document arrives as a recovery draft —
+    // fresher than the file just loaded from disk, or the whole document
+    // for an untitled one
+    if (isMac) {
+      try {
+        const rec = await invoke<{ path: string | null; content: string | null } | null>(
+          'pop_recovery',
+        );
+        if (rec && typeof rec.content === 'string') {
+          applyLoaded(rec.content, typeof rec.path === 'string' ? rec.path : null);
+          // the draft was unsaved work when the channel died — keep the
+          // unsaved dot and the close guard honest (applyLoaded alone
+          // would present the draft as a freshly loaded clean document)
+          dirty = true;
+        }
+      } catch {
+        // command unavailable — a normal window, nothing to recover
+      }
+    }
+
     // #34: the primary content has landed and will paint in this frame —
     // reveal the window now (it starts hidden, see tauri.conf.json/lib.rs,
     // so the white WebView2 flash and the empty-shell frame never show).
@@ -1881,5 +1906,25 @@ function prosaOpen(path: string): void {
   else void invoke('open_document_window', { path }).catch(() => {});
 }
 (window as unknown as { __prosaOpen?: (path: string) => void }).__prosaOpen = prosaOpen;
+
+// #114: macOS can sever the UI↔WebContent channel at random (the WebKit
+// 274818 family) — the Rust watchdog watches these pings and recreates the
+// webview when they stop. Runs at module load, before init()'s slow work:
+// the watchdog judges silence from the window's birth. A dirty document
+// rides along with the ping, so a recovery loses at most one interval of
+// typing.
+if (inTauri && isMac) {
+  window.setInterval(() => {
+    void invoke('watchdog_pong').catch(() => {});
+    if (unsavedContent()) {
+      const text = currentFullText();
+      // mirrors the Rust-side MAX_DRAFT_BYTES: a pathological document
+      // falls back to recovering from its last save on disk
+      if (text.length <= 1_000_000) {
+        void invoke('watchdog_draft', { content: text }).catch(() => {});
+      }
+    }
+  }, 2000);
+}
 
 void init();

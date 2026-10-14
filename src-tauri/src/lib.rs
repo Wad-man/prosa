@@ -18,6 +18,10 @@ mod menu;
 // PDF on Windows
 mod print;
 
+// #114: macOS WebKit channel watchdog — detects the dead UI↔WebContent
+// link by the frontend's silence and recreates the webview
+mod watchdog;
+
 /// First non-flag CLI argument — the file Windows/shell passes when the user
 /// double-clicks a document associated with Prosa (cold start).
 #[tauri::command]
@@ -34,6 +38,7 @@ fn get_initial_file() -> Option<String> {
 #[derive(Default)]
 struct Docs(Mutex<HashMap<String, DocState>>);
 
+#[derive(Clone)]
 struct DocState {
     path: Option<String>,
     dirty: bool,
@@ -44,6 +49,7 @@ struct DocState {
 fn report_doc_state(
     window: tauri::WebviewWindow,
     state: tauri::State<Docs>,
+    watchdog: tauri::State<watchdog::Watchdog>,
     path: Option<String>,
     dirty: bool,
     empty: bool,
@@ -53,6 +59,11 @@ fn report_doc_state(
         .lock()
         .unwrap()
         .insert(window.label().to_string(), DocState { path, dirty, empty });
+    // #114: a clean state means the file on disk is the truth — a stale
+    // pre-save draft must not be restored over it by a later recovery
+    if !dirty {
+        watchdog.clear_draft(window.label());
+    }
 }
 
 /// True when any window other than the calling one has unsaved changes —
@@ -154,11 +165,33 @@ fn show_fallback(app: &AppHandle, delay: std::time::Duration) {
     });
 }
 
+/// Window placement copied onto a watchdog replacement window (#114): the
+/// healed window must land exactly where the frozen one was.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct Geometry {
+    position: Option<(f64, f64)>,
+    size: Option<(f64, f64)>,
+    maximized: bool,
+    fullscreen: bool,
+}
+
 /// One document per window: every window is an isolated editor instance, so
 /// window state never has to be shared. An empty `path` opens a fresh
 /// untitled document (#60): no `?file=` query, the frontend boots into the
 /// empty state.
 fn create_doc_window(app: &AppHandle, path: &str) -> tauri::Result<()> {
+    build_doc_window(app, path, None, None)
+}
+
+/// Shared window factory: the normal path takes the defaults, the watchdog
+/// (#114) passes the dead window's geometry and a recovery draft stashed
+/// for the new label before its frontend can ask for it.
+fn build_doc_window(
+    app: &AppHandle,
+    path: &str,
+    geometry: Option<Geometry>,
+    recovery: Option<watchdog::Recovery>,
+) -> tauri::Result<()> {
     static COUNTER: AtomicU32 = AtomicU32::new(1);
     let label = format!("doc-{}", COUNTER.fetch_add(1, Ordering::Relaxed));
     let query = if path.is_empty() {
@@ -177,11 +210,42 @@ fn create_doc_window(app: &AppHandle, path: &str) -> tauri::Result<()> {
     // hidden until the frontend painted its first real frame (#34): an
     // immediately visible window flashes white, then an empty shell
     .visible(false);
+    let builder = match &geometry {
+        Some(geo) => {
+            let mut builder = builder;
+            if let Some((x, y)) = geo.position {
+                builder = builder.position(x, y);
+            }
+            if let Some((w, h)) = geo.size {
+                builder = builder.inner_size(w, h);
+            }
+            if geo.maximized {
+                builder = builder.maximized(true);
+            }
+            if geo.fullscreen {
+                builder = builder.fullscreen(true);
+            }
+            builder
+        }
+        None => builder,
+    };
     // Tauri's native drag-drop handler must stay off for in-page HTML5
     // drag-and-drop (block handles) — same as the main window config
+    // (dragDropEnabled in tauri.conf.json). Windows-only: wry has no native
+    // handler to disable on macOS (HTML5 drag-and-drop just works there),
+    // and on Linux disabling it would kill OS file drops entirely.
     #[cfg(windows)]
     let builder = builder.drag_and_drop(false);
+    if let Some(recovery) = recovery {
+        app.state::<watchdog::Watchdog>()
+            .stash_recovery(&label, recovery);
+    }
+    // only the Windows focus dance below consumes the handle; every other
+    // platform drops it right away
+    #[cfg_attr(not(windows), allow(unused_variables))]
     let window = builder.build()?;
+    // #114: the watchdog judges this window's frontend from its birth
+    app.state::<watchdog::Watchdog>().register(&label);
     show_fallback(app, std::time::Duration::from_secs(3));
     // Windows denies foreground to a window created by an already-running
     // background process: the document would open behind the user's current
@@ -252,10 +316,18 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(Docs::default())
         .manage(MenuLang::new())
+        .manage(watchdog::Watchdog::default())
         .setup(|app| {
             // the main window starts hidden (visible: false in the config,
             // #34) — if its frontend never calls show(), reveal it anyway
             show_fallback(app.handle(), std::time::Duration::from_secs(3));
+            // #114: the config-created main window is judged by the
+            // watchdog like every window built later
+            for label in app.webview_windows().keys() {
+                app.state::<watchdog::Watchdog>().register(label);
+            }
+            #[cfg(target_os = "macos")]
+            watchdog::spawn_checker(app.handle().clone());
             // Russian until the frontend reports the resolved UI language
             #[cfg(target_os = "macos")]
             if let Err(err) = menu::install(app.handle(), "ru") {
@@ -276,13 +348,12 @@ pub fn run() {
         // drop document state of closed windows
         .on_window_event(|window, event| {
             if matches!(event, WindowEvent::Destroyed) {
-                window
-                    .app_handle()
-                    .state::<Docs>()
-                    .0
-                    .lock()
-                    .unwrap()
-                    .remove(window.label());
+                let label = window.label().to_string();
+                let app = window.app_handle();
+                app.state::<Docs>().0.lock().unwrap().remove(&label);
+                // #114: the watchdog no longer watches the dead label —
+                // its replacement registered under a fresh one
+                app.state::<watchdog::Watchdog>().unregister(&label);
             }
         });
 
@@ -332,7 +403,10 @@ pub fn run() {
             set_menu_language,
             is_updater_install,
             print::print_document,
-            print::print_to_pdf
+            print::print_to_pdf,
+            watchdog::watchdog_pong,
+            watchdog::watchdog_draft,
+            watchdog::pop_recovery
         ])
         .run(tauri::generate_context!())
         .expect("error while running prosa");
