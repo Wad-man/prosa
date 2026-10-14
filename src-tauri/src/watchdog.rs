@@ -328,6 +328,7 @@ mod checker {
         // build before destroy: the app must never drop to zero windows
         // (all-windows-closed exits it), and the recovery stash is keyed by
         // the new label before its frontend can ask for it
+        let had_draft = draft.is_some();
         let result = build_doc_window(
             app,
             path.as_deref().unwrap_or(""),
@@ -355,7 +356,7 @@ mod checker {
             new_label,
             crate::DocState {
                 path: path.clone(),
-                dirty: draft.is_some(),
+                dirty: had_draft,
                 empty: false,
             },
         );
