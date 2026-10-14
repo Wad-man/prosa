@@ -76,7 +76,7 @@ const nativeWindow = (): ReturnType<typeof getCurrentWindow> | null =>
   inTauri ? getCurrentWindow() : null;
 const currentWindow = nativeWindow();
 
-// #114: the Rust-side channel watchdog exists only on macOS — other
+// #114: the Rust-side channel watchdog runs only in the prosa-mac fork — other
 // platforms never ping and never get their webviews recreated
 const isMac = /Mac/i.test(navigator.userAgent);
 

@@ -11,12 +11,11 @@ A minimal open-source Markdown editor & viewer — a "notepad" for `.md` files.
 Сайт проекта — **[prosamd.ru](https://prosamd.ru)** · [Скачать последнюю версию](https://github.com/Wad-man/prosa/releases/latest)
 
 Стабильные сборки — Windows 10/11 x64: установщик (~4 МБ) и переносная версия (~8 МБ).
-С версии v0.2.0-rc.1 — ранние сборки Linux (`.deb` и AppImage, x64/ARM64). macOS развивается как отдельная версия — [Wad-man/prosa-mac](https://github.com/Wad-man/prosa-mac); iOS и Android — в планах (v0.4).
+С версии v0.2.0-rc.1 — ранние сборки Linux (`.deb` и AppImage, x64/ARM64); rc.1–rc.6 включали и macOS, с rc.7 она развивается отдельной версией — [Wad-man/prosa-mac](https://github.com/Wad-man/prosa-mac). iOS и Android — в планах (v0.4).
 
 <details>
 <summary>Установка на Linux (сборки без подписи)</summary>
 
-- **macOS**: отдельная версия — [Wad-man/prosa-mac](https://github.com/Wad-man/prosa-mac) (релизы и установка — там).
 - **Linux**: для Ubuntu/Debian — пакет `.deb`: `sudo apt install ./ProsaMD_*_amd64.deb` (ставит иконку в лаунчер и ассоциации `.md`; на ARM-машинах — `*_arm64.deb`). Для остальных дистрибутивов — портативный AppImage: `chmod +x ProsaMD_*_amd64.AppImage && ./ProsaMD_*_amd64.AppImage`.
 </details>
 
