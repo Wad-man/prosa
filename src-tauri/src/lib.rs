@@ -45,11 +45,18 @@ struct DocState {
     empty: bool,
 }
 
+/// The markdown file that launched the app on macOS (#113): the Opened
+/// Apple event arrives before any frontend booted, so the file waits here
+/// for the first `report_doc_state` — see the consumption note there.
+#[derive(Default)]
+struct PendingLaunch(Mutex<Option<String>>);
+
 #[tauri::command]
 fn report_doc_state(
     window: tauri::WebviewWindow,
     state: tauri::State<Docs>,
     watchdog: tauri::State<watchdog::Watchdog>,
+    pending: tauri::State<PendingLaunch>,
     path: Option<String>,
     dirty: bool,
     empty: bool,
@@ -63,6 +70,20 @@ fn report_doc_state(
     // pre-save draft must not be restored over it by a later recovery
     if !dirty {
         watchdog.clear_draft(window.label());
+    }
+    // #113: the file that launched this app (the macOS Opened event beats
+    // the frontend boot) waits for the first window report — open_doc_external
+    // then routes it into the pristine launch window via __prosaOpen, or to
+    // a new window if that window got occupied in the meantime. A dead
+    // frontend (#114) merely delays consumption: its watchdog replacement
+    // reports and picks the file up.
+    if let Some(path) = pending.0.lock().unwrap().take() {
+        // TEMP-113
+        let _ = std::fs::write(
+            "/tmp/prosa-dev-diag/route113.log",
+            format!("pending consumed by {}: {path}\n", window.label()),
+        );
+        open_doc_external(window.app_handle(), state.inner(), &path);
     }
 }
 
@@ -317,6 +338,7 @@ pub fn run() {
         .manage(Docs::default())
         .manage(MenuLang::new())
         .manage(watchdog::Watchdog::default())
+        .manage(PendingLaunch::default())
         .setup(|app| {
             // the main window starts hidden (visible: false in the config,
             // #34) — if its frontend never calls show(), reveal it anyway
@@ -408,6 +430,62 @@ pub fn run() {
             watchdog::watchdog_draft,
             watchdog::pop_recovery
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running prosa");
+        .build(tauri::generate_context!())
+        .expect("error while building prosa")
+        .run(|app, event| {
+            // #113: files opened from the OS arrive as Apple events on
+            // macOS (`application:openURLs:`), not argv — RunEvent::Opened
+            // is the canonical tauri 2 route (maintainer-confirmed in
+            // tauri#13615; the deep-link plugin is a hack with side
+            // effects). The variant never fires on other platforms.
+            if let tauri::RunEvent::Opened { urls } = event {
+                // TEMP-113
+                let _ = std::fs::write("/tmp/prosa-dev-diag/route113.log", "run-event Opened\n");
+                handle_opened_urls(app, urls);
+            }
+        });
+}
+
+/// Route OS-opened file URLs through the normal machinery (#113). A cold
+/// start (no window has reported yet) stashes the first file for the launch
+/// window — see `report_doc_state`; anything else, and every additional
+/// file of a multi-open, goes straight to `open_doc_external`.
+fn handle_opened_urls(app: &AppHandle, urls: Vec<url::Url>) {
+    // TEMP-113: file diagnostics, stripped after acceptance
+    diag113(&format!("opened urls: {urls:?}\n"));
+    let paths: Vec<String> = urls
+        .iter()
+        .filter_map(|url| {
+            if url.scheme() == "file" {
+                url.to_file_path()
+                    .ok()
+                    .map(|path| path.to_string_lossy().into_owned())
+            } else {
+                None
+            }
+        })
+        .filter(|path| is_markdown(path))
+        .collect();
+    let Some((first, rest)) = paths.split_first() else {
+        return;
+    };
+    let state = app.state::<Docs>();
+    // bind the emptiness check: a temporary guard living to the end of the
+    // whole `if` (edition 2021 rules) would deadlock the else branch's
+    // re-lock inside open_doc_external
+    let cold_start = state.0.lock().unwrap().is_empty();
+    // TEMP-113
+    diag113(&format!("paths: {paths:?} cold_start: {cold_start}\n"));
+    if cold_start {
+        app.state::<PendingLaunch>()
+            .0
+            .lock()
+            .unwrap()
+            .replace(first.clone());
+    } else {
+        open_doc_external(app, state.inner(), first);
+    }
+    for path in rest {
+        open_doc_external(app, state.inner(), path);
+    }
 }

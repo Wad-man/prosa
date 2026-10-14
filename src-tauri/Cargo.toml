@@ -24,6 +24,9 @@ tauri-plugin-clipboard-manager = "2"
 percent-encoding = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# only for RunEvent::Opened's Url type (#113) — already in the dependency
+# tree via tauri
+url = "2"
 
 # Desktop-only: forward "open with file" launches to the running instance;
 # in-app updates + relaunch after install
