@@ -13,7 +13,10 @@ permissions:
   issues: write
 
 jobs:
+  # prosa-mac carries its own copy after the split (#121) — keep this
+  # repository's audits here only
   audit:
+    if: github.repository == 'Wad-man/prosa'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +31,7 @@ jobs:
         run: cargo audit --file src-tauri/Cargo.lock
 
   alert:
-    if: failure()
+    if: failure() && github.repository == 'Wad-man/prosa'
     needs: audit
     runs-on: ubuntu-latest
     steps:

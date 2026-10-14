@@ -9,9 +9,21 @@ use std::{
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
-// the native menu bar is macOS-only (#104) — see the module docs for why
-// Windows and Linux never build one
-#[cfg(target_os = "macos")]
+// ProsaMD's macOS line lives in its own repository, prosa-mac (owner
+// decision 2026-10-14, #121) — this tree builds Windows and Linux only.
+// The mac-only modules below (native menu, watchdog checker) compile only
+// under the `prosa_mac` cfg that prosa-mac's .cargo/config.toml sets; a
+// plain macOS build of this repository stops here with a pointer instead
+// of silently producing an unsupported app.
+#[cfg(all(target_os = "macos", not(prosa_mac)))]
+compile_error!(
+    "ProsaMD for macOS is developed in its own repository: \
+     https://github.com/Wad-man/prosa-mac (see issue #121)"
+);
+
+// the native menu bar belongs to the macOS line (#104) — compiled only in
+// the prosa-mac fork; Windows and Linux never build one
+#[cfg(prosa_mac)]
 mod menu;
 
 // printing commands (#24): system sheet on macOS/Linux, silent WebView2
@@ -95,11 +107,11 @@ fn is_updater_install() -> bool {
 /// UI language of the native macOS menu bar. The frontend reports it right
 /// after i18n resolves and on every change (#104); until then the bar starts
 /// in Russian — the product's primary language, corrected within a moment.
-// the stored language is only consulted on macOS (the only platform with a
-// native menu); elsewhere the state just keeps the command shape uniform.
+// the stored language is only consulted where the native menu exists (the
+// prosa-mac fork); elsewhere the state just keeps the command shape uniform.
 // Starts as "ru" — the same bar setup() installs, so the first report of a
 // Russian UI does not rebuild the menu for nothing.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(not(prosa_mac), allow(dead_code))]
 struct MenuLang(std::sync::Mutex<String>);
 
 impl MenuLang {
@@ -110,7 +122,7 @@ impl MenuLang {
 
 #[tauri::command]
 fn set_menu_language(app: AppHandle, state: tauri::State<MenuLang>, lang: String) {
-    #[cfg(target_os = "macos")]
+    #[cfg(prosa_mac)]
     {
         let mut current = state.0.lock().unwrap();
         if *current != lang {
@@ -122,7 +134,7 @@ fn set_menu_language(app: AppHandle, state: tauri::State<MenuLang>, lang: String
         }
     }
     // no native menu bar anywhere else — nothing to rebuild
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(prosa_mac))]
     let _ = (&app, &state, &lang);
 }
 
@@ -167,7 +179,7 @@ fn show_fallback(app: &AppHandle, delay: std::time::Duration) {
 
 /// Window placement copied onto a watchdog replacement window (#114): the
 /// healed window must land exactly where the frozen one was.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(not(prosa_mac), allow(dead_code))]
 struct Geometry {
     position: Option<(f64, f64)>,
     size: Option<(f64, f64)>,
@@ -336,10 +348,10 @@ pub fn run() {
                 let birth = if label == "main" { get_initial_file() } else { None };
                 app.state::<watchdog::Watchdog>().register(label, birth);
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(prosa_mac)]
             watchdog::spawn_checker(app.handle().clone());
             // Russian until the frontend reports the resolved UI language
-            #[cfg(target_os = "macos")]
+            #[cfg(prosa_mac)]
             if let Err(err) = menu::install(app.handle(), "ru") {
                 eprintln!("prosa: failed to build the native menu: {err}");
             }
@@ -348,11 +360,11 @@ pub fn run() {
         // the only native item with an in-app action: "Settings…" opens the
         // same dialog as Ctrl+, in the focused window
         .on_menu_event(|app, event| {
-            #[cfg(target_os = "macos")]
+            #[cfg(prosa_mac)]
             if event.id().as_ref() == menu::SETTINGS_ID {
                 menu::emit_settings(app);
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(prosa_mac))]
             let _ = (app, event);
         })
         // drop document state of closed windows

@@ -24,6 +24,8 @@ permissions:
   contents: read
 
 jobs:
+  # release announcements for THIS repository's releases only; prosa-mac
+  # (#121) has its own workflow and channel decisions
   post:
     if: github.repository == 'Wad-man/prosa'
     runs-on: ubuntu-latest
