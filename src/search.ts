@@ -42,6 +42,7 @@ export class FindReplaceBar {
   private caseBtn: HTMLButtonElement | null = null;
   private prevBtn: HTMLButtonElement | null = null;
   private nextBtn: HTMLButtonElement | null = null;
+  private closeBtn: HTMLButtonElement | null = null;
   private replaceRow: HTMLElement | null = null;
   private replaceBtn: HTMLButtonElement | null = null;
   private replaceAllBtn: HTMLButtonElement | null = null;
@@ -167,6 +168,10 @@ export class FindReplaceBar {
     this.prevBtn!.setAttribute('aria-label', t('findPrevTip'));
     this.nextBtn!.title = t('findNextTip');
     this.nextBtn!.setAttribute('aria-label', t('findNextTip'));
+    // #119: the close cross is an icon button — it needs the accessible
+    // name every other icon button here already carries
+    this.closeBtn!.title = t('closeTip');
+    this.closeBtn!.setAttribute('aria-label', t('closeTip'));
     this.replaceBtn!.textContent = t('replaceBtn');
     this.replaceBtn!.title = t('replaceBtn');
     this.replaceAllBtn!.textContent = t('replaceAllBtn');
@@ -267,6 +272,7 @@ export class FindReplaceBar {
 
     const closeBtn = iconButton('find-close', 'find-btn', closeSvg);
     closeBtn.addEventListener('click', () => this.close());
+    this.closeBtn = closeBtn;
 
     const row = document.createElement('div');
     row.className = 'find-row';

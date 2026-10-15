@@ -866,6 +866,13 @@ function applyTocFeature(): void {
   // the toolbar toggle reflects the same feature flag (setFeatureEnabled
   // above fires the cross-listener event that lands here)
   els.btnToc.setAttribute('aria-pressed', String(isFeatureEnabled('toc')));
+  // rc.7 (design review, cond. on split): the reserve changed the panes'
+  // layout without firing any scroll event — re-measure CM and re-anchor
+  // the split panes to where the code stands once the flight settles
+  window.setTimeout(() => {
+    source?.view.requestMeasure();
+    if (mode === 'split') syncSplitScroll('code');
+  }, 300);
 }
 
 function toggleToc(): void {
@@ -1217,10 +1224,16 @@ function previewHeadingTops(): number[] {
 }
 
 /** Which anchor a scroller's viewport top sits in: {i, f} — heading i
- *  (−1 = above the first), f = the fraction inside the i→i+1 span. */
+ *  (−1 = above the first), f = the fraction inside the i→i+1 span.
+ *  The scroll END maps to the follower's end outright: CM's heightmap
+ *  estimates can push the last anchor past the scrollable maximum, and a
+ *  fractional tail there leaves the panes' bottoms visibly misaligned
+ *  (owner audit 2026-10-15: «при скролле до конца граница текста должна
+ *  быть примерно на одном уровне»). */
 function anchorState(top: number, anchors: number[], maxTop: number): { i: number; f: number } {
   if (anchors.length === 0) return { i: -1, f: maxTop > 0 ? top / maxTop : 0 };
   if (top <= anchors[0]) return { i: -1, f: anchors[0] > 0 ? top / anchors[0] : 0 };
+  if (top >= maxTop) return { i: anchors.length - 1, f: 1 };
   let i = 0;
   while (i + 1 < anchors.length && anchors[i + 1] <= top) i++;
   const spanStart = anchors[i];
@@ -1394,9 +1407,14 @@ function hideModal(overlay: HTMLElement): void {
   modalReturnFocus = null;
   // the return-focus node can be gone (e.g. the language switch rebuilt
   // the visual editor while the dialog was open) — fall back to the
-  // editor of the current mode instead of dropping focus on <body>
-  if (back && back.isConnected) back.focus();
+  // editor of the current mode instead of dropping focus on <body>.
+  // #120: a dialog opened from a MENU captured <body> as the return
+  // target (the menu item was already detached by then) — body is
+  // "connected", so the old guard happily focused it and keystrokes went
+  // nowhere; body is never a meaningful return target, treat it as absent
+  if (back && back.isConnected && back !== document.body) back.focus();
   else if (mode !== 'reading') focusActiveEditor();
+  else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
 }
 
 // the focusable set shared by Tab trapping and arrow-key navigation
@@ -1785,6 +1803,22 @@ async function init(): Promise<void> {
     'scroll',
     (e) => handleSplitScrollEvent(e.target as Element),
     { capture: true, passive: true },
+  );
+  // rc.7 (sync audit): heights change without any scroll event on resize —
+  // re-anchor the preview to where the code stands once layout settles
+  window.addEventListener('resize', () => {
+    if (mode === 'split') window.setTimeout(() => syncSplitScroll('code'), 150);
+  });
+  // rc.7 (sync audit): a late-loading image grows the preview mid-read —
+  // the code pane never hears about it, the pair would drift silently
+  els.visualPane.addEventListener(
+    'load',
+    (e) => {
+      if (mode === 'split' && e.target instanceof HTMLImageElement) {
+        window.setTimeout(() => syncSplitScroll('code'), 60);
+      }
+    },
+    true,
   );
 
   applyStaticTexts();

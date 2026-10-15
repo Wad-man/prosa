@@ -87,13 +87,14 @@ export class TocPanel {
     this.render(); // placeholder text is localized too
   }
 
-  /** Show/hide with a column-width animation (#36/#91): the host grid's
-   * `toc-open` class drives the column transition (styles.css), while the
-   * panel's `hidden` attribute — which would kill the transition
-   * mid-flight — is set only after the close animation finished. A timer
-   * backs the transitionend (and covers prefers-reduced-motion, where no
-   * transition fires). `inert` drops the closing panel from the tab order
-   * immediately. */
+  /** Show/hide the overlay column (#91 → rc.7): a transform+opacity flight
+   *  on the panel (compositor-only — the text column's padding does the
+   *  layout side) with `hidden` landing only after the close transition
+   *  finished; `inert` drops the closing panel from the tab order at once.
+   *  Before opening, the host gets --sb — the live scrollbar width of the
+   *  text scroller, so the column parks left of the bar instead of over
+   *  it (Chromium ignores custom ::-webkit widths under scrollbar-width,
+   *  measuring beats guessing on every platform). */
   setVisible(visible: boolean): void {
     const panel = this.panel;
     if (!panel) return;
@@ -101,9 +102,16 @@ export class TocPanel {
     if (visible === open) return;
     window.clearTimeout(this.closeTimer);
     if (visible) {
+      const host = this.host;
+      if (host) {
+        const scroller = document.getElementById('visual-editor') ?? host.firstElementChild;
+        const sb =
+          scroller instanceof HTMLElement ? scroller.offsetWidth - scroller.clientWidth : 0;
+        host.style.setProperty('--sb', `${Math.max(0, sb)}px`);
+      }
       panel.hidden = false;
       panel.inert = false;
-      // reflow so the transition plays from width 0, not from display:none
+      // reflow so the flight plays from the parked state, not from display:none
       void panel.offsetWidth;
       panel.classList.add('is-open');
       this.host?.classList.add('toc-open');

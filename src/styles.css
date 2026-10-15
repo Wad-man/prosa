@@ -637,34 +637,98 @@ body {
   max-width: 100%;
 }
 
-#editor-panes.toc-open #panes-stack {
-  max-width: 944px; /* 52em of text + the column's own side padding */
+/* #91 → гейт 2026-10-15 (конвейер rc.7): стек всегда полноширинный — скроллбар
+   панели текста остаётся у края окна при любом состоянии оглавления; место под
+   колонку резервируется паддингом СКРОЛЛЕРОВ (--toc-reserve), см. ниже */
+
+/* ---------- outline: overlay column at the window edge (#91 → rc.7) ----------
+   Out of the text flow entirely (design review 2026-10-15: the only pattern
+   where the scrollbar stays at the window edge with a right-hand outline is
+   a full-width scroller + overlaid column — doc-site pattern). The column
+   parks right of the scroller's scrollbar (--sb, measured by toc.ts —
+   Chromium ignores custom ::-webkit widths under scrollbar-width:thin).
+   Opening/closing is transform+opacity only (compositor, no layout); the
+   text column's position is handled by the scrollers' --toc-reserve
+   padding below. --toc-col drives BOTH the column and its inner content —
+   it must track the column at every breakpoint (a fixed inner width
+   clipped item ends without an ellipsis, owner audit 2026-10-15).
+   Invariant: --toc-col ≤ --toc-reserve wherever the overlay is see-through
+   (the reserve is column + gap). */
+/* the ladder vars live on DESCENDANTS of the container: a container query
+   cannot restyle the container itself, so #editor-panes-level definitions
+   would silently win over every @container override */
+#editor-panes #panes-stack,
+#editor-panes #toc-panel {
+  --toc-col: 220px;
+  --toc-reserve: 276px;
 }
 
-/* ---------- outline: frameless right column of the page (#91) ----------
-   Part of the page, not a panel: no background, border or shadow — the
-   document's own surface. The column is stationary (outside the text
-   scroller) and gets its own scrollbar only on overflow. */
 #toc-panel {
-  flex: none;
-  height: 100%;
-  width: 0;
-  margin-left: 0;
-  overflow: hidden;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: var(--sb, 0px);
+  width: var(--toc-col);
+  z-index: 6;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   padding: 48px 0 24px; /* top air matches the text column */
-  transition: width var(--t-2) var(--ease), margin-left var(--t-2) var(--ease);
+  transform: translateX(100%);
+  opacity: 0;
+  pointer-events: none;
+  overscroll-behavior: contain;
+  transition:
+    transform var(--t-2) var(--ease),
+    opacity var(--t-2) var(--ease);
 }
 
-#editor-panes.toc-open #toc-panel {
-  width: 220px;
-  margin-left: 56px;
+#toc-panel.is-open {
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 #toc-panel > * {
-  width: 220px; /* inner fixed width — no text squeeze during the flight */
+  width: var(--toc-col); /* inner width = column: no clipped ends */
   box-sizing: border-box;
+}
+
+/* the text column keeps its page position: the REAL scrollers reserve the
+   column's width as right padding (in CM the pane is not the scroller —
+   .cm-scroller is; padding both would double). The empty state centers
+   against the same reserve. The reserve pads smoothly ONLY where the
+   52em cap keeps the wrapper width constant (no re-wrap, design review
+   cond. 3): at ≤1400 and in split the padding flips instantly and the
+   column's own transform does the animating. */
+#editor-panes.toc-open #visual-editor,
+#editor-panes.toc-open #source-editor .cm-scroller,
+#editor-panes.toc-open #empty-hint {
+  padding-right: var(--toc-reserve);
+}
+
+#visual-editor,
+#source-editor .cm-scroller,
+#empty-hint {
+  transition: padding-right var(--t-2) var(--ease);
+}
+
+/* split: the reserve pads the two-pane grid, not the inner scrollers
+   (they are grid cells and would double-shift) */
+#app[data-mode='split'] #editor-panes.toc-open #panes-stack {
+  padding-right: var(--toc-reserve);
+}
+
+#app[data-mode='split'] #editor-panes.toc-open #visual-editor,
+#app[data-mode='split'] #editor-panes.toc-open #source-editor .cm-scroller,
+#app[data-mode='split'] #editor-panes.toc-open #empty-hint {
+  padding-right: 0;
+}
+
+#app[data-mode='split'] #visual-editor,
+#app[data-mode='split'] #source-editor .cm-scroller,
+#app[data-mode='split'] #empty-hint {
+  transition: none;
 }
 
 #toc-panel[hidden] {
@@ -672,18 +736,6 @@ body {
 }
 
 /* keep the reading measure while the outline is open: the column is now
-   capped at 944px, not the window — same 52em cap, no 80%-of-pane shrink.
-   :not(#fm-view) — the front-matter record is full-width, not a text
-   column (review: the bare `> div` selector overrode it) */
-#editor-panes.toc-open #visual-editor .milkdown-wrapper,
-#editor-panes.toc-open #visual-editor > div:not(#fm-view) {
-  width: min(52em, 100%);
-}
-
-#editor-panes.toc-open #source-editor .cm-content {
-  width: min(52em, 100%);
-}
-
 .toc-cap {
   margin: 0 2px 10px;
   font-size: 12px;
@@ -751,33 +803,38 @@ body {
 }
 
 /* narrow windows: shrink the outline, then overlay it over the text (#91).
-   Container queries, not media — see #editor-panes above */
+   Container queries, not media — see #editor-panes above. The reserve
+   tracks the column + gap at every step. */
+@container panes (max-width: 1400px) {
+  /* below the no-rewrap band the reserve flips instantly (design review
+     cond. 3): the column's transform carries the animation */
+  #editor-panes.toc-open #visual-editor,
+  #editor-panes.toc-open #source-editor .cm-scroller,
+  #editor-panes.toc-open #empty-hint {
+    transition: none;
+  }
+}
+
 @container panes (max-width: 1100px) {
+  #editor-panes.toc-open #panes-stack,
   #editor-panes.toc-open #toc-panel {
-    width: 180px;
-    margin-left: 32px;
+    --toc-col: 180px;
+    --toc-reserve: 212px;
   }
 }
 
 @container panes (max-width: 820px) {
-  #panes-stack,
-  #editor-panes.toc-open #panes-stack {
-    max-width: 100%;
+  /* too narrow for a side-by-side column: the outline overlays the text */
+  #editor-panes.toc-open #panes-stack,
+  #editor-panes.toc-open #toc-panel {
+    --toc-col: min(240px, 72vw);
+    --toc-reserve: 0px;
   }
 
-  /* too narrow for a side-by-side column: the outline overlays the text */
-  #toc-panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: auto;
-    width: min(240px, 72vw) !important;
-    margin-left: 0 !important;
+  #editor-panes.toc-open #toc-panel {
     background: var(--bg);
     box-shadow: -8px 0 24px color-mix(in srgb, #000 12%, transparent);
     padding: 40px 0 24px;
-    z-index: 6;
   }
 }
 
@@ -785,38 +842,28 @@ body {
    Two panes leave less room than a single reading column, so the outline
    degrades earlier in split: 220 → 180 at ≤1400, overlay over the preview
    at ≤1140 (thresholds of the approved prototype; the single-mode rules
-   above stay untouched). The panes group is NOT capped at the 944px
-   reading measure — code+preview center wide, ~662px each at 1600. */
+   above stay untouched). The reserve pads the grid — code+preview keep
+   wide cells, ~662px each at 1600. */
 @container panes (max-width: 1400px) {
+  #app[data-mode='split'] #editor-panes.toc-open #panes-stack,
   #app[data-mode='split'] #editor-panes.toc-open #toc-panel {
-    width: 180px;
-    margin-left: 32px;
+    --toc-col: 180px;
+    --toc-reserve: 212px;
   }
 }
 
 @container panes (max-width: 1140px) {
-  #app[data-mode='split'] #panes-stack,
-  #app[data-mode='split'] #editor-panes.toc-open #panes-stack {
-    max-width: 100%;
+  #app[data-mode='split'] #editor-panes.toc-open #panes-stack,
+  #app[data-mode='split'] #editor-panes.toc-open #toc-panel {
+    --toc-col: min(240px, 72vw);
+    --toc-reserve: 0px;
   }
 
-  #app[data-mode='split'] #toc-panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: auto;
-    width: min(240px, 72vw) !important;
-    margin-left: 0 !important;
+  #app[data-mode='split'] #editor-panes.toc-open #toc-panel {
     background: var(--bg);
     box-shadow: -8px 0 24px color-mix(in srgb, #000 12%, transparent);
     padding: 40px 0 24px;
-    z-index: 6;
   }
-}
-
-#app[data-mode='split'] #editor-panes.toc-open #panes-stack {
-  max-width: 100%;
 }
 
 /* navigation flash on the target heading (visual mode) */
@@ -1443,7 +1490,7 @@ body {
 
 /* --- typography ---
    Vertical rhythm (see TYPOGRAPHY.md): the base line is 16px × 1.75 = 28px.
-   Plain block gap (p) 0.95em; decorated blocks (quote/code/table) 1.25em;
+   Plain block gap (p) 1.1em; decorated blocks (quote/code/table) 1.25em;
    headings breathe by the classic rule "space before ≈ 2× space after" so a
    heading always separates from what follows it more than list items
    separate from each other (#7). */
@@ -1519,12 +1566,16 @@ body {
 #visual-editor h6 {
   font-size: 0.85em;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  /* 0.04em (typography audit): 0.07em read as shouting on Cyrillic caps */
+  letter-spacing: 0.04em;
   color: var(--fg-3);
 }
 
 #visual-editor p {
-  margin: 0 0 0.95em;
+  /* 1.1em (typography audit 2026-10-15): at 0.95em the paragraph gap was
+     only ~4px past the line's own leading — paragraphs merged into one
+     stream on long documents */
+  margin: 0 0 1.1em;
   text-wrap: pretty;
 }
 
@@ -2368,6 +2419,9 @@ body {
   position: absolute;
   top: 10px;
   right: 16px;
+  /* rc.7: parks left of the open outline column (window-width media ≈ the
+     panes container — the bar lives outside the query container) */
+  transition: right var(--t-2) var(--ease);
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -2385,6 +2439,22 @@ body {
 #find-bar[hidden],
 .find-row[hidden] {
   display: none;
+}
+
+#editor-host:has(#editor-panes.toc-open) #find-bar {
+  right: 296px; /* 276 reserve + 20 */
+}
+
+@media (max-width: 1100px) {
+  #editor-host:has(#editor-panes.toc-open) #find-bar {
+    right: 232px; /* 212 reserve + 20 */
+  }
+}
+
+@media (max-width: 820px) {
+  #editor-host:has(#editor-panes.toc-open) #find-bar {
+    right: 16px; /* overlay outline has its own surface */
+  }
 }
 
 .find-row {
