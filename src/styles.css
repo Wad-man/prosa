@@ -387,33 +387,62 @@ body {
   transition: transform var(--t-2) var(--ease);
 }
 
-/* #66/#110: two segments — Просмотр ↔ Редактирование (two stops) and the
-   editing submodes visual / code / split (three stops) */
-#view-switch {
-  grid-template-columns: 1fr 1fr;
+/* #110 → Б2 (гейт 2026-10-15): one control, four cells — Просмотр, then the
+   editing ways behind a hairline gap. Fixed tracks keep the thumb's math
+   plain (32px cell + 12px gap): visual/source/split sit at +44/+76/+108px */
+#mode-switch {
+  grid-template-columns: 32px 12px 32px 32px 32px;
 }
 
-#view-switch .seg-thumb {
-  width: calc((100% - 6px) / 2);
+#mode-switch .seg-thumb {
+  width: 32px;
 }
 
-#view-switch[data-active='edit'] .seg-thumb,
-#edit-switch[data-active='source'] .seg-thumb {
-  transform: translateX(100%);
+#mode-switch[data-active='visual'] .seg-thumb {
+  transform: translateX(44px);
 }
 
-#edit-switch[data-active='split'] .seg-thumb {
-  transform: translateX(200%);
+#mode-switch[data-active='source'] .seg-thumb {
+  transform: translateX(76px);
 }
 
-/* #110: while viewing, the submode segment shows where editing would land
-   but takes no input */
-.seg[data-disabled='true'] {
-  opacity: 0.45;
+#mode-switch[data-active='split'] .seg-thumb {
+  transform: translateX(108px);
 }
 
-.seg[data-disabled='true'] .seg-btn {
+/* the group caption rides ON the toolbar's bottom hairline (fieldset-legend
+   pattern, +0px of toolbar height): the sunk background punches the border
+   under the text so the line reads as the legend's underline */
+.mode-legend {
+  position: absolute;
+  bottom: -13px;
+  left: 44px;
+  right: 0;
+  z-index: 5;
+  text-align: center;
+  font-size: 10px;
+  line-height: 13px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  color: var(--fg-3);
+  background: var(--bg-sunk);
+  padding: 0 7px;
+  white-space: nowrap;
   pointer-events: none;
+  user-select: none;
+}
+
+/* in Просмотр the dot under an editing cell marks where Ctrl+/ returns */
+.seg-btn.return-dot::after {
+  content: '';
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .seg-btn:disabled {
@@ -846,6 +875,14 @@ body {
   grid-column: 2;
   grid-row: 1;
   border-left: 1px solid var(--border);
+  /* #62 (гейт 2026-10-15): the scroll is one for both columns — the preview's
+     own scrollbar is hidden, the code scrollbar is the pair's position
+     indicator (the panes are locked by the anchor sync in main.ts) */
+  scrollbar-width: none;
+}
+
+#app[data-mode='split'] #visual-editor::-webkit-scrollbar {
+  display: none;
 }
 
 /* ---------- #96: start screen (inside the empty state) ----------

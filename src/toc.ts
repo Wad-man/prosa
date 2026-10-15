@@ -212,16 +212,9 @@ export class TocPanel {
           effects: EditorView.scrollIntoView(pos, { y: 'center' }),
         });
         source.focus();
-        // #91 gate (2026-10-15, вариант А): a split click is code-first —
-        // the preview drifts to the same heading softly, without a flash
-        // (two accent animations at once would fight; the heading orders
-        // match because both panes render the same document)
-        if (ctx.getMode() === 'split') {
-          const els = this.visualHeadingEls();
-          if (els.length === this.entries.length) {
-            els[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
-        }
+        // #91 gate (вариант А): a split click is code-first — the preview no
+        // longer needs an explicit follow, the panes scroll as one (#62,
+        // гейт 2026-10-15): the code jump itself carries the preview along
       }
     }
     this.setActive(index);

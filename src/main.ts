@@ -32,6 +32,7 @@ import {
   sourceDeleteLines,
   sourceToggleTask,
   sourceClearFormatting,
+  sourceHeadings,
 } from './editor/md-source';
 import type { BlockId, MarkId } from './editor/actions';
 import { splitFrontMatter } from './frontmatter';
@@ -106,12 +107,11 @@ const els = {
   menubar: $('menubar'),
   btnTheme: $('btn-theme') as HTMLButtonElement,
   btnReading: $('btn-mode-reading') as HTMLButtonElement,
-  btnEdit: $('btn-mode-edit') as HTMLButtonElement,
   btnVisual: $('btn-mode-visual') as HTMLButtonElement,
   btnSource: $('btn-mode-source') as HTMLButtonElement,
   btnSplit: $('btn-mode-split') as HTMLButtonElement,
-  viewSwitch: $('view-switch'),
-  editSwitch: $('edit-switch'),
+  modeSwitch: $('mode-switch'),
+  modeLegend: $('mode-legend'),
   editorHost: $('editor-host'),
   editorPanes: $('editor-panes'),
   btnToc: $('btn-toc') as HTMLButtonElement,
@@ -1153,6 +1153,9 @@ function syncSplitPreview(): void {
   frontMatter = fm;
   visual.setMarkdown(body);
   refreshFrontMatterView();
+  // #62 (гейт 2026-10-15): the re-render changed the preview's heights —
+  // re-anchor it to where the code stands before the eye notices the drift
+  window.setTimeout(() => syncSplitScroll('code'), 60);
 }
 
 /** Live follow: a burst of typing collapses into one preview replace. */
@@ -1166,6 +1169,105 @@ function scheduleSplitSync(): void {
     // replace would land on the half-recreated Crepe (review r2 NIT)
     if (mode === 'split' && !visualRebuilding) syncSplitPreview();
   }, 250);
+}
+
+// ---------- #62: split scroll sync — «один скролл на обе колонки» ----------
+// Owner gate 2026-10-15: scrolling either pane moves both. Anchor-based
+// (heading tops on both sides, fraction interpolated between neighbours,
+// proportional in the heading-less margins): a raw percent lock drifts on
+// real documents — images, tables and wrapped lines make the panes'
+// heights diverge. The preview's own scrollbar is hidden (styles.css): the
+// code scrollbar is the pair's position indicator. Loop guard: scroll
+// events from the pane we just drove are ignored for a short window —
+// Chromium fires the programmatic set synchronously enough for it.
+
+const SPLIT_SCROLL_GUARD_MS = 80;
+const splitScrollGuard: { el: Element | null; until: number } = { el: null, until: 0 };
+
+function codeHeadingTops(): number[] {
+  const view = source?.view;
+  if (!view || source === null) return [];
+  const sc = view.scrollDOM;
+  // document coords (lineBlockAt) → scroller space: the content's offset
+  // inside the scroller is scroll-invariant ONLY together with + scrollTop
+  // (the content moves up as the scroller scrolls down). lineBlockAt, NOT
+  // coordsAtPos: CM virtualizes long documents and coordsAtPos returns
+  // null outside the rendered viewport — holes in the anchor map would
+  // misalign the panes
+  const base =
+    view.contentDOM.getBoundingClientRect().top -
+    sc.getBoundingClientRect().top +
+    sc.scrollTop;
+  const tops: number[] = [];
+  for (const h of sourceHeadings(source.getContent())) {
+    tops.push(view.lineBlockAt(view.state.doc.line(h.line).from).top + base);
+  }
+  return tops;
+}
+
+const PREVIEW_HEADINGS = '.ProseMirror h1, .ProseMirror h2, .ProseMirror h3, .ProseMirror h4, .ProseMirror h5, .ProseMirror h6';
+function previewHeadingTops(): number[] {
+  const sc = els.visualPane;
+  const base = sc.getBoundingClientRect().top - sc.scrollTop;
+  const tops: number[] = [];
+  for (const el of sc.querySelectorAll(PREVIEW_HEADINGS)) {
+    tops.push(el.getBoundingClientRect().top - base);
+  }
+  return tops;
+}
+
+/** Which anchor a scroller's viewport top sits in: {i, f} — heading i
+ *  (−1 = above the first), f = the fraction inside the i→i+1 span. */
+function anchorState(top: number, anchors: number[], maxTop: number): { i: number; f: number } {
+  if (anchors.length === 0) return { i: -1, f: maxTop > 0 ? top / maxTop : 0 };
+  if (top <= anchors[0]) return { i: -1, f: anchors[0] > 0 ? top / anchors[0] : 0 };
+  let i = 0;
+  while (i + 1 < anchors.length && anchors[i + 1] <= top) i++;
+  const spanStart = anchors[i];
+  const spanEnd = i + 1 < anchors.length ? anchors[i + 1] : Math.max(maxTop, spanStart + 1);
+  const f = spanEnd > spanStart ? (top - spanStart) / (spanEnd - spanStart) : 0;
+  return { i, f: Math.min(Math.max(f, 0), 1) };
+}
+
+function anchorTop(state: { i: number; f: number }, anchors: number[], maxTop: number): number {
+  if (anchors.length === 0) return state.f * maxTop;
+  if (state.i < 0) return state.f * anchors[0];
+  const spanStart = anchors[state.i];
+  const spanEnd = state.i + 1 < anchors.length ? anchors[state.i + 1] : Math.max(maxTop, spanStart + 1);
+  return spanStart + state.f * (spanEnd - spanStart);
+}
+
+/** Drive the other pane from the one the user scrolled. from = 'code' also
+ *  serves the post-re-render re-anchor (the code is the content owner). */
+function syncSplitScroll(from: 'code' | 'preview'): void {
+  if (mode !== 'split' || source === null) return;
+  const codeSc = source.view.scrollDOM;
+  const prevSc = els.visualPane;
+  const driver = from === 'code' ? codeSc : prevSc;
+  const follower = from === 'code' ? prevSc : codeSc;
+  const fromAnchors = from === 'code' ? codeHeadingTops() : previewHeadingTops();
+  const toAnchors = from === 'code' ? previewHeadingTops() : codeHeadingTops();
+  const fromMax = driver.scrollHeight - driver.clientHeight;
+  const toMax = follower.scrollHeight - follower.clientHeight;
+  if (fromMax <= 0 && toMax <= 0) return;
+  const state = anchorState(driver.scrollTop, fromAnchors, Math.max(fromMax, 1));
+  const expected = anchorTop(state, toAnchors, Math.max(toMax, 1));
+  // idempotence: if the follower already sits at the mapped position, do
+  // nothing — a late echo of our own programmatic scroll (or of a smooth
+  // glide) must not start a reverse chain
+  if (Math.abs(follower.scrollTop - expected) <= 2) return;
+  follower.scrollTop = expected;
+  splitScrollGuard.el = follower;
+  splitScrollGuard.until = performance.now() + SPLIT_SCROLL_GUARD_MS;
+}
+
+/** The scroll listeners (capture — CM scrolls inside its own .cm-scroller,
+ *  the preview pane is its own scroller); see els wiring in init. */
+function handleSplitScrollEvent(target: Element): void {
+  if (mode !== 'split' || visualRebuilding) return;
+  if (performance.now() < splitScrollGuard.until && splitScrollGuard.el === target) return;
+  const inPreview = els.visualPane === target || els.visualPane.contains(target);
+  syncSplitScroll(inPreview ? 'preview' : 'code');
 }
 
 function setMode(next: Mode): void {
@@ -1230,26 +1332,22 @@ function setMode(next: Mode): void {
   visual.setReadonly(mode === 'reading' || mode === 'split');
   els.visualPane.classList.toggle('active', paneOf(mode) === 'visual' || mode === 'split');
   els.sourcePane.classList.toggle('active', contentOf(mode) === 'source');
-  // #110: the top switch is Просмотр ↔ Редактирование; the submode segment
-  // shows where editing would land and sleeps while viewing
+  // #110 (Б2, гейт 2026-10-15): one control — Просмотр first-class, the
+  // editing ways beside it; every cell is always clickable, the dot marks
+  // where Ctrl+/ returns
   els.btnReading.classList.toggle('active', mode === 'reading');
   els.btnReading.setAttribute('aria-selected', String(mode === 'reading'));
-  els.btnEdit.classList.toggle('active', mode !== 'reading');
-  els.btnEdit.setAttribute('aria-selected', String(mode !== 'reading'));
-  els.viewSwitch.dataset.active = mode === 'reading' ? 'reading' : 'edit';
   const submodes: [HTMLButtonElement, Mode][] = [
     [els.btnVisual, 'visual'],
     [els.btnSource, 'source'],
     [els.btnSplit, 'split'],
   ];
-  const activeSub: Mode = mode === 'reading' ? lastEditMode : mode;
   for (const [btn, m] of submodes) {
-    btn.classList.toggle('active', activeSub === m);
-    btn.setAttribute('aria-selected', String(activeSub === m));
-    btn.disabled = mode === 'reading';
+    btn.classList.toggle('active', mode === m);
+    btn.setAttribute('aria-selected', String(mode === m));
+    btn.classList.toggle('return-dot', mode === 'reading' && lastEditMode === m);
   }
-  els.editSwitch.dataset.active = activeSub;
-  els.editSwitch.dataset.disabled = String(mode === 'reading');
+  els.modeSwitch.dataset.active = mode;
   els.app.dataset.mode = mode;
   if (mode === 'visual') visual.focus();
   else if (contentOf(mode) === 'source') source?.focus();
@@ -1504,8 +1602,8 @@ function applyStaticTexts(): void {
   document.documentElement.lang = getLang();
   document.getElementById('toolbar')?.setAttribute('aria-label', t('toolbar'));
   els.menubar.setAttribute('aria-label', t('menuBar'));
-  els.viewSwitch.setAttribute('aria-label', t('modeToggle'));
-  els.editSwitch.setAttribute('aria-label', t('editModeLabel'));
+  els.modeSwitch.setAttribute('aria-label', t('modeToggle'));
+  if (els.modeLegend) els.modeLegend.textContent = t('editing');
   els.ehLine.textContent = t('emptyDrop');
   els.ehOpen.textContent = t('open').replace('…', '');
   els.ehMode.textContent = t('modeToggle');
@@ -1519,13 +1617,12 @@ function applyStaticTexts(): void {
   const tip = (el: HTMLElement, text: string): void => el.setAttribute('data-tip', text);
   // #110: only the top switch carries the hotkey — Ctrl+/ flips
   // Просмотр ↔ Редактирование; the submode segment is picked with the mouse
-  tip(els.btnReading, `${t('reading')} · Ctrl+/`);
-  tip(els.btnEdit, `${t('editing')} · Ctrl+/`);
-  tip(els.btnVisual, t('visual'));
-  tip(els.btnSource, t('source'));
-  tip(els.btnSplit, t('split'));
+  tip(els.btnReading, `${t('reading')} · Ctrl+/ · Alt+1`);
+  if (els.modeLegend) els.modeLegend.textContent = t('editing');
+  tip(els.btnVisual, `${t('visual')} · Alt+2`);
+  tip(els.btnSource, `${t('source')} · Alt+3`);
+  tip(els.btnSplit, `${t('split')} · Alt+4`);
   els.btnReading.setAttribute('aria-label', t('reading'));
-  els.btnEdit.setAttribute('aria-label', t('editing'));
   els.btnVisual.setAttribute('aria-label', t('visual'));
   els.btnSource.setAttribute('aria-label', t('source'));
   els.btnSplit.setAttribute('aria-label', t('split'));
@@ -1678,6 +1775,17 @@ async function init(): Promise<void> {
   // inner scrollers — crepe's wrapper, .cm-scroller)
   els.visualPane.addEventListener('scroll', queueTocActive, true);
   els.sourcePane.addEventListener('scroll', queueTocActive, true);
+  // #62: the split panes scroll as one (capture — see handleSplitScrollEvent)
+  els.visualPane.addEventListener(
+    'scroll',
+    (e) => handleSplitScrollEvent(e.target as Element),
+    { capture: true, passive: true },
+  );
+  els.sourcePane.addEventListener(
+    'scroll',
+    (e) => handleSplitScrollEvent(e.target as Element),
+    { capture: true, passive: true },
+  );
 
   applyStaticTexts();
   // #96: the start screen grows inside the empty-state hint — same frame,
@@ -1725,8 +1833,8 @@ async function init(): Promise<void> {
   setMode('visual');
 
   els.btnReading.addEventListener('click', () => setMode('reading'));
-  // #110: back to editing — the last used submode comes back with it
-  els.btnEdit.addEventListener('click', () => setMode(lastEditMode));
+  // #110 (Б2): every cell is always live — a submode click from Просмотр
+  // starts editing that way directly
   els.btnVisual.addEventListener('click', () => setMode('visual'));
   els.btnSource.addEventListener('click', () => setMode('source'));
   els.btnSplit.addEventListener('click', () => setMode('split'));
@@ -1801,6 +1909,15 @@ async function init(): Promise<void> {
     // Alt+F/E/P/O/V/H open the menu sections (physical key — the RU layout
     // reports Cyrillic in e.key); suppressed while a modal dialog is up
     if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && activeModalOverlay() === null) {
+      // #110 (Б2 gate): Alt+1..4 — direct mode stops in cell order
+      // (reading / visual / source / split); no Ctrl so AltGr layouts
+      // (Ctrl+Alt on Windows) never trigger it
+      const altMode = /^Digit([1-4])$/.exec(e.code);
+      if (altMode) {
+        e.preventDefault();
+        setMode((['reading', 'visual', 'source', 'split'] as const)[Number(altMode[1]) - 1]);
+        return;
+      }
       if (menuBar.openByAltKey(e.code)) {
         e.preventDefault();
         return;
