@@ -39,6 +39,11 @@ export function applyTheme(theme: 'light' | 'dark', origin?: ThemeOrigin): void 
   if (origin) {
     root.style.setProperty('--theme-origin-x', `${origin.x}px`);
     root.style.setProperty('--theme-origin-y', `${origin.y}px`);
+  } else {
+    // menu-triggered switches have no button — wipe from the center, not
+    // from the stale coordinates of an earlier button click
+    root.style.removeProperty('--theme-origin-x');
+    root.style.removeProperty('--theme-origin-y');
   }
   if (canWipe) doc.startViewTransition!(flip);
   else flip();
