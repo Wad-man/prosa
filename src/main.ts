@@ -1666,7 +1666,9 @@ async function init(): Promise<void> {
   // #91: the outline is a column of the page grid — its host is the grid
   // (#editor-panes), where it lands after the text column
   toc.mount(els.editorPanes, {
-    getMode: () => paneOf(mode),
+    // reading shares the visual render; split keeps its own branch — the
+    // #91 gate made the split outline code-first (ATX scan + caret)
+    getMode: () => (mode === 'reading' ? 'visual' : mode),
     getVisualPane: () => els.visualPane,
     getSource: () => source,
   });
@@ -1779,7 +1781,11 @@ async function init(): Promise<void> {
         }, 0);
       });
   });
-  els.btnTheme.addEventListener('click', () => toggleTheme());
+  // the theme wipe (#106, owner gate 2026-10-15) grows from this button
+  els.btnTheme.addEventListener('click', () => {
+    const r = els.btnTheme.getBoundingClientRect();
+    toggleTheme({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+  });
   // #86: real Ctrl+V pastes in either editor — the capture-phase event
   // fires before the editor consumes it, so the pristine-untitled gate
   // still sees the pre-paste (empty) document

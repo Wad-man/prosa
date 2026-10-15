@@ -21,7 +21,11 @@ export interface TocSourceEditor {
 }
 
 export interface TocContext {
-  getMode(): 'visual' | 'source';
+  /** The live mode collapsed to the pane that renders it: reading → 'visual'
+   *  (same render), split stays 'split' — the #91 gate (2026-10-15, вариант
+   *  А) makes split code-first: entries come from the ATX scan, navigation
+   *  drives the code pane with the preview softly following. */
+  getMode(): 'visual' | 'source' | 'split';
   getVisualPane(): HTMLElement | null;
   getSource(): TocSourceEditor | null;
 }
@@ -208,6 +212,16 @@ export class TocPanel {
           effects: EditorView.scrollIntoView(pos, { y: 'center' }),
         });
         source.focus();
+        // #91 gate (2026-10-15, вариант А): a split click is code-first —
+        // the preview drifts to the same heading softly, without a flash
+        // (two accent animations at once would fight; the heading orders
+        // match because both panes render the same document)
+        if (ctx.getMode() === 'split') {
+          const els = this.visualHeadingEls();
+          if (els.length === this.entries.length) {
+            els[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }
       }
     }
     this.setActive(index);
@@ -241,13 +255,21 @@ export class TocPanel {
       const source = ctx.getSource();
       if (source) {
         const view = source.view;
-        const rect = view.dom.getBoundingClientRect();
-        const pos = view.posAtCoords({ x: rect.left + 24, y: rect.top + 24 });
-        if (pos !== null) {
-          const line = view.state.doc.lineAt(pos).number;
-          for (let i = 0; i < this.entries.length; i++) {
-            if ((this.entries[i].line ?? Infinity) <= line) index = i;
-          }
+        // #91 gate: in split the active item follows the caret («where I'm
+        // editing» — predictable, already known); pane scroll drifts, and a
+        // preview scrolled away for a check must not make the outline lie.
+        // Plain source keeps its viewport-top tracking (#21 behavior).
+        let line: number;
+        if (ctx.getMode() === 'split') {
+          line = view.state.doc.lineAt(view.state.selection.main.head).number;
+        } else {
+          const rect = view.dom.getBoundingClientRect();
+          const pos = view.posAtCoords({ x: rect.left + 24, y: rect.top + 24 });
+          if (pos === null) return;
+          line = view.state.doc.lineAt(pos).number;
+        }
+        for (let i = 0; i < this.entries.length; i++) {
+          if ((this.entries[i].line ?? Infinity) <= line) index = i;
         }
       }
     }

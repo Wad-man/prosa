@@ -9,29 +9,40 @@ import { storageSet } from './storage';
 
 const THEME_KEY = 'prosa.theme';
 
-// Runtime switches fade instead of snapping (#106): applyTheme plants a
-// one-shot .theme-fade class on <html> (styles.css turns every color into a
-// var(--t-theme) transition) and drops it after the transition ends, so
-// nothing else ever animates. Cold start (the index.html inline script)
-// never passes through here — no fade on launch.
-const THEME_FADE_MS = 340; // var(--t-theme) 280ms + a frame of slack
-let themeFadeTimer = 0;
+// #106 → owner gate 2026-10-15: the switch is a single compositor wipe of
+// the whole window FROM THE TOGGLE BUTTON — slow (600ms) and ease-in-out on
+// purpose: the eye reads a quick crossfade as a flash, and a dark→light
+// snap is harsh. The View Transitions API snapshots the window once, so
+// nothing per-element animates (the old #106 transition-on-* mechanism and
+// its repaint jank are gone entirely). Where the API is missing (WebKitGTK
+// on older Linux) or the user asked for reduced motion, the flip is instant.
+type ViewTransitionCapableDocument = Document & {
+  startViewTransition?: (callback: () => void) => unknown;
+};
 
-export function applyTheme(theme: 'light' | 'dark'): void {
-  const root = document.documentElement;
-  if (root.dataset.theme !== theme) fadeThemeSwitch();
-  root.dataset.theme = theme;
-  storageSet(THEME_KEY, theme);
+/** Where the wipe begins — the toggle button's center in viewport px. */
+export interface ThemeOrigin {
+  x: number;
+  y: number;
 }
 
-/** Plant the fade class unless the user asked for reduced motion — the
- * class CSS would otherwise override the global reduced-motion reset. */
-function fadeThemeSwitch(): void {
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+export function applyTheme(theme: 'light' | 'dark', origin?: ThemeOrigin): void {
   const root = document.documentElement;
-  root.classList.add('theme-fade');
-  window.clearTimeout(themeFadeTimer);
-  themeFadeTimer = window.setTimeout(() => root.classList.remove('theme-fade'), THEME_FADE_MS);
+  if (root.dataset.theme === theme) return;
+  const flip = (): void => {
+    root.dataset.theme = theme;
+  };
+  const doc = document as ViewTransitionCapableDocument;
+  const canWipe =
+    typeof doc.startViewTransition === 'function' &&
+    !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (origin) {
+    root.style.setProperty('--theme-origin-x', `${origin.x}px`);
+    root.style.setProperty('--theme-origin-y', `${origin.y}px`);
+  }
+  if (canWipe) doc.startViewTransition!(flip);
+  else flip();
+  storageSet(THEME_KEY, theme);
 }
 
 /** The theme currently applied to <html data-theme>; "light" when unset. */
@@ -39,9 +50,10 @@ export function currentTheme(): 'light' | 'dark' {
   return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
 }
 
-/** The #btn-theme action: flip and persist the current theme. */
-export function toggleTheme(): void {
-  applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+/** The #btn-theme action: flip and persist the current theme. The origin
+ *  (button center) starts the wipe; without one it grows from the center. */
+export function toggleTheme(origin?: ThemeOrigin): void {
+  applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', origin);
 }
 
 // ---------- interface language (#88) ----------
