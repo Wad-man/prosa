@@ -111,7 +111,6 @@ const els = {
   btnSource: $('btn-mode-source') as HTMLButtonElement,
   btnSplit: $('btn-mode-split') as HTMLButtonElement,
   modeSwitch: $('mode-switch'),
-  modeLegend: $('mode-legend'),
   editorHost: $('editor-host'),
   editorPanes: $('editor-panes'),
   btnToc: $('btn-toc') as HTMLButtonElement,
@@ -1040,7 +1039,7 @@ function buildMenuSections(): (() => MenuSection)[] {
       entries: [
         { label: t('versionTip'), action: () => openAbout() },
         { label: t('settings'), hotkey: 'Ctrl+,', action: () => openSettings() },
-        { label: t('whatsNew'), action: () => openWhatsNew() },
+        { label: t('whatsNew'), action: () => openWhatsNew(), badge: true },
         { label: t('hotkeys'), hotkey: 'F1', action: () => openHotkeys() },
         { label: t('checkUpdates'), action: () => void checkForUpdates(true) },
         sep(),
@@ -1383,10 +1382,12 @@ function setMode(next: Mode): void {
     btn.classList.toggle('return-dot', mode === 'reading' && lastEditMode === m);
   }
   els.modeSwitch.dataset.active = mode;
-  // review M2: the active scroller changed — the outline's --sb must
-  // follow it (code mode measures .cm-scroller, not the hidden visual pane)
-  toc.remeasureScrollbar();
   els.app.dataset.mode = mode;
+  // review M2 + NIT: after dataset.mode — the split grid flips with the
+  // attribute, so measuring before it would read the old layout; the active
+  // scroller changed too (code mode measures .cm-scroller, not the hidden
+  // visual pane) and the hug seat moves with the mode's content column
+  toc.remeasure();
   if (mode === 'visual') visual.focus();
   else if (contentOf(mode) === 'source') source?.focus();
   // reading: no caret anywhere — and ProseMirror only mirrors a read-only
@@ -1646,7 +1647,6 @@ function applyStaticTexts(): void {
   document.getElementById('toolbar')?.setAttribute('aria-label', t('toolbar'));
   els.menubar.setAttribute('aria-label', t('menuBar'));
   els.modeSwitch.setAttribute('aria-label', t('modeToggle'));
-  if (els.modeLegend) els.modeLegend.textContent = t('editing');
   els.ehLine.textContent = t('emptyDrop');
   els.ehOpen.textContent = t('open').replace('…', '');
   els.ehMode.textContent = t('modeToggle');
@@ -1835,7 +1835,7 @@ async function init(): Promise<void> {
   window.addEventListener('resize', () => {
     window.clearTimeout(resizeSyncTimer);
     resizeSyncTimer = window.setTimeout(() => {
-      toc.remeasureScrollbar();
+      toc.remeasure();
       if (mode === 'split') syncSplitScroll('code');
     }, 150);
   });

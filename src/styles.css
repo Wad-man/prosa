@@ -410,28 +410,6 @@ body {
   transform: translateX(108px);
 }
 
-/* the group caption rides ON the toolbar's bottom hairline (fieldset-legend
-   pattern, +0px of toolbar height): the sunk background punches the border
-   under the text so the line reads as the legend's underline */
-.mode-legend {
-  position: absolute;
-  bottom: -13px;
-  left: 44px;
-  right: 0;
-  z-index: 5;
-  text-align: center;
-  font-size: 10px;
-  line-height: 13px;
-  letter-spacing: 0.04em;
-  text-transform: lowercase;
-  color: var(--fg-3);
-  background: var(--bg-sunk);
-  padding: 0 7px;
-  white-space: nowrap;
-  pointer-events: none;
-  user-select: none;
-}
-
 /* in Просмотр the dot under an editing cell marks where Ctrl+/ returns.
    ::before on purpose: the tooltip machinery owns ::after on [data-tip]
    buttons (review M1) — the dot would eat the tip and inherit its box */
@@ -608,24 +586,14 @@ body {
   display: flex;
 }
 
-/* #91: the panes area is a centered flex group — text column + outline
-   column. Closed, the text column takes everything (identical to the old
-   single-pane layout); open, the [text | outline] group centers together
-   so the outline hugs the text column, not the window edge. The outline
-   column animates its width (the proven #36 outer-width pattern) while
-   its children keep a fixed width, so the text never rewraps mid-flight. */
+/* #91 → аудит владельца 2026-10-15: колонка оглавления «прижата к тексту»
+   (слот измеряет toc.ts), текст и скроллбары не двигаются вообще — центр
+   больше не нужен, стек просто занимает всю ширину */
 #editor-panes {
   position: relative;
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  display: flex;
-  justify-content: center;
-  /* #25+#91: the outline breakpoints respond to the panes' own width, not
-     the viewport — the Ctrl+wheel zoom (zoom on <html>) must not leave a
-     220px column beside a 400px text column (review MINOR) */
-  container-type: inline-size;
-  container-name: panes;
 }
 
 #panes-stack {
@@ -636,109 +604,88 @@ body {
   max-width: 100%;
 }
 
-/* #91 → гейт 2026-10-15 (конвейер rc.7): стек всегда полноширинный — скроллбар
-   панели текста остаётся у края окна при любом состоянии оглавления; место под
-   колонку резервируется паддингом СКРОЛЛЕРОВ (--toc-reserve), см. ниже */
+/* #91 → гейт 2026-10-15 → аудит владельца 2026-10-15 (конвейер rc.7):
+   стек всегда полноширинный — скроллбар панели текста остаётся у края окна,
+   текст НИКОГДА не двигается (ни паддингов, ни резервов) — оглавление
+   «прижато к тексту» по прототипу three-column-2026-10-12: его слот
+   измеряет toc.ts от правого края живой колонки контента */
 
-/* ---------- outline: overlay column at the window edge (#91 → rc.7) ----------
-   Out of the text flow entirely (design review 2026-10-15: the only pattern
-   where the scrollbar stays at the window edge with a right-hand outline is
-   a full-width scroller + overlaid column — doc-site pattern). The column
-   parks right of the scroller's scrollbar (--sb, measured by toc.ts —
-   Chromium ignores custom ::-webkit widths under scrollbar-width:thin).
-   Opening/closing is transform+opacity only (compositor, no layout); the
-   text column's position is handled by the scrollers' --toc-reserve
-   padding below. --toc-col drives BOTH the column and its inner content —
-   it must track the column at every breakpoint (a fixed inner width
-   clipped item ends without an ellipsis, owner audit 2026-10-15).
-   Invariant: --toc-col ≤ --toc-reserve wherever the overlay is see-through
-   (the reserve is column + gap). */
-/* the ladder vars live on DESCENDANTS of the container: a container query
-   cannot restyle the container itself, so #editor-panes-level definitions
-   would silently win over every @container override */
-#editor-panes #panes-stack,
-#editor-panes #toc-panel {
-  --toc-col: 220px;
-  --toc-reserve: 276px;
-}
-
+/* ---------- outline: the page's own aside column (#91 → rc.7 rerun) ----------
+   The panel is a clip WINDOW at the measured hug position (toc.ts sets
+   --toc-left/--toc-col from the live content column's right edge); the
+   whole column flies inside it on a single translateX, so show = slides
+   out from under the text's right edge, hide = slides back under it —
+   no z-order painting games, no text reflow. When the margin cannot host
+   the column, toc.ts drops --toc-left and adds .toc-overlay: a
+   right-anchored drawer over the text (the prototype's ≤820 pattern). */
 #toc-panel {
   position: absolute;
   top: 0;
   bottom: 0;
+  /* measured hug seat; unset (auto) = the right-anchored overlay fallback */
+  left: var(--toc-left, auto);
   right: var(--sb, 0px);
-  width: var(--toc-col);
+  width: var(--toc-col, 220px);
   z-index: 6;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 48px 0 24px; /* top air matches the text column */
-  transform: translateX(100%);
-  opacity: 0;
+  overflow: hidden; /* the flight disappears under the text edge */
   pointer-events: none;
-  overscroll-behavior: contain;
-  transition:
-    transform var(--t-2) var(--ease),
-    opacity var(--t-2) var(--ease);
 }
 
 #toc-panel.is-open {
-  transform: none;
-  opacity: 1;
   pointer-events: auto;
-}
-
-#toc-panel > * {
-  width: var(--toc-col); /* inner width = column: no clipped ends */
-  box-sizing: border-box;
-}
-
-/* the text column keeps its page position: the REAL scrollers reserve the
-   column's width as right padding (in CM the pane is not the scroller —
-   .cm-scroller is; padding both would double). The empty state centers
-   against the same reserve. The reserve pads smoothly ONLY where the
-   52em cap keeps the wrapper width constant (no re-wrap, design review
-   cond. 3): at ≤1400 and in split the padding flips instantly and the
-   column's own transform does the animating. */
-#editor-panes.toc-open #visual-editor,
-#editor-panes.toc-open #source-editor .cm-scroller,
-#editor-panes.toc-open #empty-hint {
-  padding-right: var(--toc-reserve);
-}
-
-#visual-editor,
-#source-editor .cm-scroller,
-#empty-hint {
-  transition: padding-right var(--t-2) var(--ease);
-}
-
-/* split: the reserve pads the two-pane grid, not the inner scrollers
-   (they are grid cells and would double-shift) */
-#app[data-mode='split'] #editor-panes.toc-open #panes-stack {
-  padding-right: var(--toc-reserve);
-}
-
-#app[data-mode='split'] #editor-panes.toc-open #visual-editor,
-#app[data-mode='split'] #editor-panes.toc-open #source-editor .cm-scroller,
-#app[data-mode='split'] #editor-panes.toc-open #empty-hint {
-  padding-right: 0;
-}
-
-#app[data-mode='split'] #visual-editor,
-#app[data-mode='split'] #source-editor .cm-scroller,
-#app[data-mode='split'] #empty-hint {
-  transition: none;
 }
 
 #toc-panel[hidden] {
   display: none;
 }
 
-/* keep the reading measure while the outline is open: the column is now
-   capped by the 52em rule and the reserve lives on the scroller */
+.toc-fly {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 48px 0 24px; /* top air matches the text column */
+  transform: translateX(-100%); /* parked under the text, left of the clip */
+  transition: transform var(--t-2) var(--ease);
+}
+
+/* (1,3,0) on purpose: must beat the .toc-overlay parked transform — both
+   base selectors are (1,2,0) and source order would park the open drawer */
+#toc-panel.is-open .toc-fly,
+#toc-panel.toc-overlay.is-open .toc-fly {
+  transform: none;
+}
+
+/* the overlay drawer (no room beside the text): the SHEET is the .toc-fly
+   itself — bg+shadow ride it, it slides in from the window edge and fades
+   out; the outer window stops clipping so the shadow paints over the text */
+#toc-panel.toc-overlay {
+  overflow: visible;
+  background: transparent;
+}
+
+#toc-panel.toc-overlay .toc-fly {
+  padding: 40px 0 24px;
+  background: var(--bg);
+  box-shadow: -8px 0 24px color-mix(in srgb, #000 12%, transparent);
+  transform: translateX(100%);
+  opacity: 0;
+  transition:
+    transform var(--t-2) var(--ease),
+    opacity var(--t-2) var(--ease);
+}
+
+#toc-panel.toc-overlay.is-open .toc-fly {
+  opacity: 1;
+}
+
+/* 12% black is near-invisible on the dark paper (design audit #5) */
+[data-theme='dark'] #toc-panel.toc-overlay .toc-fly {
+  box-shadow: -8px 0 24px color-mix(in srgb, #000 32%, transparent);
+}
 
 .toc-cap {
-  margin: 0 14px 10px 16px;
+  margin: 0 14px 8px 16px;
   font-size: 12px;
   color: var(--fg-3);
   user-select: none;
@@ -758,7 +705,7 @@ body {
   display: block;
   width: 100%;
   padding: 3px 0;
-  /* deep levels must not eat the narrow 180px tiers alive (design audit
+  /* deep levels must not eat the narrow 180px tier alive (design audit
      #2): the ladder keeps 12px/level up to lvl 4, deeper levels park */
   padding-left: min(calc((var(--lvl, 1) - 1) * 12px), 40px);
   border-radius: var(--r-sm);
@@ -808,80 +755,10 @@ body {
   color: var(--fg-3);
 }
 
-/* narrow windows: shrink the outline, then overlay it over the text (#91).
-   Container queries, not media — see #editor-panes above. The reserve
-   tracks the column + gap at every step. */
-@container panes (max-width: 1400px) {
-  /* below the no-rewrap band the reserve flips instantly (design review
-     cond. 3): the column's transform carries the animation */
-  #editor-panes.toc-open #visual-editor,
-  #editor-panes.toc-open #source-editor .cm-scroller,
-  #editor-panes.toc-open #empty-hint {
-    transition: none;
-  }
-}
-
-@container panes (max-width: 1100px) {
-  #editor-panes.toc-open #panes-stack,
-  #editor-panes.toc-open #toc-panel {
-    --toc-col: 180px;
-    --toc-reserve: 212px;
-  }
-}
-
-@container panes (max-width: 820px) {
-  /* too narrow for a side-by-side column: the outline overlays the text */
-  #editor-panes.toc-open #panes-stack,
-  #editor-panes.toc-open #toc-panel {
-    --toc-col: min(240px, 72vw);
-    --toc-reserve: 0px;
-  }
-
-  /* styled regardless of toc-open: closing must not flash see-through
-     text over the document while the flight runs (review MINOR) */
-  #toc-panel {
-    background: var(--bg);
-    box-shadow: -8px 0 24px color-mix(in srgb, #000 12%, transparent);
-    padding: 40px 0 24px;
-  }
-
-  /* 12% black is near-invisible on the dark paper (design audit #5) */
-  [data-theme='dark'] #toc-panel {
-    box-shadow: -8px 0 24px color-mix(in srgb, #000 32%, transparent);
-  }
-}
-
-/* ---------- outline × split (#91 gate 2026-10-15, вариант А) ----------
-   Two panes leave less room than a single reading column, so the outline
-   degrades earlier in split: 220 → 180 at ≤1400, overlay over the preview
-   at ≤1140 (thresholds of the approved prototype; the single-mode rules
-   above stay untouched). The reserve pads the grid — code+preview keep
-   wide cells, ~662px each at 1600. */
-@container panes (max-width: 1400px) {
-  #app[data-mode='split'] #editor-panes.toc-open #panes-stack,
-  #app[data-mode='split'] #editor-panes.toc-open #toc-panel {
-    --toc-col: 180px;
-    --toc-reserve: 212px;
-  }
-}
-
-@container panes (max-width: 1140px) {
-  #app[data-mode='split'] #editor-panes.toc-open #panes-stack,
-  #app[data-mode='split'] #editor-panes.toc-open #toc-panel {
-    --toc-col: min(240px, 72vw);
-    --toc-reserve: 0px;
-  }
-
-  #app[data-mode='split'] #editor-panes.toc-open #toc-panel {
-    background: var(--bg);
-    box-shadow: -8px 0 24px color-mix(in srgb, #000 12%, transparent);
-    padding: 40px 0 24px;
-  }
-
-  /* 12% black is near-invisible on the dark paper (design audit #5) */
-  [data-theme='dark'] #app[data-mode='split'] #editor-panes.toc-open #toc-panel {
-    box-shadow: -8px 0 24px color-mix(in srgb, #000 32%, transparent);
-  }
+/* the find bar keeps clear of the open column: --toc-fr is the measured
+   right offset (toc.ts), the fallback matches the widest tier */
+#editor-host:has(#editor-panes.toc-open) #find-bar {
+  right: var(--toc-fr, 296px);
 }
 
 /* navigation flash on the target heading (visual mode) */
@@ -2440,8 +2317,8 @@ body {
   position: absolute;
   top: 10px;
   right: 16px;
-  /* rc.7: parks left of the open outline column (window-width media ≈ the
-     panes container — the bar lives outside the query container) */
+  /* rc.7 rerun: --toc-fr (toc.ts) shifts it clear of the open outline
+     column — see the outline block above */
   transition: right var(--t-2) var(--ease);
   z-index: 40;
   display: flex;
@@ -2462,29 +2339,8 @@ body {
   display: none;
 }
 
-#editor-host:has(#editor-panes.toc-open) #find-bar {
-  right: 296px; /* 276 reserve + 20 */
-}
-
-@media (max-width: 1100px) {
-  #editor-host:has(#editor-panes.toc-open) #find-bar {
-    right: 232px; /* 212 reserve + 20 */
-  }
-}
-
-@media (max-width: 820px) {
-  #editor-host:has(#editor-panes.toc-open) #find-bar {
-    right: 16px; /* overlay outline has its own surface */
-  }
-}
-
-/* split degrades earlier (1140): the 240px overlay must not sit under the
-   shifted bar (review MINOR) */
-@media (max-width: 1140px) {
-  #app[data-mode='split'] #editor-host:has(#editor-panes.toc-open) #find-bar {
-    right: 16px;
-  }
-}
+/* the toc-open clearance of the find bar lives with the outline block
+   above (--toc-fr, measured by toc.ts) */
 
 .find-row {
   display: flex;
@@ -2772,6 +2628,19 @@ body {
     transform: scale(1.45);
     opacity: 0.6;
   }
+}
+
+/* #37 → аудит владельца 2026-10-15: точка живёт и НА САМОМ пункте «Что
+   нового» (в слоте галочки — пункт никогда не имеет ✓), иначе после клика
+   по «Справка» не ясно, куда она указывала */
+.menu-item[data-badge] .menu-check::after {
+  content: '';
+  display: block;
+  width: 5px;
+  height: 5px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 /* ---------- what's new dialog (#37) ---------- */

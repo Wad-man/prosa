@@ -22,6 +22,10 @@ export interface MenuEntry {
   action?: () => void;
   /** checkbox state, rendered as a leading ✓ */
   checked?: () => boolean;
+  /** #37: this entry carries the section's notification dot while the
+   *  section is badged (setBadge) — the «Что нового» dot rides the item
+   *  itself, not just the top-level button (owner audit 2026-10-15) */
+  badge?: true;
   separator?: true;
 }
 
@@ -144,6 +148,11 @@ export class MenuBar {
       label.className = 'menu-label';
       label.textContent = entry.label;
       item.append(check, label);
+      // #37: the badged entry shows its dot inside the open menu — a dot on
+      // the section button alone left it unclear what it pointed at
+      if (entry.badge && section.altKey && this.badges.has(section.altKey)) {
+        item.dataset.badge = 'true';
+      }
       if (entry.hotkey) {
         const kbd = document.createElement('span');
         kbd.className = 'menu-kbd';

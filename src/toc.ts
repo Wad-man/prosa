@@ -1,13 +1,25 @@
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
 import { t } from './i18n';
+import { cssZoom } from './zoom';
 import { sourceHeadings } from './editor/md-source';
+
+/** The column ladder (styles.css reads these back as --toc-col/--toc-left):
+ *  a wide margin hosts the full 220px column at a 48px gap, a tighter one
+ *  the 180px tier, anything narrower turns the panel into a right-anchored
+ *  overlay drawer (the prototype's ≤820 pattern). */
+const COL_WIDE = 220;
+const COL_NARROW = 180;
+const GAP_WIDE = 48;
+const GAP_NARROW = 32;
 
 /**
  * Document outline (#21): the first core capability gated by a feature flag
- * (src/features.ts). A left sidebar inside #editor-host, sibling of the
- * editor panes wrapper — shown via Вид → Оглавление / Ctrl+Shift+1, hidden
- * by default like Typora's collapsed sidebar.
+ * (src/features.ts). A right-hand page column inside #editor-panes, sibling
+ * of the editor panes wrapper — shown via Вид → Оглавление / Ctrl+Shift+1,
+ * hidden by default like Typora's collapsed sidebar. The column hugs the
+ * text (owner audit 2026-10-15): its slot is measured from the live
+ * content column, the text itself never moves.
  *
  * Heading sources are mode-native: the live DOM in visual mode (element
  * anchors survive Crepe rebuilds because they are re-queried per refresh),
@@ -47,6 +59,7 @@ export class TocPanel {
   private flashTimer: number | undefined;
   // #36: [hidden] lands only after the close transition finished
   private closeTimer: number | undefined;
+  private resizeObserver: ResizeObserver | null = null;
   /** navigate() parks the active item on its target; viewport-top tracking
    *  must not steal it back while the programmatic scroll settles (product
    *  audit D2 — in source mode the centered jump made the outline highlight
@@ -68,6 +81,12 @@ export class TocPanel {
     panel.hidden = true;
     panel.setAttribute('aria-label', t('tocTitle'));
 
+    // #91 → owner audit 2026-10-15: the panel is a clip WINDOW at the hug
+    // position; the whole column flies inside it (translateX), so it slides
+    // out from under the text's right edge without any z-order painting
+    const fly = document.createElement('div');
+    fly.className = 'toc-fly';
+
     // #91: a quiet page-part caption instead of the old sidebar header
     const cap = document.createElement('div');
     cap.className = 'toc-cap';
@@ -77,11 +96,17 @@ export class TocPanel {
     this.list.className = 'toc-list';
     this.list.setAttribute('role', 'navigation');
 
-    panel.append(cap, this.list);
+    fly.append(cap, this.list);
+    panel.append(fly);
     // #91: right column, after the text in DOM so Tab reaches the document
     // first and screen readers announce text before navigation
     host.append(panel);
     this.panel = panel;
+
+    // the hug position depends on the live content column — re-measure on
+    // every pane resize (window resizes, zoom steps, pane flips in split)
+    this.resizeObserver = new ResizeObserver(() => this.remeasure());
+    this.resizeObserver.observe(host);
   }
 
   relabel(): void {
@@ -92,14 +117,11 @@ export class TocPanel {
     this.render(); // placeholder text is localized too
   }
 
-  /** Show/hide the overlay column (#91 → rc.7): a transform+opacity flight
-   *  on the panel (compositor-only — the text column's padding does the
-   *  layout side) with `hidden` landing only after the close transition
-   *  finished; `inert` drops the closing panel from the tab order at once.
-   *  Before opening, the host gets --sb — the live scrollbar width of the
-   *  text scroller, so the column parks left of the bar instead of over
-   *  it (Chromium ignores custom ::-webkit widths under scrollbar-width,
-   *  measuring beats guessing on every platform). */
+  /** Show/hide the outline column (#91 → rc.7 rerun): the column slides out
+   *  from under the text's right edge and slides back under it (owner
+   *  audit 2026-10-15 — the flight is horizontal, the outer panel clips
+   *  it, compositor-only). `hidden` lands only after the close transition
+   *  finished; `inert` drops the closing panel from the tab order at once. */
   setVisible(visible: boolean): void {
     const panel = this.panel;
     if (!panel) return;
@@ -107,7 +129,7 @@ export class TocPanel {
     if (visible === open) return;
     window.clearTimeout(this.closeTimer);
     if (visible) {
-      this.remeasureScrollbar();
+      this.remeasure();
       panel.hidden = false;
       panel.inert = false;
       // reflow so the flight plays from the parked state, not from display:none
@@ -129,22 +151,124 @@ export class TocPanel {
     return panel !== null && panel.classList.contains('is-open');
   }
 
-  /** Re-measure --sb: the column parks left of the ACTIVE scroller's
-   *  scrollbar (review M2 — in code mode the visual pane is display:none
-   *  and measures 0, and a scrollbar that appears later must be picked
-   *  up too). Main.ts calls this on mode switches, loads and resizes. */
-  remeasureScrollbar(): void {
+  /** Write a custom property only when the value actually changed — a
+   *  same-value setProperty still invalidates the subtree's inherited
+   *  styles, and remeasure() runs on every refresh()/resize tick (review:
+   *  needless style recalc of the whole document while typing). */
+  private static setVar(el: HTMLElement | null, name: string, value: string): void {
+    if (!el || el.style.getPropertyValue(name) === value) return;
+    el.style.setProperty(name, value);
+  }
+
+  /** Re-measure the outline's geometry (owner audit 2026-10-15): the column
+   *  hugs the TEXT like the prototype's aside — parked in the live margin
+   *  right of the content column — while the scrollers stay full-width (the
+   *  scrollbar keeps its window-edge seat, the text never rewraps). Sets
+   *  --toc-left/--toc-col/--sb on the panel; when the margin cannot host
+   *  the column the panel degrades to a right-anchored .toc-overlay drawer.
+   *  Also feeds --toc-fr (the find bar keeps clear of the open column).
+   *  Main.ts calls this on mode switches, loads and resizes; the
+   *  ResizeObserver covers the rest. */
+  remeasure(): void {
     const host = this.host;
-    if (!host) return;
-    const candidates: (Element | null)[] = [
+    const panel = this.panel;
+    if (!host || !panel) return;
+
+    const scrollers: (Element | null)[] = [
       document.getElementById('visual-editor'),
       this.ctx?.getSource()?.view.scrollDOM ?? null,
     ];
     let sb = 0;
-    for (const el of candidates) {
-      if (el) sb = Math.max(sb, el instanceof HTMLElement ? el.offsetWidth - el.clientWidth : 0);
+    for (const el of scrollers) {
+      if (el instanceof HTMLElement) sb = Math.max(sb, el.offsetWidth - el.clientWidth);
     }
-    host.style.setProperty('--sb', `${Math.max(0, sb)}px`);
+    sb = Math.max(0, sb);
+    TocPanel.setVar(panel, '--sb', `${sb}px`);
+
+    // the find bar lives one level up (#editor-host) and inherits nothing
+    // from the panes — hand it its clearance var explicitly
+    const findHost = host.parentElement;
+
+    // hug target: the right edge of the widest VISIBLE content column (in
+    // split the preview pane is the right-hand one and wins on its own)
+    const z = cssZoom();
+    const hostRect = host.getBoundingClientRect();
+    let contentRight = -Infinity;
+    for (const el of document.querySelectorAll(
+      '#visual-editor .ProseMirror, #source-editor .cm-content',
+    )) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0) contentRight = Math.max(contentRight, r.right);
+    }
+
+    if (contentRight === -Infinity) {
+      // no live column yet (boot / pending file): park at the window edge
+      // rather than in a stale measured position
+      this.applyOverlayTier(panel, findHost, sb, z);
+      return;
+    }
+
+    // live margin till the SCROLLBAR (review: without -sb the column could
+    // sit on the bar — left+width make the right anchor ignored)
+    const freeCss = (hostRect.right - contentRight) / z - sb;
+    if (freeCss >= COL_WIDE + GAP_WIDE + 24) {
+      TocPanel.setVar(panel, '--toc-col', `${COL_WIDE}px`);
+      TocPanel.setVar(
+        panel,
+        '--toc-left',
+        `${Math.round((contentRight - hostRect.left) / z + GAP_WIDE)}px`,
+      );
+      panel.classList.remove('toc-overlay');
+      // the shift is measured from the host's box edge (scrollbar included),
+      // so sb goes back in — freeCss alone would eat it (review round 2)
+      this.placeFindBar(findHost, freeCss - GAP_WIDE - COL_WIDE, freeCss + sb - GAP_WIDE + 20);
+    } else if (freeCss >= COL_NARROW + GAP_NARROW + 16) {
+      TocPanel.setVar(panel, '--toc-col', `${COL_NARROW}px`);
+      TocPanel.setVar(
+        panel,
+        '--toc-left',
+        `${Math.round((contentRight - hostRect.left) / z + GAP_NARROW)}px`,
+      );
+      panel.classList.remove('toc-overlay');
+      this.placeFindBar(findHost, freeCss - GAP_NARROW - COL_NARROW, freeCss + sb - GAP_NARROW + 20);
+    } else {
+      this.applyOverlayTier(panel, findHost, sb, z);
+    }
+  }
+
+  /** The find bar: when the space RIGHT of the column hosts the whole bar
+   *  it stays at the window edge (16px); otherwise it shifts 20px left of
+   *  the column (review: on very wide windows the shift parked it mid-
+   *  screen over the text). */
+  private placeFindBar(
+    findHost: HTMLElement | null,
+    roomRightOfColumn: number,
+    shiftFromEdge: number,
+  ): void {
+    const FR_SAFE = 500; // a generous find-bar budget (bar + margins)
+    TocPanel.setVar(
+      findHost,
+      '--toc-fr',
+      `${roomRightOfColumn >= FR_SAFE ? 16 : Math.max(16, Math.round(shiftFromEdge))}px`,
+    );
+  }
+
+  /** The fallback tier: a right-anchored drawer over the text with its own
+   *  surface (the prototype's ≤820 pattern). */
+  private applyOverlayTier(
+    panel: HTMLElement,
+    findHost: HTMLElement | null,
+    sb: number,
+    z: number,
+  ): void {
+    if (panel.style.getPropertyValue('--toc-left')) panel.style.removeProperty('--toc-left');
+    TocPanel.setVar(panel, '--toc-col', 'min(240px, 72vw)');
+    panel.classList.add('toc-overlay');
+    // prefer the real laid-out width (vw under html zoom is engine-flavored);
+    // a closed panel measures 0 — fall back to the formula
+    const laidOut = panel.getBoundingClientRect().width / z;
+    const col = laidOut > 0 ? laidOut : Math.min(240, Math.round((0.72 * window.innerWidth) / z));
+    TocPanel.setVar(findHost, '--toc-fr', `${Math.round(sb + col + 20)}px`);
   }
 
   /**
@@ -169,7 +293,7 @@ export class TocPanel {
     // parked column must respect (QA: startup on an empty doc measures
     // --sb = 0 and never re-measured on paste/file-open — the panel then
     // sat on the document scrollbar until reopened)
-    this.remeasureScrollbar();
+    this.remeasure();
     this.entries = [];
     const ctx = this.ctx;
     if (!ctx) return;

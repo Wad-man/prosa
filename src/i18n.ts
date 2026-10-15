@@ -12,8 +12,6 @@ const strings = {
     reading: 'Просмотр',
     visual: 'Визуальный редактор',
     source: 'Код',
-    // #110: two-level mode model
-    editing: 'Редактирование',
     split: 'Сплит',
     untitled: 'Без названия',
     unsaved: 'Несохранённые изменения',
@@ -134,10 +132,7 @@ const strings = {
     // "Code", not "Source code": the Help menu already links to the repo as
     // "Source code" (mirrors RU «Код» / «Исходный код», #81)
     source: 'Code',
-    // #110: two-level mode model
-    editing: 'Editing',
     split: 'Split',
-    editModeLabel: 'Editing view',
     untitled: 'Untitled',
     unsaved: 'Unsaved changes',
     words: 'words',
