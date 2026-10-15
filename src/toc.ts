@@ -47,6 +47,11 @@ export class TocPanel {
   private flashTimer: number | undefined;
   // #36: [hidden] lands only after the close transition finished
   private closeTimer: number | undefined;
+  /** navigate() parks the active item on its target; viewport-top tracking
+   *  must not steal it back while the programmatic scroll settles (product
+   *  audit D2 — in source mode the centered jump made the outline highlight
+   *  the heading above the one the user clicked). */
+  private navHoldUntil = 0;
   // #30: skip button rebuilds when the headings did not change — mode
   // switches used to recreate every .toc-item (and its listeners) for nothing.
   // #50: starts at null — '' is the legitimate signature of a heading-less
@@ -243,6 +248,7 @@ export class TocPanel {
       }
     }
     this.setActive(index);
+    this.navHoldUntil = performance.now() + 700;
   }
 
   private flash(el: Element | undefined): void {
@@ -260,6 +266,7 @@ export class TocPanel {
     if (!this.list || this.entries.length === 0) return;
     const ctx = this.ctx;
     if (!ctx) return;
+    if (performance.now() < this.navHoldUntil) return;
     let index = -1;
     if (ctx.getMode() === 'visual') {
       // re-resolve for the same staleness reason as navigate()

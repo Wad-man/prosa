@@ -1997,6 +1997,21 @@ async function init(): Promise<void> {
     }
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) {
+      // the overlay outline is a surface of its own: Esc dismisses it when
+      // nothing above it is open (product audit D1 — menus, the find bar
+      // and modals own their Esc first; defaultPrevented means an editor
+      // tooltip already spent it)
+      if (
+        e.key === 'Escape' &&
+        !e.defaultPrevented &&
+        toc.isVisible() &&
+        !menuBar.isOpen() &&
+        !findBar.isOpenBar()
+      ) {
+        e.preventDefault();
+        toggleToc();
+        return;
+      }
       const overlay = activeModalOverlay();
       if (overlay === null) return;
       if (e.key === 'Escape') {
