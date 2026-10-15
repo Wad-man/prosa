@@ -920,6 +920,15 @@ body {
   display: block;
 }
 
+/* #96: «Начать писать = Новый файл» — an explicit start-writing action keeps
+   the empty document out of the start screen while it stays empty; Просмотр
+   keeps its honest empty state */
+#app.writing[data-mode='visual'] #empty-hint,
+#app.writing[data-mode='source'] #empty-hint,
+#app.writing[data-mode='split'] #empty-hint {
+  display: none;
+}
+
 /* while the initial file is in flight the "drop a file" hint would lie —
    a quiet spinner stands in until the content lands (#34) */
 #app[data-pending] #empty-hint {

@@ -320,7 +320,11 @@ function statsText(words: number, chars: number): string {
 }
 
 function refreshEmptyState(): void {
-  els.app.classList.toggle('empty', currentFullText().trim() === '');
+  const empty = currentFullText().trim() === '';
+  els.app.classList.toggle('empty', empty);
+  // leaving emptiness also leaves the «started writing» state — deleting
+  // everything back later honestly returns the start screen (#96)
+  if (!empty) els.app.classList.remove('writing');
 }
 
 function refreshChrome(): void {
@@ -509,6 +513,9 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
   if (path !== null) {
     addRecent(path);
     startScreen.refreshRecent();
+    // a real file context resets the «started writing» state — an empty
+    // file honestly shows the start screen again
+    els.app.classList.remove('writing');
   }
 }
 
@@ -602,9 +609,37 @@ async function openDroppedFile(dt: DataTransfer, file: File): Promise<void> {
 }
 
 async function openFile(): Promise<void> {
-  if (!inTauri) return;
+  if (!inTauri) {
+    // browser build: the start screen's «Открыть файл» must not be a silent
+    // no-op — same MD filter through a hidden file input; the contents land
+    // as an unsaved document, exactly the drop path's semantics
+    const file = await pickFileBrowser();
+    if (!file) return;
+    if (!(await confirmLoseChanges())) return;
+    try {
+      applyLoaded(await file.text(), null, file.name);
+    } catch (err) {
+      void message(`${t('openError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
+    }
+    return;
+  }
   const picked = await openFileDialog({ multiple: false, directory: false, filters: MD_FILTER });
   if (typeof picked === 'string') await openPathBestWindow(picked);
+}
+
+/** Browser-build stand-in for the native open dialog: a hidden file input
+ *  with the same extensions as MD_FILTER. Resolves null on a cancelled pick
+ *  (the `cancel` event — Chromium/WebView2; a listener that never fires is
+ *  harmless: the dangling promise has no cleanup to do). */
+function pickFileBrowser(): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.md,.markdown,.mdown,.mkd,.txt';
+    input.addEventListener('change', () => resolve(input.files?.[0] ?? null), { once: true });
+    input.addEventListener('cancel', () => resolve(null), { once: true });
+    input.click();
+  });
 }
 
 async function saveFile(saveAs: boolean): Promise<void> {
@@ -648,6 +683,13 @@ async function saveFile(saveAs: boolean): Promise<void> {
 async function newFile(): Promise<void> {
   if (!(await confirmLoseChanges())) return;
   applyLoaded('', null);
+  // #96 owner scenario: «Начать писать = Новый файл» — creating a document
+  // IS starting to write. The start screen would otherwise stay up on the
+  // empty document it just created (a visible no-op); .writing hides it
+  // while the document stays empty. Просмотр is not a writing mode — the
+  // caret needs a real editor (applyLoaded already schedules the focus).
+  if (mode === 'reading') setMode('visual');
+  els.app.classList.add('writing');
 }
 
 // ---------- clipboard (Правка) ----------
