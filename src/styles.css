@@ -398,6 +398,17 @@ body {
   width: 32px;
 }
 
+/* owner audit 2026-10-15: the gap between Просмотр and the editing ways
+   carries a vertical hairline — the two groups read apart at a glance */
+#mode-switch .mode-gap {
+  align-self: center;
+  justify-self: center;
+  width: 1px;
+  height: 16px;
+  /* on the pill's 7% wash --border-strong all but vanishes */
+  background: color-mix(in srgb, var(--fg) 22%, transparent);
+}
+
 #mode-switch[data-active='visual'] .seg-thumb {
   transform: translateX(44px);
 }
@@ -616,13 +627,15 @@ body {
    whole column flies inside it on a single translateX, so show = slides
    out from under the text's right edge, hide = slides back under it —
    no z-order painting games, no text reflow. When the margin cannot host
-   the column, toc.ts drops --toc-left and adds .toc-overlay: a
-   right-anchored drawer over the text (the prototype's ≤820 pattern). */
+   the column (and in split, always), toc.ts switches to .toc-reserve: the
+   text area gives up the column's width and the outline slides in from the
+   window edge into its own strip — never over the text (owner audit
+   2026-10-15: the overlay drawer is gone). */
 #toc-panel {
   position: absolute;
   top: 0;
   bottom: 0;
-  /* measured hug seat; unset (auto) = the right-anchored overlay fallback */
+  /* measured hug seat; the reserve tier anchors right instead (below) */
   left: var(--toc-left, auto);
   right: var(--sb, 0px);
   width: var(--toc-col, 220px);
@@ -649,39 +662,38 @@ body {
   transition: transform var(--t-2) var(--ease);
 }
 
-/* (1,3,0) on purpose: must beat the .toc-overlay parked transform — both
-   base selectors are (1,2,0) and source order would park the open drawer */
+/* startup: a remembered outline is simply there (toc.ts drops the class
+   after two frames) */
+#toc-panel.toc-still .toc-fly {
+  transition: none;
+}
+
+/* the reserved column (no room beside the text, split always): the strip
+   at the window edge is the outline's own — the sheet rides the .toc-fly
+   (its hairline and paper slide with it) and parks right of the clip */
+#toc-panel.toc-reserve {
+  left: auto;
+  right: 0;
+}
+
+#toc-panel.toc-reserve .toc-fly {
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  transform: translateX(100%);
+}
+
+/* (1,3,0) on purpose: must beat the .toc-reserve parked transform — both
+   base selectors are (1,2,0) and source order would park the open column */
 #toc-panel.is-open .toc-fly,
-#toc-panel.toc-overlay.is-open .toc-fly {
+#toc-panel.toc-reserve.is-open .toc-fly {
   transform: none;
 }
 
-/* the overlay drawer (no room beside the text): the SHEET is the .toc-fly
-   itself — bg+shadow ride it, it slides in from the window edge and fades
-   out; the outer window stops clipping so the shadow paints over the text */
-#toc-panel.toc-overlay {
-  overflow: visible;
-  background: transparent;
-}
-
-#toc-panel.toc-overlay .toc-fly {
-  padding: 40px 0 24px;
-  background: var(--bg);
-  box-shadow: -8px 0 24px color-mix(in srgb, #000 12%, transparent);
-  transform: translateX(100%);
-  opacity: 0;
-  transition:
-    transform var(--t-2) var(--ease),
-    opacity var(--t-2) var(--ease);
-}
-
-#toc-panel.toc-overlay.is-open .toc-fly {
-  opacity: 1;
-}
-
-/* 12% black is near-invisible on the dark paper (design audit #5) */
-[data-theme='dark'] #toc-panel.toc-overlay .toc-fly {
-  box-shadow: -8px 0 24px color-mix(in srgb, #000 32%, transparent);
+/* the text area gives the reserved strip up at once — the text snaps to
+   its width a single time, the outline is what moves (owner audit
+   2026-10-15) */
+#editor-panes.toc-open.toc-reserve > #panes-stack {
+  margin-right: var(--toc-rsv, 220px);
 }
 
 .toc-cap {
@@ -828,53 +840,84 @@ body {
 }
 
 /* ---------- #96: start screen (inside the empty state) ----------
-   The hint stays pointer-transparent; only the interactive parts of the
-   start screen catch clicks, so the editor behind remains fully usable. */
+   Owner audit 2026-10-15: concept A «Чистый лист»
+   (.zcode/design/start-screen-96/variants.html) — everything lives in the
+   text column like a book's contents page: the invitation on the first
+   line, a hairline, the actions as underlined links with their keys, the
+   recent files, then the shortcut row. The hint stays pointer-transparent;
+   only the interactive parts catch clicks, so the editor behind remains
+   fully usable. */
 .ss {
-  margin-top: 28px;
+  margin-top: clamp(28px, 6vh, 56px);
+}
+
+.ss-rule {
+  height: 1px;
+  background: var(--border);
+  margin-bottom: 20px;
 }
 
 .ss-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  align-items: center;
+  gap: 6px 22px;
+  font-size: 14px;
+}
+
+.ss-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   pointer-events: auto;
 }
 
-.ss-btn {
+.ss-link {
   appearance: none;
-  border: 1px solid var(--border-strong);
-  background: var(--bg-raised);
-  color: var(--fg);
+  border: none;
+  background: none;
+  padding: 0;
   font: inherit;
-  font-size: 13.5px;
-  padding: 8px 16px;
-  border-radius: var(--r-md);
-  cursor: pointer;
-  transition: background-color var(--t-1) var(--ease), border-color var(--t-1) var(--ease);
-}
-
-.ss-btn:hover {
-  border-color: var(--accent);
   color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
 }
 
-.ss-btn:focus-visible {
+.ss-link:hover {
+  color: var(--accent-hover);
+}
+
+.ss-link:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.ss-drop {
+  font-size: 12.5px;
+  color: var(--fg-3);
 }
 
 .ss-recent {
-  margin-top: 26px;
-  max-width: 52ch;
+  margin-top: 28px;
   pointer-events: auto;
 }
 
 .ss-recent-cap {
-  font-size: 12px;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--fg-3);
-  margin-bottom: 6px;
   user-select: none;
+}
+
+.ss-recent-row {
+  position: relative;
+  margin: 0 -8px;
 }
 
 .ss-recent-item {
@@ -883,44 +926,89 @@ body {
   background: transparent;
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   width: 100%;
   padding: 6px 8px;
   border-radius: var(--r-sm);
   font: inherit;
-  font-size: 13px;
-  color: var(--fg-2);
+  color: var(--fg);
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--t-1) var(--ease), color var(--t-1) var(--ease);
+  transition: background-color var(--t-1) var(--ease);
 }
 
-.ss-recent-item:hover {
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
-  color: var(--fg);
+.ss-recent-item:hover,
+.ss-recent-row:focus-within .ss-recent-item {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
 }
 
 .ss-recent-item:focus-visible {
-  outline-offset: -2px;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .ss-recent-name {
+  font-size: 14.5px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .ss-recent-dir {
-  flex: none;
-  max-width: 45%;
-  font-size: 11.5px;
+  min-width: 0;
+  font-size: 12.5px;
   color: var(--fg-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  direction: rtl;
-  text-align: right;
+}
+
+.ss-recent-when {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 12.5px;
+  color: var(--fg-3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* «×» takes the date's seat on hover/focus (concept A) */
+.ss-recent-x {
+  appearance: none;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  display: none;
+  place-items: center;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ss-recent-x:hover {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+
+.ss-recent-x:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ss-recent-row:hover .ss-recent-x,
+.ss-recent-row:focus-within .ss-recent-x {
+  display: grid;
+}
+
+.ss-recent-row:hover .ss-recent-when,
+.ss-recent-row:focus-within .ss-recent-when {
+  visibility: hidden;
 }
 
 /* ---------- empty state hint ---------- */
@@ -977,7 +1065,9 @@ body {
   width: min(80%, 52em);
   min-width: min(640px, calc(100% - 48px));
   margin: 0 auto;
-  padding: 96px clamp(24px, 4%, 56px) 0;
+  /* 48px = the text column's own top air: the invitation sits exactly on
+     the first line of the future document (concept A) */
+  padding: 48px clamp(24px, 4%, 56px) 0;
   animation: eh-rise 480ms var(--ease) both;
 }
 
@@ -993,34 +1083,19 @@ body {
   }
 }
 
-.eh-badge {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
-  margin-bottom: 18px;
-}
-
-.eh-badge .icon {
-  width: 20px;
-  height: 20px;
-}
-
+/* the invitation reads like the empty first line's placeholder — the same
+   size and leading as the document text (concept A) */
 .eh-line {
-  font-size: 15px;
-  line-height: 1.5;
-  color: var(--fg-2);
-  max-width: 52ch;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--fg-3);
 }
 
 .eh-keys {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 20px;
-  margin-top: 14px;
+  gap: 8px 18px;
+  margin-top: 28px;
   font-size: 12.5px;
   color: var(--fg-3);
 }
@@ -1031,7 +1106,8 @@ body {
   gap: 7px;
 }
 
-.eh-key kbd {
+.eh-key kbd,
+.ss-act kbd {
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1;
@@ -1812,6 +1888,17 @@ body {
    pressed state = the outline column is visible */
 #btn-toc[aria-pressed='true'] {
   color: var(--accent);
+}
+
+/* owner audit 2026-10-15: the icon's side strip fills while the outline is
+   shown — the state reads from the glyph itself, not only from the tint */
+#btn-toc .toc-fill {
+  opacity: 0;
+  transition: opacity var(--t-1) var(--ease);
+}
+
+#btn-toc[aria-pressed='true'] .toc-fill {
+  opacity: 1;
 }
 
 #st-path {

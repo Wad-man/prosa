@@ -117,8 +117,10 @@ const els = {
   visualPane: $('visual-editor'),
   sourcePane: $('source-editor'),
   ehLine: $('eh-line'),
-  ehOpen: $('eh-open'),
+  ehPaste: $('eh-paste'),
   ehMode: $('eh-mode'),
+  ehSettings: $('eh-settings'),
+  ehAllKeys: $('eh-allkeys'),
   ehFormatKbd: $('eh-format-kbd'),
   ehFormat: $('eh-format'),
   emptyHint: $('empty-hint'),
@@ -1648,8 +1650,10 @@ function applyStaticTexts(): void {
   els.menubar.setAttribute('aria-label', t('menuBar'));
   els.modeSwitch.setAttribute('aria-label', t('modeToggle'));
   els.ehLine.textContent = t('emptyDrop');
-  els.ehOpen.textContent = t('open').replace('…', '');
-  els.ehMode.textContent = t('modeToggle');
+  els.ehPaste.textContent = t('ehPaste');
+  els.ehMode.textContent = t('ehMode');
+  els.ehSettings.textContent = t('ehSettings');
+  els.ehAllKeys.textContent = t('ehAllKeys');
   // #70: the «ПКМ/RMB» abbreviation is a mouse glyph with the right button
   // filled — a pictogram reads without translation; the kbd keeps the
   // abbreviated text as visually-hidden copy for screen readers
@@ -1997,21 +2001,9 @@ async function init(): Promise<void> {
     }
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) {
-      // the overlay outline is a surface of its own: Esc dismisses it when
-      // nothing above it is open (product audit D1 — menus, the find bar
-      // and modals own their Esc first; defaultPrevented means an editor
-      // tooltip already spent it)
-      if (
-        e.key === 'Escape' &&
-        !e.defaultPrevented &&
-        toc.isVisible() &&
-        !menuBar.isOpen() &&
-        !findBar.isOpenBar()
-      ) {
-        e.preventDefault();
-        toggleToc();
-        return;
-      }
+      // (owner audit 2026-10-15: the outline never overlays the text any
+      // more — it is a column, not a dismissable surface, so Esc no longer
+      // closes it; Ctrl+Shift+1 / the toolbar toggle do)
       const overlay = activeModalOverlay();
       if (overlay === null) return;
       if (e.key === 'Escape') {

@@ -1,5 +1,5 @@
-import { t } from './i18n';
-import { listRecent, type RecentEntry } from './recent';
+import { getLang, t } from './i18n';
+import { listRecent, removeRecent, type RecentEntry } from './recent';
 
 /**
  * Start screen (#96): the empty state grows up from a passive hint into
@@ -23,9 +23,34 @@ function fileNameOf(path: string): string {
   return path.split(/[\\/]/).pop() || path;
 }
 
-function dirOf(path: string): string | null {
-  const i = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
-  return i > 0 ? path.slice(0, i) : null;
+/** The folder, shortened to its last two segments (concept A: the full
+ *  path lives in the row's tooltip). */
+function shortDirOf(path: string): string | null {
+  const parts = path.split(/[\\/]/);
+  parts.pop();
+  const sep = path.includes('\\') ? '\\' : '/';
+  const tail = parts.filter(Boolean).slice(-2);
+  return tail.length ? tail.join(sep) : null;
+}
+
+/** «сегодня, 10:42» / «вчера» / «3 окт.» — the concept's quiet date column. */
+function whenOf(ts: number): string {
+  if (!Number.isFinite(ts) || ts <= 0) return '';
+  const lang = getLang() === 'ru' ? 'ru-RU' : 'en-US';
+  const d = new Date(ts);
+  const now = new Date();
+  const day = (x: Date): number => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86_400_000);
+  if (diff === 0) {
+    const hm = d.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' });
+    return `${t('ssToday')}, ${hm}`;
+  }
+  if (diff === 1) return t('ssYesterday');
+  return d.toLocaleDateString(lang, {
+    day: 'numeric',
+    month: 'short',
+    ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+  });
 }
 
 export class StartScreen {
@@ -33,31 +58,46 @@ export class StartScreen {
   private recentBlock: HTMLElement | null = null;
   private recentList: HTMLElement | null = null;
   private recentCap: HTMLElement | null = null;
+  private dropNote: HTMLElement | null = null;
 
   mount(host: HTMLElement, actions: StartScreenActions): void {
     this.actions = actions;
     const inner = host.querySelector('.eh-inner');
     if (!inner) return;
 
+    // concept A: hairline, then the actions as links with their keys, then
+    // the recent files; the shortcut row (.eh-keys) stays last
     const wrap = document.createElement('div');
     wrap.className = 'ss';
+
+    const rule = document.createElement('div');
+    rule.className = 'ss-rule';
 
     const actionsRow = document.createElement('div');
     actionsRow.className = 'ss-actions';
 
-    const newBtn = document.createElement('button');
-    newBtn.id = 'ss-new';
-    newBtn.type = 'button';
-    newBtn.className = 'ss-btn';
-    newBtn.addEventListener('click', () => this.actions?.onNew());
+    const link = (id: string, kbd: string, onClick: () => void): HTMLElement => {
+      const cell = document.createElement('span');
+      cell.className = 'ss-act';
+      const btn = document.createElement('button');
+      btn.id = id;
+      btn.type = 'button';
+      btn.className = 'ss-link';
+      btn.addEventListener('click', onClick);
+      const k = document.createElement('kbd');
+      k.textContent = kbd;
+      cell.append(btn, k);
+      return cell;
+    };
 
-    const openBtn = document.createElement('button');
-    openBtn.id = 'ss-open';
-    openBtn.type = 'button';
-    openBtn.className = 'ss-btn';
-    openBtn.addEventListener('click', () => this.actions?.onOpen());
+    this.dropNote = document.createElement('span');
+    this.dropNote.className = 'ss-drop';
 
-    actionsRow.append(newBtn, openBtn);
+    actionsRow.append(
+      link('ss-new', 'Ctrl+N', () => this.actions?.onNew()),
+      link('ss-open', 'Ctrl+O', () => this.actions?.onOpen()),
+      this.dropNote,
+    );
 
     this.recentBlock = document.createElement('div');
     this.recentBlock.className = 'ss-recent';
@@ -70,8 +110,8 @@ export class StartScreen {
     this.recentList.className = 'ss-recent-list';
 
     this.recentBlock.append(this.recentCap, this.recentList);
-    wrap.append(actionsRow, this.recentBlock);
-    inner.append(wrap);
+    wrap.append(rule, actionsRow, this.recentBlock);
+    inner.insertBefore(wrap, inner.querySelector('.eh-keys'));
 
     // cross-window freshness: another document window's save/open rewrites
     // the shared storage — the storage event lands here (review MINOR)
@@ -88,6 +128,7 @@ export class StartScreen {
     const openBtn = document.getElementById('ss-open');
     if (newBtn) newBtn.textContent = t('ssNewFile');
     if (openBtn) openBtn.textContent = t('ssOpenFile');
+    if (this.dropNote) this.dropNote.textContent = t('ssDrop');
     if (this.recentCap) this.recentCap.textContent = t('ssRecent');
     this.refreshRecent();
   }
@@ -100,6 +141,10 @@ export class StartScreen {
     if (this.recentBlock) this.recentBlock.hidden = entries.length === 0;
     list.replaceChildren();
     for (const entry of entries) {
+      // the row is a wrapper: the open button and the «×» are siblings
+      // (no interactive content nested inside a button)
+      const row = document.createElement('div');
+      row.className = 'ss-recent-row';
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'ss-recent-item';
@@ -107,16 +152,33 @@ export class StartScreen {
       const name = document.createElement('span');
       name.className = 'ss-recent-name';
       name.textContent = fileNameOf(entry.path);
-      const dir = dirOf(entry.path);
       item.append(name);
+      const dir = shortDirOf(entry.path);
       if (dir) {
         const dirEl = document.createElement('span');
         dirEl.className = 'ss-recent-dir';
         dirEl.textContent = dir;
         item.append(dirEl);
       }
+      const when = document.createElement('span');
+      when.className = 'ss-recent-when';
+      when.textContent = whenOf(entry.ts);
+      item.append(when);
       item.addEventListener('click', () => this.actions?.onOpenRecent(entry.path));
-      list.append(item);
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'ss-recent-x';
+      remove.textContent = '×';
+      remove.title = t('ssRemove');
+      remove.setAttribute('aria-label', `${t('ssRemove')}: ${fileNameOf(entry.path)}`);
+      remove.addEventListener('click', () => {
+        removeRecent(entry.path);
+        this.refreshRecent();
+      });
+
+      row.append(item, remove);
+      list.append(row);
     }
   }
 }
