@@ -860,6 +860,7 @@ function openExternal(url: string): void {
 
 // ---------- TOC feature (#21) ----------
 
+let tocToggleTimer = 0;
 function applyTocFeature(): void {
   toc.setVisible(isFeatureEnabled('toc'));
   toc.refresh();
@@ -869,7 +870,8 @@ function applyTocFeature(): void {
   // rc.7 (design review, cond. on split): the reserve changed the panes'
   // layout without firing any scroll event — re-measure CM and re-anchor
   // the split panes to where the code stands once the flight settles
-  window.setTimeout(() => {
+  window.clearTimeout(tocToggleTimer);
+  tocToggleTimer = window.setTimeout(() => {
     source?.view.requestMeasure();
     if (mode === 'split') syncSplitScroll('code');
   }, 300);
@@ -1154,6 +1156,11 @@ async function checkForUpdates(manual: boolean): Promise<void> {
  * (review MINOR: the flag could swallow a real CM keystroke's dirty). */
 function syncSplitPreview(): void {
   if (source === null) return;
+  // review M4: the full preview replace can nudge its scrollTop (scroll
+  // anchoring/height clamp) — that echo must not drive the CODE pane while
+  // the user types there; arm the guard for the flight
+  splitScrollGuard.el = els.visualPane;
+  splitScrollGuard.until = performance.now() + 120;
   const { frontMatter: fm, body } = splitFrontMatter(source.getContent());
   // display-only bookkeeping: in split currentFullText() composes from the
   // source editor and ignores these
@@ -1232,8 +1239,10 @@ function previewHeadingTops(): number[] {
  *  быть примерно на одном уровне»). */
 function anchorState(top: number, anchors: number[], maxTop: number): { i: number; f: number } {
   if (anchors.length === 0) return { i: -1, f: maxTop > 0 ? top / maxTop : 0 };
-  if (top <= anchors[0]) return { i: -1, f: anchors[0] > 0 ? top / anchors[0] : 0 };
+  // the END check comes first (review MINOR): a short document can hold its
+  // only heading below the scrollable maximum — the ends must still align
   if (top >= maxTop) return { i: anchors.length - 1, f: 1 };
+  if (top <= anchors[0]) return { i: -1, f: anchors[0] > 0 ? top / anchors[0] : 0 };
   let i = 0;
   while (i + 1 < anchors.length && anchors[i + 1] <= top) i++;
   const spanStart = anchors[i];
@@ -1258,8 +1267,16 @@ function syncSplitScroll(from: 'code' | 'preview'): void {
   const prevSc = els.visualPane;
   const driver = from === 'code' ? codeSc : prevSc;
   const follower = from === 'code' ? prevSc : codeSc;
-  const fromAnchors = from === 'code' ? codeHeadingTops() : previewHeadingTops();
-  const toAnchors = from === 'code' ? previewHeadingTops() : codeHeadingTops();
+  let fromAnchors = from === 'code' ? codeHeadingTops() : previewHeadingTops();
+  let toAnchors = from === 'code' ? previewHeadingTops() : codeHeadingTops();
+  // review M3: the ATX scan and the rendered DOM count headings differently
+  // (front-matter '#' comments, setext, headings inside quotes/lists) — a
+  // length mismatch pairs the anchors shifted and drives the panes apart;
+  // fall back to proportional the way a heading-less document does
+  if (fromAnchors.length !== toAnchors.length) {
+    fromAnchors = [];
+    toAnchors = [];
+  }
   const fromMax = driver.scrollHeight - driver.clientHeight;
   const toMax = follower.scrollHeight - follower.clientHeight;
   if (fromMax <= 0 && toMax <= 0) return;
@@ -1278,9 +1295,14 @@ function syncSplitScroll(from: 'code' | 'preview'): void {
  *  the preview pane is its own scroller); see els wiring in init. */
 function handleSplitScrollEvent(target: Element): void {
   if (mode !== 'split' || visualRebuilding) return;
+  // only the panes' own vertical scrollers drive the pair — a horizontal
+  // scroll inside a preview table/code block is not a document position
+  // (review MINOR)
+  const isPreviewScroller = target === els.visualPane;
+  const isCodeScroller = source !== null && target === source.view.scrollDOM;
+  if (!isPreviewScroller && !isCodeScroller) return;
   if (performance.now() < splitScrollGuard.until && splitScrollGuard.el === target) return;
-  const inPreview = els.visualPane === target || els.visualPane.contains(target);
-  syncSplitScroll(inPreview ? 'preview' : 'code');
+  syncSplitScroll(isPreviewScroller ? 'preview' : 'code');
 }
 
 function setMode(next: Mode): void {
@@ -1361,6 +1383,9 @@ function setMode(next: Mode): void {
     btn.classList.toggle('return-dot', mode === 'reading' && lastEditMode === m);
   }
   els.modeSwitch.dataset.active = mode;
+  // review M2: the active scroller changed — the outline's --sb must
+  // follow it (code mode measures .cm-scroller, not the hidden visual pane)
+  toc.remeasureScrollbar();
   els.app.dataset.mode = mode;
   if (mode === 'visual') visual.focus();
   else if (contentOf(mode) === 'source') source?.focus();
@@ -1636,7 +1661,6 @@ function applyStaticTexts(): void {
   // #110: only the top switch carries the hotkey — Ctrl+/ flips
   // Просмотр ↔ Редактирование; the submode segment is picked with the mouse
   tip(els.btnReading, `${t('reading')} · Ctrl+/ · Alt+1`);
-  if (els.modeLegend) els.modeLegend.textContent = t('editing');
   tip(els.btnVisual, `${t('visual')} · Alt+2`);
   tip(els.btnSource, `${t('source')} · Alt+3`);
   tip(els.btnSplit, `${t('split')} · Alt+4`);
@@ -1806,8 +1830,14 @@ async function init(): Promise<void> {
   );
   // rc.7 (sync audit): heights change without any scroll event on resize —
   // re-anchor the preview to where the code stands once layout settles
+  // (debounced: a drag queues dozens of events)
+  let resizeSyncTimer = 0;
   window.addEventListener('resize', () => {
-    if (mode === 'split') window.setTimeout(() => syncSplitScroll('code'), 150);
+    window.clearTimeout(resizeSyncTimer);
+    resizeSyncTimer = window.setTimeout(() => {
+      toc.remeasureScrollbar();
+      if (mode === 'split') syncSplitScroll('code');
+    }, 150);
   });
   // rc.7 (sync audit): a late-loading image grows the preview mid-read —
   // the code pane never hears about it, the pair would drift silently

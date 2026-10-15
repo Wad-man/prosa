@@ -15,7 +15,6 @@ const strings = {
     // #110: two-level mode model
     editing: 'Редактирование',
     split: 'Сплит',
-    editModeLabel: 'Способ редактирования',
     untitled: 'Без названия',
     unsaved: 'Несохранённые изменения',
     words: 'слов',

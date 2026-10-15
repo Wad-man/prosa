@@ -432,8 +432,10 @@ body {
   user-select: none;
 }
 
-/* in Просмотр the dot under an editing cell marks where Ctrl+/ returns */
-.seg-btn.return-dot::after {
+/* in Просмотр the dot under an editing cell marks where Ctrl+/ returns.
+   ::before on purpose: the tooltip machinery owns ::after on [data-tip]
+   buttons (review M1) — the dot would eat the tip and inherit its box */
+.seg-btn.return-dot::before {
   content: '';
   position: absolute;
   bottom: 1px;
@@ -443,10 +445,7 @@ body {
   height: 3px;
   border-radius: 50%;
   background: var(--accent);
-}
-
-.seg-btn:disabled {
-  cursor: default;
+  z-index: 2;
 }
 
 .seg-btn {
@@ -831,7 +830,9 @@ body {
     --toc-reserve: 0px;
   }
 
-  #editor-panes.toc-open #toc-panel {
+  /* styled regardless of toc-open: closing must not flash see-through
+     text over the document while the flight runs (review MINOR) */
+  #toc-panel {
     background: var(--bg);
     box-shadow: -8px 0 24px color-mix(in srgb, #000 12%, transparent);
     padding: 40px 0 24px;
@@ -2454,6 +2455,14 @@ body {
 @media (max-width: 820px) {
   #editor-host:has(#editor-panes.toc-open) #find-bar {
     right: 16px; /* overlay outline has its own surface */
+  }
+}
+
+/* split degrades earlier (1140): the 240px overlay must not sit under the
+   shifted bar (review MINOR) */
+@media (max-width: 1140px) {
+  #app[data-mode='split'] #editor-host:has(#editor-panes.toc-open) #find-bar {
+    right: 16px;
   }
 }
 

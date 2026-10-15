@@ -102,13 +102,7 @@ export class TocPanel {
     if (visible === open) return;
     window.clearTimeout(this.closeTimer);
     if (visible) {
-      const host = this.host;
-      if (host) {
-        const scroller = document.getElementById('visual-editor') ?? host.firstElementChild;
-        const sb =
-          scroller instanceof HTMLElement ? scroller.offsetWidth - scroller.clientWidth : 0;
-        host.style.setProperty('--sb', `${Math.max(0, sb)}px`);
-      }
+      this.remeasureScrollbar();
       panel.hidden = false;
       panel.inert = false;
       // reflow so the flight plays from the parked state, not from display:none
@@ -128,6 +122,24 @@ export class TocPanel {
   isVisible(): boolean {
     const panel = this.panel;
     return panel !== null && panel.classList.contains('is-open');
+  }
+
+  /** Re-measure --sb: the column parks left of the ACTIVE scroller's
+   *  scrollbar (review M2 — in code mode the visual pane is display:none
+   *  and measures 0, and a scrollbar that appears later must be picked
+   *  up too). Main.ts calls this on mode switches, loads and resizes. */
+  remeasureScrollbar(): void {
+    const host = this.host;
+    if (!host) return;
+    const candidates: (Element | null)[] = [
+      document.getElementById('visual-editor'),
+      this.ctx?.getSource()?.view.scrollDOM ?? null,
+    ];
+    let sb = 0;
+    for (const el of candidates) {
+      if (el) sb = Math.max(sb, el instanceof HTMLElement ? el.offsetWidth - el.clientWidth : 0);
+    }
+    host.style.setProperty('--sb', `${Math.max(0, sb)}px`);
   }
 
   /**
