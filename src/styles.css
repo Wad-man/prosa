@@ -735,6 +735,8 @@ body {
 }
 
 /* keep the reading measure while the outline is open: the column is now
+   capped by the 52em rule and the reserve lives on the scroller */
+
 .toc-cap {
   margin: 0 2px 10px;
   font-size: 12px;
@@ -1282,9 +1284,12 @@ body {
 }
 
 /* 80% of the pane capped at a stable reading measure — 52em = 832px at
-   the inherited 16px UI font, ~66 characters per line (#67, owner (a));
-   the cap binds only above 1040px-wide panes, below it nothing changes;
-   on narrow windows fall back to full width minus 24px side margins */
+   the inherited 16px UI font. The 52em includes the wrapper's own side
+   padding, so the text column is ~45em ≈ 85–95 characters (measured
+   2026-10-15: RU 92, EN 100) — a deliberate wide, Medium-like measure
+   (#67, owner (a)); the cap binds only above 1040px-wide panes, below it
+   nothing changes; on narrow windows fall back to full width minus 24px
+   side margins */
 #visual-editor .milkdown-wrapper,
 #visual-editor > div {
   width: min(80%, 52em);

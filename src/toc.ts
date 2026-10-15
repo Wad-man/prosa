@@ -160,6 +160,11 @@ export class TocPanel {
 
   /** Recollect headings from the active mode's native source. */
   refresh(): void {
+    // a document landing or growing past the viewport adds a scrollbar the
+    // parked column must respect (QA: startup on an empty doc measures
+    // --sb = 0 and never re-measured on paste/file-open — the panel then
+    // sat on the document scrollbar until reopened)
+    this.remeasureScrollbar();
     this.entries = [];
     const ctx = this.ctx;
     if (!ctx) return;
