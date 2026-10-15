@@ -738,7 +738,7 @@ body {
    capped by the 52em rule and the reserve lives on the scroller */
 
 .toc-cap {
-  margin: 0 2px 10px;
+  margin: 0 14px 10px 16px;
   font-size: 12px;
   color: var(--fg-3);
   user-select: none;
@@ -758,7 +758,9 @@ body {
   display: block;
   width: 100%;
   padding: 3px 0;
-  padding-left: calc((var(--lvl, 1) - 1) * 12px);
+  /* deep levels must not eat the narrow 180px tiers alive (design audit
+     #2): the ladder keeps 12px/level up to lvl 4, deeper levels park */
+  padding-left: min(calc((var(--lvl, 1) - 1) * 12px), 40px);
   border-radius: var(--r-sm);
   font: inherit;
   font-size: 13px;
@@ -772,14 +774,17 @@ body {
   transition: color var(--t-1) var(--ease);
 }
 
+/* hover is a step short of active (design audit #1): active owns --fg
+   plus the accent dot, hovering shows --fg-2 so the two never collide */
 .toc-item:hover {
-  color: var(--fg);
+  color: var(--fg-2);
 }
 
 /* current section: full-strength text + a small accent dot before it
-   (prototype three-column-2026-10-12) */
+   (prototype three-column-2026-10-12; weight 500 — design audit #3) */
 .toc-item.active {
   color: var(--fg);
+  font-weight: 500;
 }
 
 .toc-item.active::before {
@@ -839,6 +844,11 @@ body {
     box-shadow: -8px 0 24px color-mix(in srgb, #000 12%, transparent);
     padding: 40px 0 24px;
   }
+
+  /* 12% black is near-invisible on the dark paper (design audit #5) */
+  [data-theme='dark'] #toc-panel {
+    box-shadow: -8px 0 24px color-mix(in srgb, #000 32%, transparent);
+  }
 }
 
 /* ---------- outline × split (#91 gate 2026-10-15, вариант А) ----------
@@ -866,6 +876,11 @@ body {
     background: var(--bg);
     box-shadow: -8px 0 24px color-mix(in srgb, #000 12%, transparent);
     padding: 40px 0 24px;
+  }
+
+  /* 12% black is near-invisible on the dark paper (design audit #5) */
+  [data-theme='dark'] #app[data-mode='split'] #editor-panes.toc-open #toc-panel {
+    box-shadow: -8px 0 24px color-mix(in srgb, #000 32%, transparent);
   }
 }
 
