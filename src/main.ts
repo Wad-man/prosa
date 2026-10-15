@@ -40,6 +40,8 @@ import { printDocument } from './print';
 import { CHANGELOG_URL, checkWhatsNew, markWhatsNewSeen, whatsNewItems } from './whats-new';
 import { MenuBar, type MenuSection } from './menu';
 import { TocPanel } from './toc';
+import { StartScreen } from './start-screen';
+import { addRecent, removeRecent } from './recent';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
 import { applyWebView2DragFix } from './platform/webview2-dnd';
 import { getLang, t } from './i18n';
@@ -52,15 +54,28 @@ import './styles.css';
 // HTML5 drag-and-drop survives inside the WebView2 shell (see module comment).
 applyWebView2DragFix();
 
-// #66: three modes, Obsidian-style — reading (the visual editor made
-// non-editable), visual editing and source code. Reading and the visual
-// editor share one VisualEditor instance: switching between them
-// only flips `editable`, the document is never re-parsed.
-type Mode = 'reading' | 'visual' | 'source';
-const MODE_CYCLE: Mode[] = ['reading', 'visual', 'source'];
+// #66/#110: two-level mode model — Просмотр ↔ Редактирование on top, the
+// editing submodes below: visual, source and split (#62 MVP: editable code
+// + a live preview that follows it). Reading and the visual editor share
+// one VisualEditor instance — switching between them only flips
+// `editable`, the document is never re-parsed. Split keeps both panes
+// alive: the source editor owns the content, the visual pane mirrors it
+// read-only (one-way sync, #62 stage 1).
+type Mode = 'reading' | 'visual' | 'source' | 'split';
+type EditMode = Exclude<Mode, 'reading'>;
 
-/** The pane a mode renders in — reading lives in the visual pane. */
+/** The pane a mode renders in — reading and the split preview live in the
+ * visual pane; heading sources and the empty hint key off this. */
 const paneOf = (m: Mode): 'visual' | 'source' => (m === 'source' ? 'source' : 'visual');
+
+/** Who owns the document text: the source editor in source/split (the
+ * split preview only mirrors it), the visual editor in reading/visual.
+ * Content hand-overs and command dispatch follow this, not paneOf. */
+const contentOf = (m: Mode): 'visual' | 'source' =>
+  m === 'source' || m === 'split' ? 'source' : 'visual';
+
+/** The editing submode the Просмотр ↔ Редактирование switch returns to. */
+let lastEditMode: EditMode = 'visual';
 
 const MD_FILTER = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] }];
 const MD_PATH_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
@@ -91,10 +106,15 @@ const els = {
   menubar: $('menubar'),
   btnTheme: $('btn-theme') as HTMLButtonElement,
   btnReading: $('btn-mode-reading') as HTMLButtonElement,
+  btnEdit: $('btn-mode-edit') as HTMLButtonElement,
   btnVisual: $('btn-mode-visual') as HTMLButtonElement,
   btnSource: $('btn-mode-source') as HTMLButtonElement,
-  modeSwitch: $('mode-switch'),
+  btnSplit: $('btn-mode-split') as HTMLButtonElement,
+  viewSwitch: $('view-switch'),
+  editSwitch: $('edit-switch'),
   editorHost: $('editor-host'),
+  editorPanes: $('editor-panes'),
+  btnToc: $('btn-toc') as HTMLButtonElement,
   visualPane: $('visual-editor'),
   sourcePane: $('source-editor'),
   ehLine: $('eh-line'),
@@ -102,11 +122,11 @@ const els = {
   ehMode: $('eh-mode'),
   ehFormatKbd: $('eh-format-kbd'),
   ehFormat: $('eh-format'),
+  emptyHint: $('empty-hint'),
   stPath: $('st-path'),
   stModified: $('st-modified'),
   stCount: $('st-count'),
   stVersion: $('st-version') as HTMLButtonElement,
-  stToc: $('st-toc') as HTMLButtonElement,
   stHotkeys: $('st-hotkeys') as HTMLButtonElement,
   aboutOverlay: $('about-overlay'),
   aboutModal: document.querySelector('#about-overlay .modal') as HTMLElement,
@@ -146,6 +166,8 @@ const visual = new VisualEditor();
 let source: SourceEditor | null = null; // lazily created on first switch
 const menuBar = new MenuBar();
 const toc = new TocPanel();
+// #96: the start screen lives inside the empty-state hint
+const startScreen = new StartScreen();
 // #32: constructed early (installs the window-capture keydown), built
 // lazily on the first open; the closures read the live mode/editor state
 const findBar = new FindReplaceBar({
@@ -217,7 +239,8 @@ function withSeparator(block: string, body: string): string {
  * raw body text itself; in the visual mode it is Crepe's serialization of
  * the body with the front-matter block re-attached. */
 function currentFullText(): string {
-  if (mode === 'source') return withSeparator(unparsedPrefix ?? '', source?.getContent() ?? '');
+  if (contentOf(mode) === 'source')
+    return withSeparator(unparsedPrefix ?? '', source?.getContent() ?? '');
   return withSeparator(unparsedPrefix ?? '', withSeparator(frontMatter ?? '', visual.getMarkdown()));
 }
 
@@ -239,7 +262,7 @@ function unsavedContent(): boolean {
  */
 function focusActiveEditor(): void {
   if (mode === 'visual') visual.focus();
-  else if (mode === 'source') source?.focus();
+  else if (contentOf(mode) === 'source') source?.focus();
 }
 
 /**
@@ -457,8 +480,12 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
   // nodeView only rebinds when its node changes)
   filePath = path;
   fileSuggestion = path === null ? (suggestedName ?? null) : null;
-  if (paneOf(mode) === 'visual') visual.setMarkdown(body);
-  else source?.setContent((fm ?? '') + body);
+  if (contentOf(mode) === 'visual') visual.setMarkdown(body);
+  else {
+    source?.setContent((fm ?? '') + body);
+    // #62: a load while split must refresh the preview pane too
+    if (mode === 'split') syncSplitPreview();
+  }
   refreshFrontMatterView();
   // a new document invalidates the open search — close the bar quietly
   findBar.close();
@@ -477,6 +504,12 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
     // (file open, drop, Ctrl+N, __prosaOpen into a pristine window)
     focusActiveEditor();
   }, 0);
+  // #96: every file that lands here (open, drop, save-as target) becomes
+  // the most recent one on the start screen
+  if (path !== null) {
+    addRecent(path);
+    startScreen.refreshRecent();
+  }
 }
 
 /**
@@ -498,8 +531,11 @@ function applyRecovered(text: string, path: string | null): void {
   unparsedPrefix = up;
   filePath = path;
   fileSuggestion = null;
-  if (paneOf(mode) === 'visual') visual.setMarkdown(body);
-  else source?.setContent((fm ?? '') + body);
+  if (contentOf(mode) === 'visual') visual.setMarkdown(body);
+  else {
+    source?.setContent((fm ?? '') + body);
+    if (mode === 'split') syncSplitPreview();
+  }
   refreshFrontMatterView();
   findBar.close();
   // the draft is unsaved work: the raw-bytes passthrough must not fire for
@@ -528,6 +564,10 @@ async function loadPath(path: string): Promise<boolean> {
     return true;
   } catch (err) {
     void message(`${t('openError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
+    // #96: a path that no longer opens drops off the start screen after
+    // one honest attempt — no haunted entries
+    removeRecent(path);
+    startScreen.refreshRecent();
     return false;
   }
 }
@@ -589,6 +629,10 @@ async function saveFile(saveAs: boolean): Promise<void> {
     dirty = false;
     editedSinceSave = false;
     window.clearTimeout(dirtyCheckTimer);
+    // #96: a save-as target is a freshly opened document in the user's
+    // mental model — it tops the start screen's recent list
+    addRecent(path);
+    startScreen.refreshRecent();
     refreshChrome();
     reportDocState();
   } catch (err) {
@@ -661,16 +705,16 @@ async function writeClipboardRich(html: string, plain: string): Promise<boolean>
 
 function editUndoRedo(which: 'undo' | 'redo'): void {
   if (mode === 'visual') visual.undoRedo(which);
-  else if (mode === 'source' && source) sourceUndoRedo(source.view, which);
+  else if (contentOf(mode) === 'source' && source) sourceUndoRedo(source.view, which);
 }
 
 function editSelectAll(): void {
-  if (paneOf(mode) === 'visual') visual.selectAll();
+  if (contentOf(mode) === 'visual') visual.selectAll();
   else if (source) sourceSelectAll(source.view);
 }
 
 function selectionText(): string {
-  if (paneOf(mode) === 'visual') return visual.selectionText();
+  if (contentOf(mode) === 'visual') return visual.selectionText();
   return source ? sourceSelectionText(source.view) : '';
 }
 
@@ -678,7 +722,20 @@ function selectionText(): string {
 // native Ctrl+C path already did — this unifies the menu and right-click
 // panel with it); the source mode is raw markdown by nature
 function copyPayload(): string {
-  if (paneOf(mode) === 'visual') return visual.selectionMarkdown() || selectionText();
+  // #62 review r2: in split the user may have selected text in the preview
+  // — but a readonly ProseMirror holds no focus (a mouse drag parks it on
+  // <body>), so the SELECTION's location decides, not activeElement
+  if (mode === 'split') {
+    const sel = window.getSelection();
+    const inPreview =
+      sel !== null &&
+      !sel.isCollapsed &&
+      sel.anchorNode !== null &&
+      els.visualPane.contains(sel.anchorNode);
+    if (inPreview) return visual.selectionMarkdown() || visual.selectionText();
+    return selectionText();
+  }
+  if (contentOf(mode) === 'visual') return visual.selectionMarkdown() || selectionText();
   return selectionText();
 }
 
@@ -713,39 +770,39 @@ async function editPaste(): Promise<void> {
   // #86: evaluate the pristine-untitled gate BEFORE the insertion lands
   const intoPristine = filePath === null && !dirty && currentFullText().trim() === '';
   if (mode === 'visual') visual.insertMarkdown(text);
-  else if (mode === 'source' && source) sourceInsertText(source.view, text);
+  else if (contentOf(mode) === 'source' && source) sourceInsertText(source.view, text);
   if (intoPristine) schedulePasteAnchor();
 }
 
 function editBlock(id: BlockId): void {
   if (mode === 'visual') visual.applyBlock(id);
-  else if (mode === 'source' && source) sourceSetBlock(source.view, id);
+  else if (contentOf(mode) === 'source' && source) sourceSetBlock(source.view, id);
 }
 
 function editMark(id: MarkId): void {
   if (mode === 'visual') visual.toggleMark(id);
-  else if (mode === 'source' && source) sourceToggleMark(source.view, id);
+  else if (contentOf(mode) === 'source' && source) sourceToggleMark(source.view, id);
 }
 
 // ---------- line-level commands (#35 aliases: Obsidian / Word / Telegram) ----------
 
 function editDeleteLine(): void {
   if (mode === 'visual') visual.deleteBlock();
-  else if (mode === 'source' && source) sourceDeleteLines(source.view);
+  else if (contentOf(mode) === 'source' && source) sourceDeleteLines(source.view);
 }
 
 function editToggleTask(): void {
   if (mode === 'visual') visual.toggleTask();
-  else if (mode === 'source' && source) sourceToggleTask(source.view);
+  else if (contentOf(mode) === 'source' && source) sourceToggleTask(source.view);
 }
 
 function editClearFormatting(): void {
   if (mode === 'visual') visual.clearFormatting();
-  else if (mode === 'source' && source) sourceClearFormatting(source.view);
+  else if (contentOf(mode) === 'source' && source) sourceClearFormatting(source.view);
 }
 
 function currentBlock(): BlockId | null {
-  if (paneOf(mode) === 'visual') return visual.currentBlock();
+  if (contentOf(mode) === 'visual') return visual.currentBlock();
   return source ? sourceCurrentBlock(source.view) : null;
 }
 
@@ -764,9 +821,9 @@ function openExternal(url: string): void {
 function applyTocFeature(): void {
   toc.setVisible(isFeatureEnabled('toc'));
   toc.refresh();
-  // the statusbar toggle reflects the same feature flag (setFeatureEnabled
+  // the toolbar toggle reflects the same feature flag (setFeatureEnabled
   // above fires the cross-listener event that lands here)
-  els.stToc.setAttribute('aria-pressed', String(isFeatureEnabled('toc')));
+  els.btnToc.setAttribute('aria-pressed', String(isFeatureEnabled('toc')));
 }
 
 function toggleToc(): void {
@@ -892,14 +949,14 @@ function buildMenuSections(): (() => MenuSection)[] {
       label: t('mView'),
       altKey: 'KeyV',
       entries: [
-        // #66: Ctrl+/ cycles reading → visual → source; the three
-        // entries below pick a mode directly
-        { label: t('modeCycle'), hotkey: 'Ctrl+/', action: () => toggleMode() },
-        ...MODE_CYCLE.map((m) => ({
-          label: t(m),
-          action: () => setMode(m),
-          checked: () => mode === m,
-        })),
+        // #66/#110: Ctrl+/ flips Просмотр ↔ Редактирование; the entries
+        // below pick a mode directly (the model is two-level, the menu
+        // stays one flat list)
+        { label: t('modeViewToggle'), hotkey: 'Ctrl+/', action: () => toggleMode() },
+        { label: t('reading'), action: () => setMode('reading'), checked: () => mode === 'reading' },
+        { label: t('visual'), action: () => setMode('visual'), checked: () => mode === 'visual' },
+        { label: t('source'), action: () => setMode('source'), checked: () => mode === 'source' },
+        { label: t('split'), action: () => setMode('split'), checked: () => mode === 'split' },
         sep(),
         {
           label: t('themeLight'),
@@ -1035,14 +1092,50 @@ async function checkForUpdates(manual: boolean): Promise<void> {
   }
 }
 
+// ---------- split preview sync (#62 MVP) ----------
+
+/** Re-render the split preview from the source editor's raw text. Render
+ * ONLY: the code pane still holds every byte a carve would cut out, so
+ * adopting the carve's prefix/front-matter here would make currentFullText
+ * glue those bytes back on top of the raw text — duplicating them on save
+ * (review BLOCK). File-level state (unparsedPrefix) is recomputed on the
+ * way OUT of the source-owned modes, exactly like leaving «Код».
+ * replaceAll(…, flush) builds a fresh EditorState without a transaction,
+ * so the visual change listener stays silent — no suppressChange needed
+ * (review MINOR: the flag could swallow a real CM keystroke's dirty). */
+function syncSplitPreview(): void {
+  if (source === null) return;
+  const { frontMatter: fm, body } = splitFrontMatter(source.getContent());
+  // display-only bookkeeping: in split currentFullText() composes from the
+  // source editor and ignores these
+  frontMatter = fm;
+  visual.setMarkdown(body);
+  refreshFrontMatterView();
+}
+
+/** Live follow: a burst of typing collapses into one preview replace. */
+let splitSyncTimer: number | undefined;
+// true while a language switch rebuilds the visual editor (see onLangChanged)
+let visualRebuilding = false;
+function scheduleSplitSync(): void {
+  window.clearTimeout(splitSyncTimer);
+  splitSyncTimer = window.setTimeout(() => {
+    // a language switch is rebuilding the visual editor right now — the
+    // replace would land on the half-recreated Crepe (review r2 NIT)
+    if (mode === 'split' && !visualRebuilding) syncSplitPreview();
+  }, 250);
+}
+
 function setMode(next: Mode): void {
   // reading ↔ visual stays in the same pane and instance: no content
   // hand-over, no re-parse — the document (and its dirty state) is untouched.
+  // source ↔ split keeps the same content owner (the source editor); only
+  // the visibility of the preview pane changes.
   // Same-mode calls still normalize the UI classes below.
-  if (paneOf(next) !== paneOf(mode)) {
+  if (contentOf(next) !== contentOf(mode)) {
     const md = currentFullText();
     suppressChange = true;
-    if (next === 'source') {
+    if (contentOf(next) === 'source') {
       // the raw view shows the whole file — front-matter included, but NOT
       // the #83 unparsed prefix (hidden file-level state; currentFullText
       // re-attaches it on top of whatever the source editor holds). The
@@ -1060,13 +1153,21 @@ function setMode(next: Mode): void {
           markDirty();
           scheduleToc();
           findBar.notifyDocChanged();
+          // #62: in split the preview follows the code with a short debounce
+          if (mode === 'split') scheduleSplitSync();
         });
       else source.setContent(raw);
+      if (next === 'split') {
+        // the preview must show the same document the code now holds —
+        // render-only (syncSplitPreview does not touch file-level state)
+        syncSplitPreview();
+      }
     } else {
-      // leaving the raw view: re-split — the front-matter may have been
-      // edited (or removed, or gained a blank line) as plain text. The
-      // prefix is prepended by currentFullText, so a still-blank-lined
-      // block re-carves as the prefix and survives byte-for-byte
+      // leaving the raw view (source or split): re-split — the
+      // front-matter may have been edited (or removed, or gained a blank
+      // line) as plain text. The prefix is prepended by currentFullText,
+      // so a still-blank-lined block re-carves as the prefix and survives
+      // byte-for-byte
       const { frontMatter: fm, unparsedPrefix: up, body } = splitFrontMatter(md);
       frontMatter = fm;
       unparsedPrefix = up;
@@ -1076,24 +1177,40 @@ function setMode(next: Mode): void {
     window.setTimeout(() => {
       suppressChange = false;
     }, 0);
+  } else if (next === 'split' && mode !== 'split') {
+    // source → split: the preview pane was hidden and may hold a stale or
+    // empty document — bring it up to date with the code
+    syncSplitPreview();
   }
   mode = next;
-  visual.setReadonly(mode === 'reading');
-  els.visualPane.classList.toggle('active', paneOf(mode) === 'visual');
-  els.sourcePane.classList.toggle('active', mode === 'source');
-  const buttons: [HTMLButtonElement, Mode][] = [
-    [els.btnReading, 'reading'],
+  if (mode !== 'reading') lastEditMode = mode;
+  // reading and the split preview share the read-only render
+  visual.setReadonly(mode === 'reading' || mode === 'split');
+  els.visualPane.classList.toggle('active', paneOf(mode) === 'visual' || mode === 'split');
+  els.sourcePane.classList.toggle('active', contentOf(mode) === 'source');
+  // #110: the top switch is Просмотр ↔ Редактирование; the submode segment
+  // shows where editing would land and sleeps while viewing
+  els.btnReading.classList.toggle('active', mode === 'reading');
+  els.btnReading.setAttribute('aria-selected', String(mode === 'reading'));
+  els.btnEdit.classList.toggle('active', mode !== 'reading');
+  els.btnEdit.setAttribute('aria-selected', String(mode !== 'reading'));
+  els.viewSwitch.dataset.active = mode === 'reading' ? 'reading' : 'edit';
+  const submodes: [HTMLButtonElement, Mode][] = [
     [els.btnVisual, 'visual'],
     [els.btnSource, 'source'],
+    [els.btnSplit, 'split'],
   ];
-  for (const [btn, m] of buttons) {
-    btn.classList.toggle('active', mode === m);
-    btn.setAttribute('aria-selected', String(mode === m));
+  const activeSub: Mode = mode === 'reading' ? lastEditMode : mode;
+  for (const [btn, m] of submodes) {
+    btn.classList.toggle('active', activeSub === m);
+    btn.setAttribute('aria-selected', String(activeSub === m));
+    btn.disabled = mode === 'reading';
   }
-  els.modeSwitch.dataset.active = mode;
+  els.editSwitch.dataset.active = activeSub;
+  els.editSwitch.dataset.disabled = String(mode === 'reading');
   els.app.dataset.mode = mode;
   if (mode === 'visual') visual.focus();
-  else if (mode === 'source') source?.focus();
+  else if (contentOf(mode) === 'source') source?.focus();
   // reading: no caret anywhere — and ProseMirror only mirrors a read-only
   // selection (mouse drag, Ctrl+A) when focus is not parked on some other
   // element such as the mode button that was just clicked
@@ -1106,8 +1223,10 @@ function setMode(next: Mode): void {
   findBar.reattach();
 }
 
+/** Ctrl+ /: flip Просмотр ↔ Редактирование — the switch's keyboard twin
+ * (#110); the editing side returns to the last used submode. */
 function toggleMode(): void {
-  setMode(MODE_CYCLE[(MODE_CYCLE.indexOf(mode) + 1) % MODE_CYCLE.length]);
+  setMode(mode === 'reading' ? lastEditMode : 'reading');
 }
 
 // ---------- modals ----------
@@ -1137,8 +1256,7 @@ function hideModal(overlay: HTMLElement): void {
   // the visual editor while the dialog was open) — fall back to the
   // editor of the current mode instead of dropping focus on <body>
   if (back && back.isConnected) back.focus();
-  else if (mode === 'visual') visual.focus();
-  else if (mode === 'source') source?.focus();
+  else if (mode !== 'reading') focusActiveEditor();
 }
 
 // the focusable set shared by Tab trapping and arrow-key navigation
@@ -1344,7 +1462,8 @@ function applyStaticTexts(): void {
   document.documentElement.lang = getLang();
   document.getElementById('toolbar')?.setAttribute('aria-label', t('toolbar'));
   els.menubar.setAttribute('aria-label', t('menuBar'));
-  els.modeSwitch.setAttribute('aria-label', t('modeToggle'));
+  els.viewSwitch.setAttribute('aria-label', t('modeToggle'));
+  els.editSwitch.setAttribute('aria-label', t('editModeLabel'));
   els.ehLine.textContent = t('emptyDrop');
   els.ehOpen.textContent = t('open').replace('…', '');
   els.ehMode.textContent = t('modeToggle');
@@ -1356,20 +1475,26 @@ function applyStaticTexts(): void {
   els.ehFormat.textContent = t('formatPanel');
 
   const tip = (el: HTMLElement, text: string): void => el.setAttribute('data-tip', text);
+  // #110: only the top switch carries the hotkey — Ctrl+/ flips
+  // Просмотр ↔ Редактирование; the submode segment is picked with the mouse
   tip(els.btnReading, `${t('reading')} · Ctrl+/`);
-  tip(els.btnVisual, `${t('visual')} · Ctrl+/`);
-  tip(els.btnSource, `${t('source')} · Ctrl+/`);
+  tip(els.btnEdit, `${t('editing')} · Ctrl+/`);
+  tip(els.btnVisual, t('visual'));
+  tip(els.btnSource, t('source'));
+  tip(els.btnSplit, t('split'));
   els.btnReading.setAttribute('aria-label', t('reading'));
+  els.btnEdit.setAttribute('aria-label', t('editing'));
   els.btnVisual.setAttribute('aria-label', t('visual'));
   els.btnSource.setAttribute('aria-label', t('source'));
+  els.btnSplit.setAttribute('aria-label', t('split'));
   tip(els.btnTheme, t('themeTip'));
   els.btnTheme.setAttribute('aria-label', t('themeTip'));
 
   els.stPath.textContent = filePath ?? t('untitled');
   els.stVersion.title = t('versionTip');
   els.stVersion.setAttribute('aria-label', t('versionTip'));
-  tip(els.stToc, `${t('tocTitle')} · Ctrl+Shift+1`);
-  els.stToc.setAttribute('aria-label', `${t('tocTitle')} · Ctrl+Shift+1`);
+  tip(els.btnToc, `${t('tocTitle')} · Ctrl+Shift+1`);
+  els.btnToc.setAttribute('aria-label', `${t('tocTitle')} · Ctrl+Shift+1`);
   // #23: the shortcuts list is one click away in the statusbar; the tip
   // carries the F1 binding (the menu entry lists it too)
   tip(els.stHotkeys, `${t('help')} · F1`);
@@ -1403,6 +1528,8 @@ function applyStaticTexts(): void {
   // render time, so a rebuild re-localizes them
   menuBar.relabel();
   toc.relabel();
+  // #96: the start screen's buttons follow a live language switch too
+  startScreen.relabel();
   // #32: the find bar (a no-op before its first open)
   findBar.relabel();
 }
@@ -1494,7 +1621,9 @@ async function init(): Promise<void> {
     },
     true,
   );
-  toc.mount(els.editorHost, {
+  // #91: the outline is a column of the page grid — its host is the grid
+  // (#editor-panes), where it lands after the text column
+  toc.mount(els.editorPanes, {
     getMode: () => paneOf(mode),
     getVisualPane: () => els.visualPane,
     getSource: () => source,
@@ -1507,6 +1636,13 @@ async function init(): Promise<void> {
   els.sourcePane.addEventListener('scroll', queueTocActive, true);
 
   applyStaticTexts();
+  // #96: the start screen grows inside the empty-state hint — same frame,
+  // no extra paint on the start path (#34)
+  startScreen.mount(els.emptyHint, {
+    onNew: () => void newFile(),
+    onOpen: () => void openFile(),
+    onOpenRecent: (path) => void openPathBestWindow(path),
+  });
   await visual.create(
     els.visualPane,
     '',
@@ -1545,8 +1681,11 @@ async function init(): Promise<void> {
   setMode('visual');
 
   els.btnReading.addEventListener('click', () => setMode('reading'));
+  // #110: back to editing — the last used submode comes back with it
+  els.btnEdit.addEventListener('click', () => setMode(lastEditMode));
   els.btnVisual.addEventListener('click', () => setMode('visual'));
   els.btnSource.addEventListener('click', () => setMode('source'));
+  els.btnSplit.addEventListener('click', () => setMode('split'));
   // #88: the Settings dialog flips the language via setLanguage; the whole
   // live-switch machinery lives here, registered once (it used to be the
   // #btn-lang click handler)
@@ -1562,12 +1701,21 @@ async function init(): Promise<void> {
     // the hidden editor rebuilds with the current content (front-matter
     // carved back out — Crepe must not see it, #33; the #83 prefix is
     // carved out by the same split)
-    const { frontMatter: fm, unparsedPrefix: up, body } = splitFrontMatter(currentFullText());
-    frontMatter = fm;
-    unparsedPrefix = up;
+    // #110 review MAJOR: while the source editor owns the content (Код /
+    // Сплит), the raw text there already carries the front-matter block —
+    // re-carving the COMPOSED text would adopt a prefix on top of raw
+    // bytes and duplicate them in currentFullText. Split the raw text
+    // instead and leave the file-level prefix exactly as it was; it is
+    // recomputed on the way out of the source-owned modes.
+    const rawText = contentOf(mode) === 'source' && source !== null ? source.getContent() : null;
+    const carved =
+      rawText !== null ? splitFrontMatter(rawText) : splitFrontMatter(currentFullText());
+    frontMatter = carved.frontMatter;
+    if (rawText === null) unparsedPrefix = carved.unparsedPrefix;
     suppressChange = true;
+    visualRebuilding = true;
     void visual
-      .rebuild(body)
+      .rebuild(carved.body)
       .then(() => {
         // rebuild wipes the pane (visual.rebuild replaceChildren) — bring the
         // front-matter record back above the fresh editor
@@ -1578,10 +1726,11 @@ async function init(): Promise<void> {
         // otherwise typing goes "blind" into the document under the overlay
         const openOverlay = activeModalOverlay();
         if (openOverlay) openOverlay.querySelector<HTMLElement>('.modal')?.focus();
-        else if (mode === 'visual') visual.focus();
+        else if (mode !== 'reading') focusActiveEditor();
       })
       .catch((err: unknown) => console.error('visual.rebuild failed:', err))
       .finally(() => {
+        visualRebuilding = false;
         // reset in every branch — a stuck flag would freeze dirty tracking
         window.setTimeout(() => {
           suppressChange = false;
@@ -1714,19 +1863,28 @@ async function init(): Promise<void> {
       // document instead (Ctrl+C then copies it as markdown, #47)
       e.preventDefault();
       editSelectAll();
-    } else if (modalOpen === false && mode === 'source' && sourceHotkey(code, e.shiftKey, e.altKey)) {
+    } else if (
+      modalOpen === false &&
+      contentOf(mode) === 'source' &&
+      // #62 review: in split the block hotkeys belong to the code pane —
+      // a preview-focused (readonly) selection must not be edited blind;
+      // in plain «Код» the old focus-independent behavior stays
+      (mode === 'source' || document.activeElement?.closest('#source-editor') !== null) &&
+      sourceHotkey(code, e.shiftKey, e.altKey)
+    ) {
       e.preventDefault();
     }
   });
 
-  // #66: links are live in the reading mode (Obsidian) — a plain click on
-  // an external link opens it in the system browser; without this the
-  // non-editable view would let the WebView itself navigate away from the
-  // document. Internal `#` anchors are visual.ts's business (#59).
+  // #66/#62: links are live in the reading mode and the split preview
+  // (Obsidian) — a plain click on an external link opens it in the system
+  // browser; without this the non-editable view would let the WebView
+  // itself navigate away from the document. Internal `#` anchors are
+  // visual.ts's business (#59).
   els.visualPane.addEventListener(
     'click',
     (e) => {
-      if (mode !== 'reading') return;
+      if (mode !== 'reading' && mode !== 'split') return;
       const a = (e.target as Element | null)?.closest?.('.ProseMirror a[href]') as HTMLAnchorElement | null;
       if (!a || a.getAttribute('href')?.startsWith('#')) return;
       e.preventDefault();
@@ -1767,8 +1925,8 @@ async function init(): Promise<void> {
   // About dialog: the version in the statusbar opens it; the update check
   // that used to live there moved into the dialog
   els.stVersion.addEventListener('click', () => openAbout());
-  // statusbar outline toggle — same code path as View → Outline
-  els.stToc.addEventListener('click', () => toggleToc());
+  // #91: toolbar outline toggle — same code path as View → Outline
+  els.btnToc.addEventListener('click', () => toggleToc());
   // #23: statusbar entry point for the shortcuts list
   els.stHotkeys.addEventListener('click', () => openHotkeys());
   els.aboutClose.addEventListener('click', () => hideModal(els.aboutOverlay));

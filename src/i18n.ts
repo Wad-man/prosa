@@ -12,6 +12,10 @@ const strings = {
     reading: 'Просмотр',
     visual: 'Визуальный редактор',
     source: 'Код',
+    // #110: two-level mode model
+    editing: 'Редактирование',
+    split: 'Сплит',
+    editModeLabel: 'Способ редактирования',
     untitled: 'Без названия',
     unsaved: 'Несохранённые изменения',
     words: 'слов',
@@ -30,6 +34,8 @@ const strings = {
     formatMouse: 'Правая кнопка мыши',
     formatPanel: 'форматирование',
     modeToggle: 'Режим',
+    // #110: the View-menu entry for the Просмотр ↔ Редактирование switch
+    modeViewToggle: 'Просмотр / редактирование',
     versionTip: 'О программе',
     aboutDesc: 'Минималистичный открытый редактор и просмотрщик Markdown — «блокнот» для .md-файлов',
     versionWord: 'Версия',
@@ -76,9 +82,13 @@ const strings = {
     imgSaveError: 'Не удалось сохранить файл картинки',
     themeLight: 'Светлая',
     themeDark: 'Тёмная',
-    modeCycle: 'Сменить режим',
     tocTitle: 'Оглавление',
+    tocOnPage: 'На странице',
     tocEmpty: 'Заголовков нет',
+    // #96: start screen (empty state)
+    ssNewFile: 'Новый файл',
+    ssOpenFile: 'Открыть файл',
+    ssRecent: 'Недавние',
     website: 'Веб-сайт',
     sourceCode: 'Исходный код',
     hotkeys: 'Горячие клавиши',
@@ -125,6 +135,10 @@ const strings = {
     // "Code", not "Source code": the Help menu already links to the repo as
     // "Source code" (mirrors RU «Код» / «Исходный код», #81)
     source: 'Code',
+    // #110: two-level mode model
+    editing: 'Editing',
+    split: 'Split',
+    editModeLabel: 'Editing view',
     untitled: 'Untitled',
     unsaved: 'Unsaved changes',
     words: 'words',
@@ -143,6 +157,8 @@ const strings = {
     formatMouse: 'Right mouse button',
     formatPanel: 'formatting',
     modeToggle: 'Mode',
+    // #110: the View-menu entry for the reading ↔ editing switch
+    modeViewToggle: 'Reading / editing',
     versionTip: 'About ProsaMD',
     aboutDesc: 'A minimal open-source Markdown editor & viewer — a "notepad" for .md files',
     versionWord: 'Version',
@@ -189,9 +205,13 @@ const strings = {
     imgSaveError: 'Failed to save the image file',
     themeLight: 'Light',
     themeDark: 'Dark',
-    modeCycle: 'Switch mode',
     tocTitle: 'Outline',
+    tocOnPage: 'On this page',
     tocEmpty: 'No headings yet',
+    // #96: start screen (empty state)
+    ssNewFile: 'New file',
+    ssOpenFile: 'Open file',
+    ssRecent: 'Recent',
     website: 'Website',
     sourceCode: 'Source code',
     hotkeys: 'Keyboard shortcuts',

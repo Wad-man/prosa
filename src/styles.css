@@ -386,13 +386,37 @@ body {
   transition: transform var(--t-2) var(--ease);
 }
 
-/* #66: three segments — reading · live preview · source */
-.seg[data-active='visual'] .seg-thumb {
+/* #66/#110: two segments — Просмотр ↔ Редактирование (two stops) and the
+   editing submodes visual / code / split (three stops) */
+#view-switch {
+  grid-template-columns: 1fr 1fr;
+}
+
+#view-switch .seg-thumb {
+  width: calc((100% - 6px) / 2);
+}
+
+#view-switch[data-active='edit'] .seg-thumb,
+#edit-switch[data-active='source'] .seg-thumb {
   transform: translateX(100%);
 }
 
-.seg[data-active='source'] .seg-thumb {
+#edit-switch[data-active='split'] .seg-thumb {
   transform: translateX(200%);
+}
+
+/* #110: while viewing, the submode segment shows where editing would land
+   but takes no input */
+.seg[data-disabled='true'] {
+  opacity: 0.45;
+}
+
+.seg[data-disabled='true'] .seg-btn {
+  pointer-events: none;
+}
+
+.seg-btn:disabled {
+  cursor: default;
 }
 
 .seg-btn {
@@ -555,54 +579,84 @@ body {
   display: flex;
 }
 
-/* the outline sidebar (#21) is a flex sibling; panes keep the absolute
-   stacking inside their own wrapper so the empty-state hint centers on the
-   content area, not the sidebar */
+/* #91: the panes area is a centered flex group — text column + outline
+   column. Closed, the text column takes everything (identical to the old
+   single-pane layout); open, the [text | outline] group centers together
+   so the outline hugs the text column, not the window edge. The outline
+   column animates its width (the proven #36 outer-width pattern) while
+   its children keep a fixed width, so the text never rewraps mid-flight. */
 #editor-panes {
   position: relative;
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  display: flex;
+  justify-content: center;
+  /* #25+#91: the outline breakpoints respond to the panes' own width, not
+     the viewport — the Ctrl+wheel zoom (zoom on <html>) must not leave a
+     220px column beside a 400px text column (review MINOR) */
+  container-type: inline-size;
+  container-name: panes;
 }
 
-/* ---------- outline sidebar with animated reveal (#36) ----------
-   Width animates 0 ↔ 248px on the outer panel (overflow hidden) while the
-   inner children keep a fixed width, so the text never rewraps mid-flight.
-   `hidden` is applied by toc.ts only after the close transition ends. */
+#panes-stack {
+  position: relative;
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  max-width: 100%;
+}
+
+#editor-panes.toc-open #panes-stack {
+  max-width: 944px; /* 52em of text + the column's own side padding */
+}
+
+/* ---------- outline: frameless right column of the page (#91) ----------
+   Part of the page, not a panel: no background, border or shadow — the
+   document's own surface. The column is stationary (outside the text
+   scroller) and gets its own scrollbar only on overflow. */
 #toc-panel {
   flex: none;
+  height: 100%;
   width: 0;
+  margin-left: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--bg-sunk);
-  border-right: 1px solid var(--border);
-  overflow: hidden;
-  transition: width var(--t-2) var(--ease), background-color var(--t-2) var(--ease),
-    border-color var(--t-2) var(--ease);
+  padding: 48px 0 24px; /* top air matches the text column */
+  transition: width var(--t-2) var(--ease), margin-left var(--t-2) var(--ease);
 }
 
-#toc-panel.is-open {
-  width: 249px; /* 248 content + 1px border */
-}
-
-#toc-panel:not(.is-open) {
-  border-right-color: transparent;
+#editor-panes.toc-open #toc-panel {
+  width: 220px;
+  margin-left: 56px;
 }
 
 #toc-panel > * {
-  width: 248px; /* inner fixed width — no text squeeze during the flight */
+  width: 220px; /* inner fixed width — no text squeeze during the flight */
+  box-sizing: border-box;
 }
 
 #toc-panel[hidden] {
   display: none;
 }
 
-.toc-head {
-  padding: 11px 16px 5px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+/* keep the reading measure while the outline is open: the column is now
+   capped at 944px, not the window — same 52em cap, no 80%-of-pane shrink.
+   :not(#fm-view) — the front-matter record is full-width, not a text
+   column (review: the bare `> div` selector overrode it) */
+#editor-panes.toc-open #visual-editor .milkdown-wrapper,
+#editor-panes.toc-open #visual-editor > div:not(#fm-view) {
+  width: min(52em, 100%);
+}
+
+#editor-panes.toc-open #source-editor .cm-content {
+  width: min(52em, 100%);
+}
+
+.toc-cap {
+  margin: 0 2px 10px;
+  font-size: 12px;
   color: var(--fg-3);
   user-select: none;
 }
@@ -610,39 +664,50 @@ body {
 .toc-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 8px 16px;
+  overscroll-behavior: contain;
+  padding: 0 12px 16px 14px;
 }
 
 .toc-item {
   appearance: none;
   border: none;
-  border-left: 2px solid transparent;
   background: transparent;
   display: block;
   width: 100%;
-  padding: 5px 8px;
-  padding-left: calc(8px + (var(--lvl, 1) - 1) * 14px);
-  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  padding: 3px 0;
+  padding-left: calc((var(--lvl, 1) - 1) * 12px);
+  border-radius: var(--r-sm);
   font: inherit;
   font-size: 13px;
-  line-height: 1.35;
-  color: var(--fg-2);
+  line-height: 1.4;
+  color: var(--fg-3);
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
-  transition: background-color var(--t-1) var(--ease), color var(--t-1) var(--ease);
+  transition: color var(--t-1) var(--ease);
 }
 
 .toc-item:hover {
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
   color: var(--fg);
 }
 
+/* current section: full-strength text + a small accent dot before it
+   (prototype three-column-2026-10-12) */
 .toc-item.active {
-  color: var(--accent);
-  border-left-color: var(--accent);
+  color: var(--fg);
+}
+
+.toc-item.active::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin: 0 7px 2px -11px;
+  vertical-align: middle;
 }
 
 .toc-item:focus-visible {
@@ -650,9 +715,40 @@ body {
 }
 
 .toc-empty {
-  padding: 12px 16px;
+  padding: 2px 2px 12px;
   font-size: 12.5px;
   color: var(--fg-3);
+}
+
+/* narrow windows: shrink the outline, then overlay it over the text (#91).
+   Container queries, not media — see #editor-panes above */
+@container panes (max-width: 1100px) {
+  #editor-panes.toc-open #toc-panel {
+    width: 180px;
+    margin-left: 32px;
+  }
+}
+
+@container panes (max-width: 820px) {
+  #panes-stack,
+  #editor-panes.toc-open #panes-stack {
+    max-width: 100%;
+  }
+
+  /* too narrow for a side-by-side column: the outline overlays the text */
+  #toc-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: min(240px, 72vw) !important;
+    margin-left: 0 !important;
+    background: var(--bg);
+    box-shadow: -8px 0 24px color-mix(in srgb, #000 12%, transparent);
+    padding: 40px 0 24px;
+    z-index: 6;
+  }
 }
 
 /* navigation flash on the target heading (visual mode) */
@@ -686,6 +782,127 @@ body {
 
 .editor-pane.active {
   display: block;
+}
+
+/* ---------- #62 split: code + live preview side by side ----------
+   The panes leave their absolute stacking and become grid cells of the
+   text column — code left, preview right (the owner's «код + предпросмотр»).
+   Each pane keeps its own scroller. */
+#app[data-mode='split'] #panes-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+#app[data-mode='split'] .editor-pane {
+  position: relative;
+  inset: auto;
+}
+
+#app[data-mode='split'] #source-editor {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+#app[data-mode='split'] #visual-editor {
+  grid-column: 2;
+  grid-row: 1;
+  border-left: 1px solid var(--border);
+}
+
+/* ---------- #96: start screen (inside the empty state) ----------
+   The hint stays pointer-transparent; only the interactive parts of the
+   start screen catch clicks, so the editor behind remains fully usable. */
+.ss {
+  margin-top: 28px;
+}
+
+.ss-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.ss-btn {
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 8px 16px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background-color var(--t-1) var(--ease), border-color var(--t-1) var(--ease);
+}
+
+.ss-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ss-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ss-recent {
+  margin-top: 26px;
+  max-width: 52ch;
+  pointer-events: auto;
+}
+
+.ss-recent-cap {
+  font-size: 12px;
+  color: var(--fg-3);
+  margin-bottom: 6px;
+  user-select: none;
+}
+
+.ss-recent-item {
+  appearance: none;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg-2);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--t-1) var(--ease), color var(--t-1) var(--ease);
+}
+
+.ss-recent-item:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--fg);
+}
+
+.ss-recent-item:focus-visible {
+  outline-offset: -2px;
+}
+
+.ss-recent-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ss-recent-dir {
+  flex: none;
+  max-width: 45%;
+  font-size: 11.5px;
+  color: var(--fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: right;
 }
 
 /* ---------- empty state hint ---------- */
@@ -1036,17 +1253,24 @@ body {
 /* ---------- #66: reading mode ----------
    The same visual editor with `editable` off (visual.ts setReadonly). The
    editing affordances go: block handle, link tooltips, the caret inside
-   code blocks (their CodeMirror already refuses edits). */
+   code blocks (their CodeMirror already refuses edits). The split preview
+   (#62) gets the same treatment — it is a render, not an editor. */
 #app[data-mode='reading'] .milkdown-block-handle,
 #app[data-mode='reading'] .milkdown-link-preview,
 #app[data-mode='reading'] .milkdown-link-edit,
-#app[data-mode='reading'] .milkdown-slash-menu {
+#app[data-mode='reading'] .milkdown-slash-menu,
+#app[data-mode='split'] .milkdown-block-handle,
+#app[data-mode='split'] .milkdown-link-preview,
+#app[data-mode='split'] .milkdown-link-edit,
+#app[data-mode='split'] .milkdown-slash-menu {
   display: none !important;
 }
-#app[data-mode='reading'] #visual-editor .milkdown-code-block .cm-content {
+#app[data-mode='reading'] #visual-editor .milkdown-code-block .cm-content,
+#app[data-mode='split'] #visual-editor .milkdown-code-block .cm-content {
   caret-color: transparent;
 }
-#app[data-mode='reading'] #visual-editor .ProseMirror a[href] {
+#app[data-mode='reading'] #visual-editor .ProseMirror a[href],
+#app[data-mode='split'] #visual-editor .ProseMirror a[href] {
   cursor: pointer;
 }
 
@@ -1057,21 +1281,29 @@ body {
    restored by hand: where a block with a large top margin follows
    (headings, decorated blocks), the previous block drops its bottom margin
    — the larger of the two is exactly what block flow would have kept; a
-   footnote definition between them in the DOM is skipped over. */
-#app[data-mode='reading'] #visual-editor .ProseMirror {
+   footnote definition between them in the DOM is skipped over.
+   The split preview shares the reading render. */
+#app[data-mode='reading'] #visual-editor .ProseMirror,
+#app[data-mode='split'] #visual-editor .ProseMirror {
   display: flex;
   flex-direction: column;
 }
 #app[data-mode='reading'] #visual-editor .ProseMirror > :is(
-  :has(+ :is(h1, h2, h3, h4, h5, h6, blockquote, pre, hr, .milkdown-code-block, .milkdown-table-block)),
-  :has(+ dl[data-type='footnote_definition'] + :is(h1, h2, h3, h4, h5, h6, blockquote, pre, hr, .milkdown-code-block, .milkdown-table-block))
-) {
+    :has(+ :is(h1, h2, h3, h4, h5, h6, blockquote, pre, hr, .milkdown-code-block, .milkdown-table-block)),
+    :has(+ dl[data-type='footnote_definition'] + :is(h1, h2, h3, h4, h5, h6, blockquote, pre, hr, .milkdown-code-block, .milkdown-table-block))
+  ),
+#app[data-mode='split'] #visual-editor .ProseMirror > :is(
+    :has(+ :is(h1, h2, h3, h4, h5, h6, blockquote, pre, hr, .milkdown-code-block, .milkdown-table-block)),
+    :has(+ dl[data-type='footnote_definition'] + :is(h1, h2, h3, h4, h5, h6, blockquote, pre, hr, .milkdown-code-block, .milkdown-table-block))
+  ) {
   margin-bottom: 0;
 }
-#app[data-mode='reading'] #visual-editor .ProseMirror > dl[data-type='footnote_definition'] {
+#app[data-mode='reading'] #visual-editor .ProseMirror > dl[data-type='footnote_definition'],
+#app[data-mode='split'] #visual-editor .ProseMirror > dl[data-type='footnote_definition'] {
   order: 1;
 }
-#app[data-mode='reading'] #visual-editor .ProseMirror > dl[data-type='footnote_definition']:first-of-type {
+#app[data-mode='reading'] #visual-editor .ProseMirror > dl[data-type='footnote_definition']:first-of-type,
+#app[data-mode='split'] #visual-editor .ProseMirror > dl[data-type='footnote_definition']:first-of-type {
   margin-top: 2em;
   padding-top: 1.25em;
   border-top: 1px solid var(--border);
@@ -1542,23 +1774,9 @@ body {
   color: var(--fg);
 }
 
-/* outline (sidebar) show/hide toggle: pressed = the sidebar is visible,
-   the pane fills in and the whole icon takes the accent color */
-.st-toc .st-toc-pane {
-  opacity: 0;
-  transition: opacity var(--t-2) var(--ease);
-}
-
-.st-toc[aria-pressed='true'] {
-  color: var(--accent);
-}
-
-.st-toc[aria-pressed='true'] .st-toc-pane {
-  opacity: 1;
-}
-
-.st-toc[aria-pressed='true']:hover,
-.st-toc[aria-pressed='true']:focus-visible {
+/* #91: the outline toggle moved to the toolbar's right corner (btn-toc);
+   pressed state = the outline column is visible */
+#btn-toc[aria-pressed='true'] {
   color: var(--accent);
 }
 

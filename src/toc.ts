@@ -35,6 +35,7 @@ interface TocEntry {
 
 export class TocPanel {
   private ctx: TocContext | null = null;
+  private host: HTMLElement | null = null;
   private panel: HTMLElement | null = null;
   private list: HTMLElement | null = null;
   private entries: TocEntry[] = [];
@@ -51,39 +52,44 @@ export class TocPanel {
 
   mount(host: HTMLElement, ctx: TocContext): void {
     this.ctx = ctx;
+    this.host = host;
 
     const panel = document.createElement('aside');
     panel.id = 'toc-panel';
     panel.hidden = true;
     panel.setAttribute('aria-label', t('tocTitle'));
 
-    const head = document.createElement('div');
-    head.className = 'toc-head';
-    head.textContent = t('tocTitle');
+    // #91: a quiet page-part caption instead of the old sidebar header
+    const cap = document.createElement('div');
+    cap.className = 'toc-cap';
+    cap.textContent = t('tocOnPage');
 
     this.list = document.createElement('nav');
     this.list.className = 'toc-list';
     this.list.setAttribute('role', 'navigation');
 
-    panel.append(head, this.list);
-    host.prepend(panel); // first child: panes wrapper shifts right
+    panel.append(cap, this.list);
+    // #91: right column, after the text in DOM so Tab reaches the document
+    // first and screen readers announce text before navigation
+    host.append(panel);
     this.panel = panel;
   }
 
   relabel(): void {
     if (!this.panel) return;
     this.panel.setAttribute('aria-label', t('tocTitle'));
-    const head = this.panel.querySelector('.toc-head');
-    if (head) head.textContent = t('tocTitle');
+    const cap = this.panel.querySelector('.toc-cap');
+    if (cap) cap.textContent = t('tocOnPage');
     this.render(); // placeholder text is localized too
   }
 
-  /** Show/hide with a width animation (#36): the `is-open` class drives a
-   * width transition (styles.css), while the `hidden` attribute — which
-   * would kill the transition mid-flight — is set only after the close
-   * animation finished. A timer backs the transitionend (and covers
-   * prefers-reduced-motion, where no transition fires). `inert` drops the
-   * closing panel from the tab order immediately. */
+  /** Show/hide with a column-width animation (#36/#91): the host grid's
+   * `toc-open` class drives the column transition (styles.css), while the
+   * panel's `hidden` attribute — which would kill the transition
+   * mid-flight — is set only after the close animation finished. A timer
+   * backs the transitionend (and covers prefers-reduced-motion, where no
+   * transition fires). `inert` drops the closing panel from the tab order
+   * immediately. */
   setVisible(visible: boolean): void {
     const panel = this.panel;
     if (!panel) return;
@@ -96,8 +102,10 @@ export class TocPanel {
       // reflow so the transition plays from width 0, not from display:none
       void panel.offsetWidth;
       panel.classList.add('is-open');
+      this.host?.classList.add('toc-open');
     } else {
       panel.classList.remove('is-open');
+      this.host?.classList.remove('toc-open');
       panel.inert = true;
       this.closeTimer = window.setTimeout(() => {
         if (!panel.classList.contains('is-open')) panel.hidden = true;

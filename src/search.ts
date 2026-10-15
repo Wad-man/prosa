@@ -23,7 +23,7 @@ import { cmApplySearch, cmGoToMatch, cmMatchCount, cmMatchFrom, cmReplaceAllMatc
 export interface FindReplaceDeps {
   visual: VisualEditor;
   getSource: () => SourceEditor | null;
-  getMode: () => 'reading' | 'visual' | 'source';
+  getMode: () => 'reading' | 'visual' | 'source' | 'split';
   /** true while any modal overlay (about/hotkeys/settings/close) is up */
   isOverlayOpen: () => boolean;
   /** called after a successful replace — deterministic dirty tracking */
@@ -83,7 +83,7 @@ export class FindReplaceBar {
    * the panel's replace field (CM's keymap has no Mod-h binding). */
   open(withReplace: boolean): void {
     if (this.deps.isOverlayOpen()) return;
-    if (this.deps.getMode() === 'source') {
+    if (this.deps.getMode() === 'source' || this.deps.getMode() === 'split') {
       const src = this.deps.getSource();
       if (src) {
         openSearchPanel(src.view);
@@ -138,7 +138,7 @@ export class FindReplaceBar {
     if (!this.isOpen) return;
     // entering the source mode hands search over to CodeMirror's panel —
     // the bar has no business there (owner decision, post-RC2)
-    if (this.deps.getMode() === 'source') {
+    if (this.deps.getMode() === 'source' || this.deps.getMode() === 'split') {
       this.close();
       return;
     }
@@ -334,7 +334,7 @@ export class FindReplaceBar {
 
   private applySearch(): void {
     const query = this.input ? this.input.value : '';
-    if (this.deps.getMode() === 'source') {
+    if (this.deps.getMode() === 'source' || this.deps.getMode() === 'split') {
       const src = this.deps.getSource();
       this.count = src ? cmApplySearch(src.view, query, this.caseSensitive, this.activeIndex) : 0;
     } else {
@@ -345,7 +345,7 @@ export class FindReplaceBar {
   }
 
   private refreshCount(): void {
-    if (this.deps.getMode() === 'source') {
+    if (this.deps.getMode() === 'source' || this.deps.getMode() === 'split') {
       const src = this.deps.getSource();
       this.count = src ? cmMatchCount(src.view) : 0;
     } else {
@@ -375,7 +375,7 @@ export class FindReplaceBar {
 
   private goTo(index: number): void {
     this.activeIndex = index;
-    if (this.deps.getMode() === 'source') {
+    if (this.deps.getMode() === 'source' || this.deps.getMode() === 'split') {
       const src = this.deps.getSource();
       if (src) cmGoToMatch(src.view, index);
     } else {
@@ -386,7 +386,7 @@ export class FindReplaceBar {
 
   /** Position of match `index` in the active pane (-1 when out of range). */
   private matchFrom(index: number): number {
-    if (this.deps.getMode() === 'source') {
+    if (this.deps.getMode() === 'source' || this.deps.getMode() === 'split') {
       const src = this.deps.getSource();
       return src ? (cmMatchFrom(src.view, index) ?? -1) : -1;
     }
@@ -403,7 +403,7 @@ export class FindReplaceBar {
     // land PAST the insertion, or "a"→"aa" would re-find its own output
     const replacedFrom = this.matchFrom(this.activeIndex);
     let ok = false;
-    if (this.deps.getMode() === 'source') {
+    if (this.deps.getMode() === 'source' || this.deps.getMode() === 'split') {
       const src = this.deps.getSource();
       ok = src ? cmReplaceMatch(src.view, this.activeIndex, replacement) : false;
     } else {
@@ -434,7 +434,7 @@ export class FindReplaceBar {
     if (this.count === 0) return;
     const replacement = this.replaceInput.value;
     let replaced = 0;
-    if (this.deps.getMode() === 'source') {
+    if (this.deps.getMode() === 'source' || this.deps.getMode() === 'split') {
       const src = this.deps.getSource();
       replaced = src ? cmReplaceAllMatches(src.view, replacement) : 0;
     } else {
