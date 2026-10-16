@@ -148,16 +148,16 @@ export function printErrorLabel(): string {
  * the running job — the first PDF could come out partial (review M1). */
 let printing = false;
 
-/** Render the hidden print copy from the source. Returns false for an
- *  empty document (nothing after the front-matter) — a silent no-op, like
- *  an empty Copy-for-Word. */
-async function renderPrintCopy(source: string): Promise<boolean> {
+/** Render the hidden print copy from the source. An empty document (or
+ *  front-matter-only) still renders — an empty #print-root prints a blank
+ *  sheet: the owner's call (#135, 2026-10-16) is that every save/print
+ *  command offers its dialog, exactly like «Сохранить» writes an empty
+ *  file instead of refusing. */
+async function renderPrintCopy(source: string): Promise<void> {
   const { body } = splitFrontMatter(source);
-  if (!body.trim()) return false;
   const root = ensurePrintRoot();
   root.innerHTML = String(processor.processSync(body));
   await waitForImages(root);
-  return true;
 }
 
 /**
@@ -171,7 +171,7 @@ export async function savePdfDocument(source: string, suggestedName: string): Pr
   if (printing) return;
   printing = true;
   try {
-    if (!(await renderPrintCopy(source))) return;
+    await renderPrintCopy(source);
 
     if (!inTauri) {
       window.print(); // plain browser (dev): the browser print dialog
@@ -217,7 +217,7 @@ export async function printSheetDocument(source: string): Promise<void> {
   if (printing) return;
   printing = true;
   try {
-    if (!(await renderPrintCopy(source))) return;
+    await renderPrintCopy(source);
 
     if (!inTauri) {
       window.print(); // plain browser (dev): the browser print dialog

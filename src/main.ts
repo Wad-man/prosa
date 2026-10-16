@@ -1650,7 +1650,8 @@ function openWhatsNew(): void {
 
 /** The whole document — front-matter and the #83 prefix are metadata and
  * never reach the paper (the print commands split them back out, same as
- * Copy-for-Word). An empty document is a silent no-op. */
+ * Copy-for-Word). An empty document prints a blank sheet: every save /
+ * print command offers its dialog (#135, owner 2026-10-16). */
 function savePdfCurrentDocument(): void {
   void savePdfDocument(currentFullText(), fileName()).catch((err: unknown) => {
     void message(`${savePdfErrorLabel()}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
