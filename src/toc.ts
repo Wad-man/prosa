@@ -77,6 +77,14 @@ export class TocPanel {
   private renderedSig: string | null = null;
   /** setVisible() has run once — startup applies the flag without a flight. */
   private shownOnce = false;
+  /** the last feature flag setVisible() was asked for — doc-empty gating
+   *  (#131-1) re-applies it when the document empties or fills back in */
+  private flag = false;
+  /** #131-1: an empty document (the start screen) suppresses the column —
+   *  it would reserve a strip just to say «Заголовков нет». Starts true:
+   *  at boot there is no content yet (data-pending / fresh window), so a
+   *  remembered flag cannot flash the column before the first stats tick. */
+  private docEmpty = true;
 
   mount(host: HTMLElement, ctx: TocContext): void {
     this.ctx = ctx;
@@ -125,30 +133,57 @@ export class TocPanel {
 
   /** Show/hide the outline column (#91 → rc.7 rerun): the column slides out
    *  from under the text's right edge and back under it — in BOTH tiers
-   *  (2026-10-16, #129: the reserve flies the same way, only the text snaps
-   *  to its narrower width once at the start of the opening flight and back
-   *  after the closing one). The outer panel clips the flight,
-   *  compositor-only. `hidden` lands only after the close transition
-   *  finished; `inert` drops the closing panel from the tab order at once. */
+   *  (2026-10-16, #129: the reserve flies the same way; the text yields and
+   *  reclaims the strip through the same transition, #133). The outer panel
+   *  clips the flight, compositor-only. `hidden` lands only after the close
+   *  transition finished; `inert` drops the closing panel from the tab order
+   *  at once. An empty document suppresses the column (#131-1): the flag
+   *  stays remembered, the column returns with the first content. */
   setVisible(visible: boolean): void {
+    this.flag = visible;
+    this.applyFlag();
+  }
+
+  /** #131-1: the start screen does not host the column — main.ts reports
+   *  emptiness on every stats/refresh tick; the change re-applies the flag
+   *  (a suppressed flag survives an empty session and shows once content
+   *  arrives). */
+  setDocEmpty(empty: boolean): void {
+    if (empty === this.docEmpty) return;
+    this.docEmpty = empty;
+    this.applyFlag();
+    // content arrived while the column was suppressed — scheduleToc's
+    // isVisible() gate returned before its debounce could arm, so the
+    // headings the panel is now showing must be collected here
+    if (!empty && this.isVisible()) this.refresh();
+  }
+
+  private applyFlag(): void {
     const panel = this.panel;
     if (!panel) return;
+    const visible = this.flag && !this.docEmpty;
     const open = panel.classList.contains('is-open');
-    const first = !this.shownOnce;
-    this.shownOnce = true;
     if (visible === open) return;
     window.clearTimeout(this.closeTimer);
     if (visible) {
+      const first = !this.shownOnce;
+      this.shownOnce = true;
       this.remeasure();
       panel.hidden = false;
       panel.inert = false;
       // the window's first frame shows a remembered outline already in
       // place — the flight is for the toggle, not for startup (audit
-      // 2026-10-15: the column slid in under the start screen's rise)
+      // 2026-10-15: the column slid in under the start screen's rise);
+      // #133: the host carries the same still so the reserved strip (the
+      // text's padding) lands with it instead of creeping in
       if (first) {
         panel.classList.add('toc-still');
+        this.host?.classList.add('toc-still');
         requestAnimationFrame(() =>
-          requestAnimationFrame(() => panel.classList.remove('toc-still')),
+          requestAnimationFrame(() => {
+            panel.classList.remove('toc-still');
+            this.host?.classList.remove('toc-still');
+          }),
         );
       }
       // reflow so the flight plays from the parked state, not from display:none
@@ -162,7 +197,8 @@ export class TocPanel {
         if (panel.classList.contains('is-open')) return;
         // the text reclaims its width only after the column slid back under
         // its edge — on close the two never cross (owner 2026-10-16, #129:
-        // the flight reads the same at every width)
+        // the flight reads the same at every width; #133: the reclaim
+        // itself transitions, on the same clock as the flight)
         this.host?.classList.remove('toc-open');
         panel.hidden = true;
       }, 260);
@@ -383,6 +419,8 @@ export class TocPanel {
       item.type = 'button';
       item.className = 'toc-item';
       item.style.setProperty('--lvl', String(entry.level));
+      // #126 design-NIT: first-level weight (CSS-only cannot read --lvl)
+      item.dataset.lvl = String(entry.level);
       item.textContent = entry.text || '#';
       item.title = entry.text;
       item.addEventListener('pointerdown', (e) => e.preventDefault());

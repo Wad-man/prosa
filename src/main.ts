@@ -37,7 +37,7 @@ import {
 import type { BlockId, MarkId } from './editor/actions';
 import { splitFrontMatter } from './frontmatter';
 import { markdownToHtml } from './markdown-html';
-import { printDocument } from './print';
+import { printDocument, printErrorLabel, printMenuLabel } from './print';
 import { CHANGELOG_URL, checkWhatsNew, markWhatsNewSeen, whatsNewItems } from './whats-new';
 import { MenuBar, type MenuSection } from './menu';
 import { TocPanel } from './toc';
@@ -323,6 +323,10 @@ function statsText(words: number, chars: number): string {
 function refreshEmptyState(): void {
   const empty = currentFullText().trim() === '';
   els.app.classList.toggle('empty', empty);
+  // #131-1: the start screen does not host the outline column — it would
+  // reserve a strip just to say «Заголовков нет»; the remembered flag
+  // survives and the column returns with the first content
+  toc.setDocEmpty(empty);
   // leaving emptiness also leaves the «started writing» state — deleting
   // everything back later honestly returns the start screen (#96)
   if (!empty) els.app.classList.remove('writing');
@@ -338,6 +342,17 @@ function refreshChrome(): void {
   if (nw) void nw.setTitle(title).catch((err) => console.warn('setTitle failed:', err));
   els.stPath.textContent = filePath ?? fileSuggestion ?? t('untitled');
   els.stPath.title = filePath ?? '';
+  // #125: only a saved file's path is copyable — the click affordance
+  // (and the button semantics) follow the file
+  if (filePath !== null) {
+    els.stPath.classList.add('copyable');
+    els.stPath.setAttribute('role', 'button');
+    els.stPath.tabIndex = 0;
+  } else {
+    els.stPath.classList.remove('copyable');
+    els.stPath.removeAttribute('role');
+    els.stPath.removeAttribute('tabindex');
+  }
   els.stModified.hidden = !dirty;
   updateStats();
   refreshEmptyState();
@@ -349,8 +364,13 @@ function scheduleStats(): void {
   window.clearTimeout(statsTimer);
   statsTimer = window.setTimeout(() => {
     const md = statsPending.trim();
-    const words = md ? md.split(/\s+/).length : 0;
-    els.stCount.textContent = statsText(words, statsPending.length);
+    // #131-2: «0 слов · 0 симв.» is noise — an empty document shows no
+    // counter at all (the min-read is already gated on words > 0)
+    if (md === '') els.stCount.textContent = '';
+    else {
+      const words = md.split(/\s+/).length;
+      els.stCount.textContent = statsText(words, statsPending.length);
+    }
     refreshEmptyState();
   }, 250);
 }
@@ -915,10 +935,17 @@ function buildMenuSections(): (() => MenuSection)[] {
         { label: t('save'), hotkey: 'Ctrl+S', action: () => void saveFile(false) },
         { label: t('saveAs'), hotkey: 'Ctrl+Shift+S', action: () => void saveFile(true) },
         sep(),
-        // #24: a system-level «Save» peer, not an export feature — Windows
-        // writes a silent PDF (path via the Save dialog), macOS/Linux open
-        // the system print sheet
-        { label: t('print'), hotkey: 'Ctrl+P', action: () => printCurrentDocument() },
+        // #24 → #134: a system-level «Save» peer, not an export feature —
+        // and the label tells the truth about the pipeline: Windows writes
+        // a silent PDF (path via the Save dialog — «Сохранить в PDF…»),
+        // macOS/Linux open the system print sheet («Печать…»). Ctrl+P
+        // keeps the print muscle memory on every platform
+        { label: printMenuLabel(), hotkey: 'Ctrl+P', action: () => printCurrentDocument() },
+        sep(),
+        // #134 (product review): the close path surfaces in the menu — it
+        // goes through the OS close, the unsaved guard intercepts it
+        // exactly like the × button / Ctrl+W
+        { label: t('closeWindow'), hotkey: 'Ctrl+W', action: () => void currentWindow?.close().catch(() => {}) },
       ],
     }),
     (): MenuSection => ({
@@ -1385,6 +1412,7 @@ function setMode(next: Mode): void {
   }
   els.modeSwitch.dataset.active = mode;
   els.app.dataset.mode = mode;
+  refreshEmptyHintText();
   // review M2 + NIT: after dataset.mode — the split grid flips with the
   // attribute, so measuring before it would read the old layout; the active
   // scroller changed too (code mode measures .cm-scroller, not the hidden
@@ -1608,7 +1636,7 @@ function openWhatsNew(): void {
  * Copy-for-Word). An empty document is a silent no-op. */
 function printCurrentDocument(): void {
   void printDocument(currentFullText(), fileName()).catch((err: unknown) => {
-    void message(`${t('printError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
+    void message(`${printErrorLabel()}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
   });
 }
 
@@ -1644,12 +1672,18 @@ function formatKbdIcon(): string {
   );
 }
 
+// #131-4: Просмотр cannot write — its empty-document line says so instead
+// of the editing invitation (which moved one line under the caret, #130)
+function refreshEmptyHintText(): void {
+  els.ehLine.textContent = mode === 'reading' ? t('emptyDropReading') : t('emptyDrop');
+}
+
 function applyStaticTexts(): void {
   document.documentElement.lang = getLang();
   document.getElementById('toolbar')?.setAttribute('aria-label', t('toolbar'));
   els.menubar.setAttribute('aria-label', t('menuBar'));
   els.modeSwitch.setAttribute('aria-label', t('modeToggle'));
-  els.ehLine.textContent = t('emptyDrop');
+  refreshEmptyHintText();
   els.ehPaste.textContent = t('ehPaste');
   els.ehMode.textContent = t('ehMode');
   els.ehSettings.textContent = t('ehSettings');
@@ -2165,6 +2199,26 @@ async function init(): Promise<void> {
   els.btnToc.addEventListener('click', () => toggleToc());
   // #23: statusbar entry point for the shortcuts list
   els.stHotkeys.addEventListener('click', () => openHotkeys());
+  // #125: clicking the file path copies the full path — the minimal
+  // feedback is the tooltip saying so for a moment (an untitled file never
+  // carries the click affordance, see refreshChrome)
+  let pathCopiedTimer = 0;
+  const copyPathOnce = async (): Promise<void> => {
+    if (filePath === null) return;
+    if (await writeClipboard(filePath)) {
+      els.stPath.title = t('pathCopied');
+      window.clearTimeout(pathCopiedTimer);
+      pathCopiedTimer = window.setTimeout(() => {
+        els.stPath.title = filePath ?? '';
+      }, 1500);
+    }
+  };
+  els.stPath.addEventListener('click', () => void copyPathOnce());
+  els.stPath.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    void copyPathOnce();
+  });
   els.aboutClose.addEventListener('click', () => hideModal(els.aboutOverlay));
   els.aboutCheck.addEventListener('click', () => {
     hideModal(els.aboutOverlay);

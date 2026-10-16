@@ -27,6 +27,8 @@ const strings = {
     themeTip: 'Переключить тему (светлая / тёмная)',
     minShort: 'мин',
     emptyDrop: 'Начните писать или вставьте текст — это станет новым документом',
+    // #131-4: Просмотр cannot write — its own empty-document line
+    emptyDropReading: 'Пустой документ — создайте новый или откройте файл',
     ehPaste: 'вставить',
     ehMode: 'режим',
     ehSettings: 'настройки',
@@ -121,9 +123,15 @@ const strings = {
     zoomIn: 'Увеличить',
     zoomOut: 'Уменьшить',
     zoomReset: 'Масштаб 100%',
-    // #24: print (File menu) + its failure dialog
+    // #24 → #134: print/save-PDF (File menu) + the failure dialogs — the
+    // wording follows the platform's actual pipeline (print.ts)
     print: 'Печать…',
-    printError: 'Не удалось создать PDF',
+    savePdf: 'Сохранить в PDF…',
+    printError: 'Не удалось выполнить печать',
+    printErrorPdf: 'Не удалось создать PDF',
+    closeWindow: 'Закрыть окно',
+    // #125: the status-bar path copy feedback
+    pathCopied: 'Путь скопирован',
     // #37: what's new (Help menu + modal)
     whatsNew: 'Что нового',
     changelogFull: 'Полная история версий',
@@ -155,6 +163,8 @@ const strings = {
     themeTip: 'Switch theme (light / dark)',
     minShort: 'min',
     emptyDrop: 'Start writing or paste text — it becomes a new document',
+    // #131-4: reading cannot write — its own empty-document line
+    emptyDropReading: 'Empty document — create a new file or open one',
     ehPaste: 'paste',
     ehMode: 'mode',
     ehSettings: 'settings',
@@ -251,7 +261,12 @@ const strings = {
     zoomReset: 'Actual size',
     // #24: print (File menu) + its failure dialog
     print: 'Print…',
-    printError: 'Failed to create the PDF',
+    savePdf: 'Save as PDF…',
+    printError: 'Failed to print',
+    printErrorPdf: 'Failed to create the PDF',
+    closeWindow: 'Close Window',
+    // #125: the status-bar path copy feedback
+    pathCopied: 'Path copied',
     // #37: what's new (Help menu + modal)
     whatsNew: "What's new",
     changelogFull: 'Full version history',

@@ -58,6 +58,9 @@
               <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg>
             </button>
           </div>
+          <!-- #131-3: the outline toggle is its own group, hairlined like the
+               mode switch — grouping reads the same on both sides -->
+          <span class="tb-sep" aria-hidden="true"></span>
           <!-- #91: outline toggle lives in the top-right corner (Obsidian-style);
                the single entry point — the statusbar twin is gone -->
           <button id="btn-toc" class="btn btn-icon" data-tip-pos="end" aria-pressed="false">
@@ -107,9 +110,12 @@
         <div class="st-right">
           <span id="st-count"></span>
           <button id="st-version" class="st-version" type="button" hidden></button>
-          <!-- #23: the shortcuts list is one click away; F1 calls it too -->
+          <!-- #23: the shortcuts list is one click away; F1 calls it too.
+               #124: the key reads without hovering — a kbd label inside the
+               button; the tooltip/aria-label keep the full wording -->
           <button id="st-hotkeys" class="st-btn" type="button" data-tip-pos="up-end">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10h10"/><path d="M10 14h4"/></svg>
+            <span class="st-kbd" aria-hidden="true">F1</span>
           </button>
         </div>
       </footer>

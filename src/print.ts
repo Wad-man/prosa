@@ -121,6 +121,23 @@ function isWindows(): boolean {
   return /Windows/i.test(navigator.userAgent);
 }
 
+/** #134: the honest wording follows the platform's actual pipeline —
+ *  Windows saves a silent PDF via the Save dialog, macOS/Linux open the
+ *  system print sheet, browser dev gets the browser dialog. */
+export function printIsWindowsPipeline(): boolean {
+  return inTauri && isWindows();
+}
+
+/** The menu / hotkeys-window label for the print command (#134). */
+export function printMenuLabel(): string {
+  return printIsWindowsPipeline() ? t('savePdf') : t('print');
+}
+
+/** The failure-dialog wording — must not lie under its own menu label. */
+export function printErrorLabel(): string {
+  return printIsWindowsPipeline() ? t('printErrorPdf') : t('printError');
+}
+
 /** One print at a time: a second Ctrl+P while the Save dialog is up or
  * PrintToPdf is running would rebuild #print-root under the running
  * export — the first PDF could come out partial (review M1). */
@@ -154,7 +171,7 @@ async function printOnce(source: string, suggestedName: string): Promise<void> {
   }
 
   const reportError = (err: unknown): void => {
-    void message(`${t('printError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
+    void message(`${printErrorLabel()}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
   };
 
   if (isWindows()) {

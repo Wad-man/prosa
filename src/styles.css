@@ -710,6 +710,33 @@ body {
   margin-right: var(--toc-rsv, 220px);
 }
 
+/* #133: the strip changes hands in step with the column's flight — the
+   text's padding (the stack's margin in split) transitions on the same
+   --t-2/--ease clock as .toc-fly, so the toggle reads as one motion:
+   opening yields the strip while the column slides into it, closing
+   reclaims it once the column has slid back under. Scoped to .toc-reserve
+   (the hug tier never moves the text) and armed whether or not the column
+   is open, so the close-time reclaim animates too. */
+#app:not([data-mode='split']) #editor-panes.toc-reserve #visual-editor,
+#app:not([data-mode='split']) #editor-panes.toc-reserve #source-editor .cm-scroller,
+#app:not([data-mode='split']) #editor-panes.toc-reserve #empty-hint {
+  transition: padding-right var(--t-2) var(--ease);
+}
+
+#app[data-mode='split'] #editor-panes.toc-reserve > #panes-stack {
+  transition: margin-right var(--t-2) var(--ease);
+}
+
+/* startup: a remembered outline and its reserved strip are simply there —
+   the host carries the same two-frame still as the panel (toc.ts) */
+#editor-panes.toc-still,
+#editor-panes.toc-still #visual-editor,
+#editor-panes.toc-still #source-editor .cm-scroller,
+#editor-panes.toc-still #empty-hint,
+#editor-panes.toc-still > #panes-stack {
+  transition: none;
+}
+
 .toc-cap {
   margin: 0 14px 8px 16px;
   font-size: 12px;
@@ -769,6 +796,12 @@ body {
   background: var(--accent);
   margin: 0 7px 2px -11px;
   vertical-align: middle;
+}
+
+/* #126 design-NIT: the first level carries the hierarchy — 600 beats even
+   the active state's 500 (active keeps the color + the accent dot) */
+.toc-item[data-lvl='1'] {
+  font-weight: 600;
 }
 
 .toc-item:focus-visible {
@@ -1098,11 +1131,18 @@ body {
 }
 
 /* the invitation reads like the empty first line's placeholder — the same
-   size and leading as the document text (concept A) */
+   size and leading as the document text (concept A). #130: in the editing
+   mode the caret keeps the first line to itself, the invitation moves one
+   line down (28px = 16px/1.75); Просмотр has no caret, its own line-1
+   text stays put (#131-4) */
 .eh-line {
   font-size: 16px;
   line-height: 1.75;
   color: var(--fg-3);
+}
+
+#app[data-mode='visual'] .eh-line {
+  margin-top: 28px;
 }
 
 .eh-keys {
@@ -1893,8 +1933,34 @@ body {
   height: 15px;
 }
 
+/* #124: the help key reads without hovering — a quiet kbd-ish label rides
+   inside the same button (RU/EN share «F1»); the button keeps its full
+   tooltip/aria-label */
+#st-hotkeys {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.st-kbd {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 500;
+  color: var(--fg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-variant-numeric: tabular-nums;
+}
+
 .st-btn:hover,
 .st-btn:focus-visible {
+  color: var(--fg);
+}
+
+/* #124: the label inherits the hover, the key stays one step quieter */
+.st-btn:hover .st-kbd,
+.st-btn:focus-visible .st-kbd {
   color: var(--fg);
 }
 
@@ -1920,6 +1986,17 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--fg-2);
+}
+
+/* #125: a saved file's path copies on click — the affordance is a pointer
+   and a hover tint, nothing heavier; an untitled file shows none of it */
+#st-path.copyable {
+  cursor: pointer;
+}
+
+#st-path.copyable:hover,
+#st-path.copyable:focus-visible {
+  color: var(--fg);
 }
 
 .st-mod {
