@@ -615,11 +615,10 @@ body {
   max-width: 100%;
 }
 
-/* #91 → гейт 2026-10-15 → аудит владельца 2026-10-15 (конвейер rc.7):
-   стек всегда полноширинный — скроллбар панели текста остаётся у края окна,
-   текст НИКОГДА не двигается (ни паддингов, ни резервов) — оглавление
-   «прижато к тексту» по прототипу three-column-2026-10-12: его слот
-   измеряет toc.ts от правого края живой колонки контента */
+/* #91 → гейт 2026-10-15 → аудит владельца 2026-10-15 (конвейер rc.7) →
+   2026-10-16 (#129): в ОДИНОЧНЫХ режимах панель текста всегда полноширинная —
+   её скроллбар остаётся у края окна в ОБОИХ тирах (резерв не сжимает стек);
+   сплит резерв держит на стеке: общий скроллбар пары живёт на стыке панелей */
 
 /* ---------- outline: the page's own aside column (#91 → rc.7 rerun) ----------
    The panel is a clip WINDOW at the measured hug position (toc.ts sets
@@ -628,9 +627,11 @@ body {
    out from under the text's right edge, hide = slides back under it —
    no z-order painting games, no text reflow. When the margin cannot host
    the column (and in split, always), toc.ts switches to .toc-reserve: the
-   text area gives up the column's width and the outline slides in from the
-   window edge into its own strip — never over the text (owner audit
-   2026-10-15: the overlay drawer is gone). */
+   outline takes a strip of its own — never over the text (owner audit
+   2026-10-15: the overlay drawer is gone; 2026-10-16 #129: the reserve
+   keeps the default seat — left:auto once toc.ts drops --toc-left, right
+   inset clearing the window-edge scrollbar — and the flight is the SAME
+   out-from-under-the-text in both tiers). */
 #toc-panel {
   position: absolute;
   top: 0;
@@ -668,31 +669,44 @@ body {
   transition: none;
 }
 
-/* the reserved column (no room beside the text, split always): the strip
-   at the window edge is the outline's own — the sheet rides the .toc-fly
-   (its hairline and paper slide with it) and parks right of the clip */
-#toc-panel.toc-reserve {
-  left: auto;
-  right: 0;
-}
-
+/* the reserved column (no room beside the text, split always): the strip is
+   the outline's own — the sheet rides the .toc-fly (its hairline and paper
+   slide with it). 2026-10-16 (#129): no overrides anymore — the default
+   seat (left:auto once toc.ts drops --toc-left, right of the window-edge
+   scrollbar) and the SAME parked transform as the hug tier: the column
+   slides out from under the text's right edge at every width */
 #toc-panel.toc-reserve .toc-fly {
   background: var(--bg);
   border-left: 1px solid var(--border);
-  transform: translateX(100%);
 }
 
-/* (1,3,0) on purpose: must beat the .toc-reserve parked transform — both
-   base selectors are (1,2,0) and source order would park the open column */
-#toc-panel.is-open .toc-fly,
-#toc-panel.toc-reserve.is-open .toc-fly {
+#toc-panel.is-open .toc-fly {
   transform: none;
 }
 
-/* the text area gives the reserved strip up at once — the text snaps to
-   its width a single time, the outline is what moves (owner audit
-   2026-10-15) */
-#editor-panes.toc-open.toc-reserve > #panes-stack {
+/* the text gives the reserved strip up at once — the text snaps to its
+   width a single time, the outline is what moves (owner audit 2026-10-15).
+   Single modes keep the pane full-width so its scrollbar stays at the
+   WINDOW edge, the very seat it has in the hug tier (owner 2026-10-16,
+   #129: the bar must not jump between the text edge and the window edge
+   as the window crosses a tier) — the CONTENT gives the strip up from
+   inside the scroller; split keeps the pair's shared scrollbar at the
+   panes' junction and hands the strip over at the stack */
+#app:not([data-mode='split']) #editor-panes.toc-open.toc-reserve #visual-editor {
+  padding-right: var(--toc-rsv, 220px);
+}
+
+#app:not([data-mode='split']) #editor-panes.toc-open.toc-reserve #source-editor .cm-scroller {
+  padding-right: var(--toc-rsv, 220px);
+}
+
+/* the start screen is a sibling overlay, not pane content — shift its
+   column with the same strip so it keeps lining up with the text column */
+#app:not([data-mode='split']) #editor-panes.toc-open.toc-reserve #empty-hint {
+  padding-right: var(--toc-rsv, 220px);
+}
+
+#app[data-mode='split'] #editor-panes.toc-open.toc-reserve > #panes-stack {
   margin-right: var(--toc-rsv, 220px);
 }
 

@@ -123,11 +123,11 @@ export class TocPanel {
     this.render(); // placeholder text is localized too
   }
 
-  /** Show/hide the outline column (#91 → rc.7 rerun): a hugging column
-   *  slides out from under the text's right edge and back under it; a
-   *  reserved one slides in from the window edge (owner audit 2026-10-15:
-   *  the OUTLINE moves — the text only snaps to its new width once, at the
-   *  start of either flight). The outer panel clips the flight,
+  /** Show/hide the outline column (#91 → rc.7 rerun): the column slides out
+   *  from under the text's right edge and back under it — in BOTH tiers
+   *  (2026-10-16, #129: the reserve flies the same way, only the text snaps
+   *  to its narrower width once at the start of the opening flight and back
+   *  after the closing one). The outer panel clips the flight,
    *  compositor-only. `hidden` lands only after the close transition
    *  finished; `inert` drops the closing panel from the tab order at once. */
   setVisible(visible: boolean): void {
@@ -157,10 +157,14 @@ export class TocPanel {
       this.host?.classList.add('toc-open');
     } else {
       panel.classList.remove('is-open');
-      this.host?.classList.remove('toc-open');
       panel.inert = true;
       this.closeTimer = window.setTimeout(() => {
-        if (!panel.classList.contains('is-open')) panel.hidden = true;
+        if (panel.classList.contains('is-open')) return;
+        // the text reclaims its width only after the column slid back under
+        // its edge — on close the two never cross (owner 2026-10-16, #129:
+        // the flight reads the same at every width)
+        this.host?.classList.remove('toc-open');
+        panel.hidden = true;
       }, 260);
     }
   }
@@ -206,7 +210,11 @@ export class TocPanel {
       if (el instanceof HTMLElement) sb = Math.max(sb, el.offsetWidth - el.clientWidth);
     }
     sb = Math.max(0, sb);
-    TocPanel.setVar(panel, '--sb', `${sb}px`);
+    // split: nothing sits at the window edge (the pair's shared scrollbar
+    // lives at the panes' junction, the preview's own bar is hidden) — the
+    // reserve strip reaches the edge itself
+    const sbEdge = this.ctx?.getMode() === 'split' ? 0 : sb;
+    TocPanel.setVar(panel, '--sb', `${sbEdge}px`);
 
     // the find bar lives one level up (#editor-host) and inherits nothing
     // from the panes — hand it its clearance var explicitly
@@ -217,7 +225,7 @@ export class TocPanel {
     if (this.ctx?.getMode() === 'split') {
       // split: the right-hand pane is the preview, its margin is no place
       // for a column — the pair always shares the width with the outline
-      this.applyReserveTier(panel, host, findHost, hostRect.width / z);
+      this.applyReserveTier(panel, host, findHost, hostRect.width / z, sbEdge);
       return;
     }
 
@@ -233,7 +241,7 @@ export class TocPanel {
     if (contentRight === -Infinity) {
       // no live column yet (boot / pending file): a reserved column is the
       // tier that needs no measurement
-      this.applyReserveTier(panel, host, findHost, hostRect.width / z);
+      this.applyReserveTier(panel, host, findHost, hostRect.width / z, sbEdge);
       return;
     }
 
@@ -252,7 +260,7 @@ export class TocPanel {
       this.applyHugTier(panel, host, COL_NARROW, GAP_NARROW, contentRight - hostRect.left, z);
       this.placeFindBar(findHost, freeCss - GAP_NARROW - COL_NARROW, freeCss + sb - GAP_NARROW + 20);
     } else {
-      this.applyReserveTier(panel, host, findHost, hostRect.width / z);
+      this.applyReserveTier(panel, host, findHost, hostRect.width / z, sbEdge);
     }
   }
 
@@ -270,13 +278,16 @@ export class TocPanel {
     host.classList.remove('toc-reserve');
   }
 
-  /** The reserve tier: the text area gives up --toc-rsv (read by CSS on
-   *  the host), the outline sits in that strip at the window edge. */
+  /** The reserve tier: the text content gives up --toc-rsv (read by CSS on
+   *  the host's scrollers), the outline sits in that strip beside the text —
+   *  in single modes left of the window-edge scrollbar (2026-10-16 #129:
+   *  the bar keeps its hug-tier seat), in split at the window edge. */
   private applyReserveTier(
     panel: HTMLElement,
     host: HTMLElement,
     findHost: HTMLElement | null,
     hostWidthCss: number,
+    sbEdge: number,
   ): void {
     const col = hostWidthCss >= RESERVE_WIDE_FROM ? COL_WIDE : COL_NARROW;
     if (panel.style.getPropertyValue('--toc-left')) panel.style.removeProperty('--toc-left');
@@ -284,7 +295,8 @@ export class TocPanel {
     TocPanel.setVar(host, '--toc-rsv', `${col}px`);
     panel.classList.add('toc-reserve');
     host.classList.add('toc-reserve');
-    TocPanel.setVar(findHost, '--toc-fr', `${col + 16}px`);
+    // the bar clears the strip and the window-edge scrollbar beside it
+    TocPanel.setVar(findHost, '--toc-fr', `${col + sbEdge + 16}px`);
   }
 
   /** The find bar: when the space RIGHT of the column hosts the whole bar
@@ -429,9 +441,17 @@ export class TocPanel {
       // re-resolve for the same staleness reason as navigate()
       const els = this.visualHeadingEls();
       const useLive = els.length === this.entries.length ? els : this.entries.map((e) => e.el);
-      for (let i = 0; i < useLive.length; i++) {
-        const el = useLive[i];
-        if (el && el.getBoundingClientRect().top <= 140) index = i;
+      // #132: at the scroll end the last heading can stay pinned below the
+      // 140px line (the page bottom holds it) — the marker must reach it
+      const sc = document.getElementById('visual-editor');
+      const maxScroll = sc ? sc.scrollHeight - sc.clientHeight : 0;
+      if (sc && maxScroll > 2 && sc.scrollTop >= maxScroll - 2) {
+        index = this.entries.length - 1;
+      } else {
+        for (let i = 0; i < useLive.length; i++) {
+          const el = useLive[i];
+          if (el && el.getBoundingClientRect().top <= 140) index = i;
+        }
       }
     } else {
       const source = ctx.getSource();
@@ -445,10 +465,18 @@ export class TocPanel {
         if (ctx.getMode() === 'split') {
           line = view.state.doc.lineAt(view.state.selection.main.head).number;
         } else {
-          const rect = view.dom.getBoundingClientRect();
-          const pos = view.posAtCoords({ x: rect.left + 24, y: rect.top + 24 });
-          if (pos === null) return;
-          line = view.state.doc.lineAt(pos).number;
+          // #132: the scroll end must still light the last item — the last
+          // heading can be pinned below the viewport-top probe forever
+          const sc = view.scrollDOM;
+          const maxScroll = sc.scrollHeight - sc.clientHeight;
+          if (maxScroll > 2 && sc.scrollTop >= maxScroll - 2) {
+            line = Infinity;
+          } else {
+            const rect = view.dom.getBoundingClientRect();
+            const pos = view.posAtCoords({ x: rect.left + 24, y: rect.top + 24 });
+            if (pos === null) return;
+            line = view.state.doc.lineAt(pos).number;
+          }
         }
         for (let i = 0; i < this.entries.length; i++) {
           if ((this.entries[i].line ?? Infinity) <= line) index = i;
