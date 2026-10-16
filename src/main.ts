@@ -1091,6 +1091,10 @@ function buildMenuSections(): (() => MenuSection)[] {
         sep(),
         { label: t('website'), action: () => openExternal('https://prosamd.ru') },
         { label: t('sourceCode'), action: () => openExternal('https://github.com/Wad-man/prosa') },
+        // вариант А (гейт владельца 2026-10-16): the thank-you and the
+        // feedback form join the site links — one external-links family
+        { label: t('tipAuthor'), action: () => openExternal('https://pay.cloudtips.ru/p/4b326f7e') },
+        { label: t('feedback'), action: () => openExternal('https://prosamd.ru/#feedback') },
       ],
     }),
   ];

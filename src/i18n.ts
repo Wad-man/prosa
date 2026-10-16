@@ -98,6 +98,10 @@ const strings = {
     ssYesterday: 'вчера',
     website: 'Веб-сайт',
     sourceCode: 'Исходный код',
+    // Help-menu links (гейт 2026-10-16, вариант А): the CloudTips page and
+    // the site's feedback form — one external-links family with the site
+    tipAuthor: 'Поблагодарить автора',
+    feedback: 'Предложения и замечания',
     hotkeys: 'Горячие клавиши',
     // #107: the F1 window — shortcut list plus a link to the site docs
     help: 'Справка',
@@ -234,6 +238,8 @@ const strings = {
     ssYesterday: 'yesterday',
     website: 'Website',
     sourceCode: 'Source code',
+    tipAuthor: 'Support the author',
+    feedback: 'Feedback',
     hotkeys: 'Keyboard shortcuts',
     // #107: the F1 window — shortcut list plus a link to the site docs
     help: 'Help',
