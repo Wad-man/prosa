@@ -31,19 +31,49 @@ const HAD_PRIOR_STATE =
 
 export const CHANGELOG_URL = 'https://prosamd.ru/changelog.html';
 
-/** User-facing summary of the current release, refreshed per release. */
+/** User-facing summary of the current release, refreshed per release.
+ *
+ * STYLE RULES for this list (owner-approved 2026-10-16 — keep them with
+ * the code, this window is NOT the GitHub release notes):
+ * - one line per item, as short as possible; the verb leads where it
+ *   reads naturally («Добавлены…», «Новый…»); trim the wording, never
+ *   cut items to make room
+ * - user-facing changes only — no technical items, no internals
+ * - hotkeys in parentheses, only the essential ones
+ * - the details live on the site (prosamd.ru/changelog), not here
+ * - «нажатие», not «щелчок»/«клик»; RU and EN stay mirrored
+ * - order follows value for the UPGRADING user, not release headlines
+ * - reviewed by copywriter + tech writer + product before the owner
+ *   signs off; GitHub release notes follow their own rules
+ *   (prosa-changelog skill), this window does not replace them. */
 const RELEASE_SUMMARY: Record<Lang, string[]> = {
   ru: [
-    'Печать — Ctrl+P, сохранение в PDF — Ctrl+Shift+P (Windows); на macOS и Linux PDF — из диалога печати',
-    'Настройки (Ctrl+,), поиск и замена, Raw HTML, масштаб, «Скопировать для Word»',
-    'Сборки для Linux (AppImage, deb); macOS — отдельной версией (prosa-mac)',
-    'Диалог «Справка» (F1) со всеми горячими клавишами',
+    'Режимы Просмотр, Визуальный, Код и Сплит — в одном переключателе; Ctrl+/ переключает Просмотр и редактирование.',
+    'Оглавление перемещено вправо; кнопка вызова — вверху справа.',
+    'Добавлены поиск и замена (Ctrl+F / Ctrl+H).',
+    'Добавлены печать и сохранение в PDF.',
+    'Новый стартовый экран.',
+    'Добавлено масштабирование (Ctrl+колесо, Ctrl+= / Ctrl+−).',
+    'Добавлено отображение HTML-тегов kbd, sub, sup, br; блочный HTML — кодом.',
+    'Добавлено окно настроек (Ctrl+,) с выбором языка интерфейса; тема сменяется плавно.',
+    'Добавлено окно справки (F1) со всеми сочетаниями клавиш.',
+    'Нажатие на путь файла в строке состояния копирует полный путь; в меню «Файл» добавлено «Закрыть окно» (Ctrl+W).',
+    'Добавлена версия для Linux (.deb и AppImage).',
+    'Исправления: конвертация списков, флажки задач, мелкие правки интерфейса.',
   ],
   en: [
-    'Print — Ctrl+P, save as PDF — Ctrl+Shift+P (Windows); on macOS and Linux save the PDF from the print dialog',
-    'Settings (Ctrl+,), find & replace, raw HTML, zoom, "Copy for Word"',
-    'Linux (AppImage, deb) builds; macOS ships as a separate version (prosa-mac)',
-    'The Help dialog (F1) with every keyboard shortcut',
+    'Reading, Visual, Code and Split modes in one switcher; Ctrl+/ flips Reading and editing.',
+    'The outline moved to the right; its toggle sits in the top-right corner.',
+    'Added find & replace (Ctrl+F / Ctrl+H).',
+    'Added printing and saving as PDF.',
+    'A new start screen.',
+    'Added zooming (Ctrl+wheel, Ctrl+= / Ctrl+−).',
+    'Added rendering of the kbd, sub, sup and br HTML tags; block-level HTML shows as code.',
+    'Added a Settings window (Ctrl+,) with the interface language; themes now cross-fade.',
+    'Added a Help window (F1) with every shortcut.',
+    'Pressing the file path in the status bar copies the full path; "Close Window" (Ctrl+W) added to the File menu.',
+    'Added a Linux version (.deb and AppImage).',
+    'Fixes: list conversion, task checkboxes, minor interface polish.',
   ],
 };
 
