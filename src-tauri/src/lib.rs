@@ -426,6 +426,7 @@ pub fn run() {
             is_updater_install,
             print::print_document,
             print::print_to_pdf,
+            print::show_print_ui,
             watchdog::watchdog_pong,
             watchdog::watchdog_draft,
             watchdog::pop_recovery

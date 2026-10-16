@@ -1,9 +1,12 @@
 /**
- * Printing (#24): the document is re-rendered from its markdown source
- * into a hidden #print-root — never the live screen, whose chrome, panels
- * and zoom have no business on paper — and then handed to the platform:
- * Windows writes a silent PDF via WebView2 PrintToPdf (path from a Save
- * dialog), macOS/Linux open the system print sheet.
+ * Printing (#24 → #135): the document is re-rendered from its markdown
+ * source into a hidden #print-root — never the live screen, whose chrome,
+ * panels and zoom have no business on paper — and then handed to the
+ * platform through TWO commands: «Сохранить в PDF…» (Ctrl+Shift+P —
+ * Windows writes a silent PDF via WebView2 PrintToPdf with the path from
+ * a Save dialog; macOS/Linux reuse the system print sheet) and «Печать…»
+ * (Ctrl+P — the real dialog: WebView2 ShowPrintUI on Windows, the system
+ * print sheet on macOS/Linux).
  *
  * The pipeline mirrors markdown-html.ts (контур A — the same structural
  * rules, the same inline-HTML whitelist from raw-html.ts) with
@@ -128,69 +131,109 @@ export function printIsWindowsPipeline(): boolean {
   return inTauri && isWindows();
 }
 
-/** The menu / hotkeys-window label for the print command (#134). */
-export function printMenuLabel(): string {
-  return printIsWindowsPipeline() ? t('savePdf') : t('print');
-}
-
-/** The failure-dialog wording — must not lie under its own menu label. */
-export function printErrorLabel(): string {
+/** The failure wording for the «Сохранить в PDF…» command — must not lie
+ *  under its own menu label (#134). */
+export function savePdfErrorLabel(): string {
   return printIsWindowsPipeline() ? t('printErrorPdf') : t('printError');
 }
 
-/** One print at a time: a second Ctrl+P while the Save dialog is up or
- * PrintToPdf is running would rebuild #print-root under the running
- * export — the first PDF could come out partial (review M1). */
+/** The failure wording for the print command — the sheet/dialog path on
+ *  every platform (#135). */
+export function printErrorLabel(): string {
+  return t('printError');
+}
+
+/** One print-family command at a time: a second Ctrl+P/Ctrl+Shift+P while
+ * a dialog is up or an export is running would rebuild #print-root under
+ * the running job — the first PDF could come out partial (review M1). */
 let printing = false;
 
+/** Render the hidden print copy from the source. Returns false for an
+ *  empty document (nothing after the front-matter) — a silent no-op, like
+ *  an empty Copy-for-Word. */
+async function renderPrintCopy(source: string): Promise<boolean> {
+  const { body } = splitFrontMatter(source);
+  if (!body.trim()) return false;
+  const root = ensurePrintRoot();
+  root.innerHTML = String(processor.processSync(body));
+  await waitForImages(root);
+  return true;
+}
+
 /**
- * Print the given document. `suggestedName` seeds the Save dialog's file
- * name on Windows. Empty documents (nothing after the front-matter) print
- * nothing — a silent no-op, like an empty Copy-for-Word.
+ * «Сохранить в PDF…» (Ctrl+Shift+P, #135). Windows writes a silent PDF
+ * through the Save dialog (PrintToPdf); macOS/Linux hand the job to the
+ * system print sheet (its «Save as PDF» / «Print to File» does the rest);
+ * browser dev gets the browser dialog. `suggestedName` seeds the Save
+ * dialog's file name on Windows.
  */
-export async function printDocument(source: string, suggestedName: string): Promise<void> {
+export async function savePdfDocument(source: string, suggestedName: string): Promise<void> {
   if (printing) return;
   printing = true;
   try {
-    await printOnce(source, suggestedName);
+    if (!(await renderPrintCopy(source))) return;
+
+    if (!inTauri) {
+      window.print(); // plain browser (dev): the browser print dialog
+      return;
+    }
+
+    const reportError = (err: unknown): void => {
+      void message(`${savePdfErrorLabel()}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
+    };
+
+    if (printIsWindowsPipeline()) {
+      const defaultName = suggestedName.replace(/\.(md|markdown|mdown|mkd|txt)$/i, '') + '.pdf';
+      const path = await saveFileDialog({
+        defaultPath: defaultName,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      });
+      if (path === null) return; // cancelled — nothing to print
+      try {
+        await invoke('print_to_pdf', { path });
+      } catch (err) {
+        reportError(err);
+      }
+    } else {
+      try {
+        await invoke('print_document');
+      } catch (err) {
+        reportError(err);
+      }
+    }
   } finally {
     printing = false;
   }
 }
 
-async function printOnce(source: string, suggestedName: string): Promise<void> {
-  const { body } = splitFrontMatter(source);
-  if (!body.trim()) return;
-  const root = ensurePrintRoot();
-  root.innerHTML = String(processor.processSync(body));
-  await waitForImages(root);
+/**
+ * «Печать…» (Ctrl+P, #135): the real print dialog — Windows opens the
+ * WebView2 browser-style print UI (printer picker, preview) over the print
+ * copy; macOS/Linux open the system print sheet; browser dev gets the
+ * browser dialog. The owner's call: Ctrl+P is the print muscle memory and
+ * must open a dialog, not save a file.
+ */
+export async function printSheetDocument(source: string): Promise<void> {
+  if (printing) return;
+  printing = true;
+  try {
+    if (!(await renderPrintCopy(source))) return;
 
-  if (!inTauri) {
-    window.print(); // plain browser (dev): the browser print dialog
-    return;
-  }
+    if (!inTauri) {
+      window.print(); // plain browser (dev): the browser print dialog
+      return;
+    }
 
-  const reportError = (err: unknown): void => {
-    void message(`${printErrorLabel()}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
-  };
+    const reportError = (err: unknown): void => {
+      void message(`${printErrorLabel()}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
+    };
 
-  if (isWindows()) {
-    const defaultName = suggestedName.replace(/\.(md|markdown|mdown|mkd|txt)$/i, '') + '.pdf';
-    const path = await saveFileDialog({
-      defaultPath: defaultName,
-      filters: [{ name: 'PDF', extensions: ['pdf'] }],
-    });
-    if (path === null) return; // cancelled — nothing to print
     try {
-      await invoke('print_to_pdf', { path });
+      await invoke(printIsWindowsPipeline() ? 'show_print_ui' : 'print_document');
     } catch (err) {
       reportError(err);
     }
-  } else {
-    try {
-      await invoke('print_document');
-    } catch (err) {
-      reportError(err);
-    }
+  } finally {
+    printing = false;
   }
 }

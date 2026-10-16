@@ -37,7 +37,13 @@ import {
 import type { BlockId, MarkId } from './editor/actions';
 import { splitFrontMatter } from './frontmatter';
 import { markdownToHtml } from './markdown-html';
-import { printDocument, printErrorLabel, printMenuLabel } from './print';
+import {
+  printErrorLabel,
+  printIsWindowsPipeline,
+  printSheetDocument,
+  savePdfDocument,
+  savePdfErrorLabel,
+} from './print';
 import { CHANGELOG_URL, checkWhatsNew, markWhatsNewSeen, whatsNewItems } from './whats-new';
 import { MenuBar, type MenuSection } from './menu';
 import { TocPanel } from './toc';
@@ -934,13 +940,24 @@ function buildMenuSections(): (() => MenuSection)[] {
         sep(),
         { label: t('save'), hotkey: 'Ctrl+S', action: () => void saveFile(false) },
         { label: t('saveAs'), hotkey: 'Ctrl+Shift+S', action: () => void saveFile(true) },
-        sep(),
-        // #24 → #134: a system-level «Save» peer, not an export feature —
-        // and the label tells the truth about the pipeline: Windows writes
-        // a silent PDF (path via the Save dialog — «Сохранить в PDF…»),
-        // macOS/Linux open the system print sheet («Печать…»). Ctrl+P
-        // keeps the print muscle memory on every platform
-        { label: printMenuLabel(), hotkey: 'Ctrl+P', action: () => printCurrentDocument() },
+        // #135: one save group, no hairline — «Сохранить в PDF…» (Windows
+        // only, PM вариант А: the silent-PDF pipeline lives here; on
+        // macOS/Linux and in the browser the print dialog itself offers
+        // the PDF destination, a second item would duplicate the action)
+        // sits right after «Сохранить как…»
+        ...(printIsWindowsPipeline()
+          ? [
+              {
+                label: t('savePdf'),
+                hotkey: 'Ctrl+Shift+P',
+                action: () => savePdfCurrentDocument(),
+              },
+            ]
+          : []),
+        // #135 (owner 2026-10-16): Ctrl+P is the print muscle memory — it
+        // opens the real dialog (WebView2 print UI / system print sheet),
+        // never saves a file silently
+        { label: t('print'), hotkey: 'Ctrl+P', action: () => printSheetCurrentDocument() },
         sep(),
         // #134 (product review): the close path surfaces in the menu — it
         // goes through the OS close, the unsaved guard intercepts it
@@ -1632,10 +1649,16 @@ function openWhatsNew(): void {
 // ---------- print (#24) ----------
 
 /** The whole document — front-matter and the #83 prefix are metadata and
- * never reach the paper (printDocument splits them back out, same as
+ * never reach the paper (the print commands split them back out, same as
  * Copy-for-Word). An empty document is a silent no-op. */
-function printCurrentDocument(): void {
-  void printDocument(currentFullText(), fileName()).catch((err: unknown) => {
+function savePdfCurrentDocument(): void {
+  void savePdfDocument(currentFullText(), fileName()).catch((err: unknown) => {
+    void message(`${savePdfErrorLabel()}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
+  });
+}
+
+function printSheetCurrentDocument(): void {
+  void printSheetDocument(currentFullText()).catch((err: unknown) => {
     void message(`${printErrorLabel()}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
   });
 }
@@ -2066,11 +2089,15 @@ async function init(): Promise<void> {
     } else if (code === 'KeyO') {
       e.preventDefault();
       void openFile();
-    } else if (code === 'KeyP' && !e.shiftKey && !e.altKey) {
-      // #24: print works in every mode and over any dialog (it re-renders
-      // from the source, it never reads the live screen)
+    } else if (code === 'KeyP' && !e.altKey && (!e.shiftKey || printIsWindowsPipeline())) {
+      // #135 (owner 2026-10-16): Ctrl+P opens the real print dialog,
+      // Ctrl+Shift+P saves a silent PDF — the Shift combo exists only
+      // where the «Сохранить в PDF…» menu item does (Windows). Both work
+      // in every mode and over any dialog (the print copy re-renders from
+      // the source, it never reads the live screen)
       e.preventDefault();
-      printCurrentDocument();
+      if (e.shiftKey) savePdfCurrentDocument();
+      else printSheetCurrentDocument();
     } else if (code === 'Slash') {
       e.preventDefault();
       toggleMode();

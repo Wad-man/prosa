@@ -1,13 +1,17 @@
-//! Printing (#24). Two platform commands behind one «Print…» menu entry:
+//! Printing (#24 → #135). Three commands behind two menu entries:
 //!
 //! - `print_document` — macOS/Linux: the system print sheet
 //!   (`WebviewWindow::print()`, wry drives NSPrintOperation on macOS and
 //!   the webkit2gtk print dialog on Linux; both can save a PDF too).
-//! - `print_to_pdf` — Windows: silent `ICoreWebView2_7::PrintToPdf` with
-//!   no print dialog; the frontend hands over the path from a Save
-//!   dialog. Settings: A4 portrait, 2 cm margins, backgrounds on, no
-//!   header/footer. The completion is reported back over a channel, so
-//!   the command thread never pumps the main-thread message loop.
+//! - `print_to_pdf` — Windows «Сохранить в PDF…» (Ctrl+Shift+P): silent
+//!   `ICoreWebView2_7::PrintToPdf` with no print dialog; the frontend
+//!   hands over the path from a Save dialog. Settings: A4 portrait,
+//!   2 cm margins, backgrounds on, no header/footer. The completion is
+//!   reported back over a channel, so the command thread never pumps the
+//!   main-thread message loop.
+//! - `show_print_ui` — Windows «Печать…» (Ctrl+P, #135): the browser-style
+//!   print dialog (printer picker, preview) over the same @media print
+//!   CSS — the print copy in #print-root.
 //!
 //! The approach (hidden #print-root re-rendered from the source, silent
 //! WebView2 PDF) follows Markpad 2.8.4 (BSD-3, © 2023 Alec Ames) as
@@ -126,5 +130,61 @@ pub async fn print_to_pdf(window: tauri::WebviewWindow, path: String) -> Result<
     {
         let _ = (window, path);
         Err("silent PDF export is only available on Windows".into())
+    }
+}
+
+/// #135: the real print dialog on Windows — the browser-style print
+/// preview (printer picker, page range, copies; the same UI Edge's Ctrl+P
+/// opens) printing whatever the @media print CSS shows, i.e. the print
+/// copy the frontend prepared in #print-root. macOS/Linux keep their
+/// system print sheet (`print_document`).
+#[tauri::command]
+pub async fn show_print_ui(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::time::Duration;
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2_16, COREWEBVIEW2_PRINT_DIALOG_KIND_BROWSER,
+        };
+        use windows_core::Interface;
+
+        let (sender, receiver) = mpsc::sync_channel(1);
+        window
+            .with_webview(move |platform_webview| unsafe {
+                // both outcomes travel the channel — a success that stays
+                // unreported would turn into the timeout error below
+                let result = (|| -> Result<(), String> {
+                    let webview = platform_webview
+                        .controller()
+                        .CoreWebView2()
+                        .map_err(|e| format!("failed to access WebView2: {e}"))?
+                        .cast::<ICoreWebView2_16>()
+                        .map_err(|e| format!("WebView2 runtime cannot print: {e}"))?;
+                    webview
+                        .ShowPrintUI(COREWEBVIEW2_PRINT_DIALOG_KIND_BROWSER)
+                        .map_err(|e| format!("failed to open the print dialog: {e}"))
+                })();
+                let _ = sender.try_send(result);
+            })
+            .map_err(|e| format!("failed to schedule the print dialog: {e}"))?;
+
+        tauri::async_runtime::spawn_blocking(move || {
+            receiver.recv_timeout(Duration::from_secs(10))
+        })
+        .await
+        .map_err(|e| format!("print dialog task failed: {e}"))?
+        .map_err(|e| match e {
+            std::sync::mpsc::RecvTimeoutError::Timeout => {
+                "the print dialog did not open within 10 s".to_string()
+            }
+            std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                "the print worker dropped the result".to_string()
+            }
+        })?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        Err("the system print sheet is used on this platform".into())
     }
 }

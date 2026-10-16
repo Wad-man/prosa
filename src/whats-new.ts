@@ -34,13 +34,13 @@ export const CHANGELOG_URL = 'https://prosamd.ru/changelog.html';
 /** User-facing summary of the current release, refreshed per release. */
 const RELEASE_SUMMARY: Record<Lang, string[]> = {
   ru: [
-    'Печать и экспорт в PDF: Ctrl+P, тихий PDF на Windows, системный лист на macOS и Linux',
+    'Печать — Ctrl+P, сохранение в PDF — Ctrl+Shift+P (Windows); на macOS и Linux PDF — из диалога печати',
     'Настройки (Ctrl+,), поиск и замена, Raw HTML, масштаб, «Скопировать для Word»',
     'Сборки для Linux (AppImage, deb); macOS — отдельной версией (prosa-mac)',
     'Диалог «Справка» (F1) со всеми горячими клавишами',
   ],
   en: [
-    'Print & PDF export: Ctrl+P — silent PDF on Windows, system print sheet on macOS and Linux',
+    'Print — Ctrl+P, save as PDF — Ctrl+Shift+P (Windows); on macOS and Linux save the PDF from the print dialog',
     'Settings (Ctrl+,), find & replace, raw HTML, zoom, "Copy for Word"',
     'Linux (AppImage, deb) builds; macOS ships as a separate version (prosa-mac)',
     'The Help dialog (F1) with every keyboard shortcut',
