@@ -1793,6 +1793,40 @@ body {
   background: color-mix(in srgb, var(--fg) 3%, transparent);
 }
 
+/* --- wide blocks bleed into the pane's margins (#138, owner 2026-10-17,
+   gate variant В «bleed»): tables and code fences leave the 52em column
+   symmetrically, up to 72rem = 1152px at the root 16px font (rem — the
+   code block's own 14px must not shrink the track), never past the pane's
+   24px margins; prose keeps its approved measure (#67). The pane is the
+   inline-size container, so the cap follows split panes and the outline
+   reserve (its padding-right) with no extra rules. Margins: 50% of the
+   column's content box minus half the track re-centres the block on the
+   PANE's axis. A pathological table still scrolls inside its wrapper
+   (overflow-x above). Images deliberately stay in the column (owner
+   default, veto window in #138). */
+#visual-editor {
+  container-type: inline-size;
+}
+
+#visual-editor .milkdown-table-block,
+#visual-editor .milkdown-code-block {
+  width: min(72rem, calc(100cqw - 48px));
+  margin-inline: calc(50% - min(72rem, calc(100cqw - 48px)) / 2);
+}
+
+/* The open outline's hug tier parks the column in the text's right margin
+   (#91, 780e114): while it is there the margin is occupied and a symmetric
+   track clearing it would be NARROWER than the prose column itself — wide
+   blocks fold back into the column for the time it is open (the owner's
+   frame: narrowing under the outline is fine, #138). The reserve tier
+   needs no rule of its own: its padding-right already shrinks 100cqw,
+   and split always reserves on the stack. */
+#app:not([data-mode='split']) #editor-panes.toc-open:not(.toc-reserve) #visual-editor .milkdown-table-block,
+#app:not([data-mode='split']) #editor-panes.toc-open:not(.toc-reserve) #visual-editor .milkdown-code-block {
+  width: auto;
+  margin-inline: 0;
+}
+
 /* --- task lists --- */
 
 #visual-editor .milkdown-list-item-block .label-wrapper svg {
