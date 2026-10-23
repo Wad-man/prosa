@@ -77,14 +77,8 @@ export class TocPanel {
   private renderedSig: string | null = null;
   /** setVisible() has run once — startup applies the flag without a flight. */
   private shownOnce = false;
-  /** the last feature flag setVisible() was asked for — doc-empty gating
-   *  (#131-1) re-applies it when the document empties or fills back in */
+  /** the last feature flag setVisible() was asked for */
   private flag = false;
-  /** #131-1: an empty document (the start screen) suppresses the column —
-   *  it would reserve a strip just to say «Заголовков нет». Starts true:
-   *  at boot there is no content yet (data-pending / fresh window), so a
-   *  remembered flag cannot flash the column before the first stats tick. */
-  private docEmpty = true;
 
   mount(host: HTMLElement, ctx: TocContext): void {
     this.ctx = ctx;
@@ -137,31 +131,18 @@ export class TocPanel {
    *  reclaims the strip through the same transition, #133). The outer panel
    *  clips the flight, compositor-only. `hidden` lands only after the close
    *  transition finished; `inert` drops the closing panel from the tab order
-   *  at once. An empty document suppresses the column (#131-1): the flag
-   *  stays remembered, the column returns with the first content. */
+   *  at once. #141 (2026-10-24) reverted the #131-1 empty-document
+   *  suppression: the toggle must answer on a heading-less document too —
+   *  the column shows the «Заголовков нет» placeholder instead. */
   setVisible(visible: boolean): void {
     this.flag = visible;
     this.applyFlag();
   }
 
-  /** #131-1: the start screen does not host the column — main.ts reports
-   *  emptiness on every stats/refresh tick; the change re-applies the flag
-   *  (a suppressed flag survives an empty session and shows once content
-   *  arrives). */
-  setDocEmpty(empty: boolean): void {
-    if (empty === this.docEmpty) return;
-    this.docEmpty = empty;
-    this.applyFlag();
-    // content arrived while the column was suppressed — scheduleToc's
-    // isVisible() gate returned before its debounce could arm, so the
-    // headings the panel is now showing must be collected here
-    if (!empty && this.isVisible()) this.refresh();
-  }
-
   private applyFlag(): void {
     const panel = this.panel;
     if (!panel) return;
-    const visible = this.flag && !this.docEmpty;
+    const visible = this.flag;
     const open = panel.classList.contains('is-open');
     if (visible === open) return;
     window.clearTimeout(this.closeTimer);

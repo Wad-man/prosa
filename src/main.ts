@@ -329,10 +329,6 @@ function statsText(words: number, chars: number): string {
 function refreshEmptyState(): void {
   const empty = currentFullText().trim() === '';
   els.app.classList.toggle('empty', empty);
-  // #131-1: the start screen does not host the outline column — it would
-  // reserve a strip just to say «Заголовков нет»; the remembered flag
-  // survives and the column returns with the first content
-  toc.setDocEmpty(empty);
   // leaving emptiness also leaves the «started writing» state — deleting
   // everything back later honestly returns the start screen (#96)
   if (!empty) els.app.classList.remove('writing');
