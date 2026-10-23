@@ -55,7 +55,7 @@ type MdNode = {
 };
 
 /** Containers whose DIRECT html children are block-level (CommonMark block contexts). */
-const BLOCK_PARENTS = new Set(['root', 'blockquote', 'listItem', 'footnoteDefinition']);
+const BLOCK_PARENTS = new Set(['root', 'blockquote', 'listItem', 'footnoteDefinition', 'prosaCallout']);
 
 /** Strict forms only — attribute-carrying or spaced tags stay literal text. */
 const INLINE_OPEN = /^<(sub|sup|kbd)>$/i;

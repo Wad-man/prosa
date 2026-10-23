@@ -1723,6 +1723,126 @@ body {
   background: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
+/* #137: Obsidian callouts (callouts.ts). Kind resolves from
+   data-callout-kind; one muted hue per kind drives bar, wash and icon.
+   The palette stays on the app's existing tokens (guidelines: no new
+   accent families) — accent for note/info/example, neutral for
+   abstract/quote, the status trio for the rest; the icon (lucide paths,
+   ISC — see toolshelf) is what separates kinds sharing a hue. Icons are
+   CSS masks, not DOM nodes: mask alpha over background-color keeps them
+   on the theme palette and leaves nothing for the DOM parser to trip
+   over on clipboard round-trips. */
+#visual-editor .prosa-callout {
+  --callout-icon: none;
+  margin: 1.25em 0;
+  padding: 0.5em 1em 0.6em 1.15em;
+  border-left: 3px solid color-mix(in srgb, var(--callout-c) 62%, transparent);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: color-mix(in srgb, var(--callout-c) 7%, transparent);
+}
+
+#visual-editor .prosa-callout[data-callout-kind='note'],
+#visual-editor .prosa-callout[data-callout-kind='info'],
+#visual-editor .prosa-callout[data-callout-kind='example'] {
+  --callout-c: var(--accent);
+}
+#visual-editor .prosa-callout[data-callout-kind='abstract'],
+#visual-editor .prosa-callout[data-callout-kind='quote'] {
+  --callout-c: var(--fg-2);
+}
+#visual-editor .prosa-callout[data-callout-kind='todo'],
+#visual-editor .prosa-callout[data-callout-kind='tip'],
+#visual-editor .prosa-callout[data-callout-kind='success'] {
+  --callout-c: var(--ok);
+}
+#visual-editor .prosa-callout[data-callout-kind='question'],
+#visual-editor .prosa-callout[data-callout-kind='warning'] {
+  --callout-c: var(--warn);
+}
+#visual-editor .prosa-callout[data-callout-kind='failure'],
+#visual-editor .prosa-callout[data-callout-kind='danger'],
+#visual-editor .prosa-callout[data-callout-kind='bug'] {
+  --callout-c: var(--err);
+}
+
+#visual-editor .prosa-callout-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  min-height: 1.4em;
+  margin: 0.35em 0 0.15em;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+#visual-editor .prosa-callout-title::before {
+  content: '';
+  flex: none;
+  width: 1.15em;
+  height: 1.15em;
+  background-color: color-mix(in srgb, var(--callout-c) 85%, transparent);
+  -webkit-mask: var(--callout-icon) center / contain no-repeat;
+  mask: var(--callout-icon) center / contain no-repeat;
+}
+
+/* an empty title shows the kind's fallback name (the raw spelling rides
+   in --callout-ph on the root div, callouts.ts) — Obsidian's behavior */
+#visual-editor .prosa-callout-title-text:empty::before {
+  content: var(--callout-ph);
+  font-weight: 500;
+  color: var(--fg-3);
+}
+
+/* the body blocks are DIRECT children of the flat callout box (single
+   PM content hole) — everything but the title row is body copy */
+#visual-editor .prosa-callout > :not(.prosa-callout-title):first-child {
+  margin-top: 0.35em;
+}
+#visual-editor .prosa-callout > :not(.prosa-callout-title):last-child {
+  margin-bottom: 0;
+}
+
+/* kind icons — lucide (ISC) stroke paths, 24×24, stroke-width 2.25 */
+#visual-editor .prosa-callout[data-callout-kind='note'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='abstract'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='info'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM12 16v-4M12 8h.01'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='todo'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 10.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9M9 11.5l3 3L22 4.5'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='tip'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='success'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Zm-3.5-9.5 2.5 2.5 5-5'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='question'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='warning'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0ZM12 9v4M12 17h.01'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='failure'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Zm3-13-6 6M9 9l6 6'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='danger'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13 2 3 14h9l-1 8 10-12h-9l1-8z'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='bug'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2l1.9 1.9M16 2l-1.9 1.9M22 9h-2M4 9H2M18 12a6 6 0 0 0-12 0v3a6 6 0 0 0 12 0v-3ZM9 21l1.5-3M15 21l-1.5-3'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='example'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M6 18H4c0-1 2-2 2-3s-1-1.5-2-1'/%3E%3C/svg%3E");
+}
+#visual-editor .prosa-callout[data-callout-kind='quote'] {
+  --callout-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 11H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v6a4 4 0 0 1-4 4M20 11h-4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v6a4 4 0 0 1-4 4'/%3E%3C/svg%3E");
+}
+
 /* Crepe's reset pads hr 6px 0 and clips its background to the content
    box; a background SHORTHAND here resets that clip to border-box and
    floods the whole 13px-tall box — the "thick bar" of #79. Zero the

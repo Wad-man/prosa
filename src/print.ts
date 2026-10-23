@@ -84,6 +84,36 @@ const processor = unified()
           },
         ],
       }),
+      // #137: callouts print as semantic blockquotes with a bold title
+      // lead — same shape as the Copy-for-Word pipeline
+      prosaCallout: (
+        state: { all: (node: unknown) => unknown[] },
+        node: { children?: unknown[] },
+      ) => ({
+        type: 'element',
+        tagName: 'blockquote',
+        properties: {},
+        children: state.all(node),
+      }),
+      prosaCalloutTitle: (
+        state: { all: (node: unknown) => unknown[] },
+        node: { children?: unknown[] },
+      ) =>
+        (node.children?.length ?? 0) === 0
+          ? { type: 'text', value: '' }
+          : {
+              type: 'element',
+              tagName: 'p',
+              properties: {},
+              children: [
+                {
+                  type: 'element',
+                  tagName: 'strong',
+                  properties: {},
+                  children: state.all(node),
+                },
+              ],
+            },
       html: (_state: unknown, node: { value?: string }) => ({ type: 'text', value: node.value ?? '' }),
     },
   } as Parameters<typeof remarkRehype>[0])

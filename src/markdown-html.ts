@@ -18,14 +18,17 @@ import remarkGfm from 'remark-gfm';
 import remarkRehype from 'remark-rehype';
 import rehypeStringify from 'rehype-stringify';
 import { prosaRawHtmlTransform } from './editor/raw-html';
+import { prosaCalloutTransform } from './editor/callouts';
 
 type MdTree = Parameters<typeof prosaRawHtmlTransform>[0];
 
 /** Контур-A glue shared by every render path built on this pipeline
  * (Copy-for-Word, print #24): pairs the inline-HTML whitelist from
- * raw-html.ts into an mdast transform. */
+ * raw-html.ts and the callout upgrade from callouts.ts into an mdast
+ * transform. */
 export const prosaPairPlugin: Plugin = () => (tree) => {
   prosaRawHtmlTransform(tree as MdTree);
+  prosaCalloutTransform(tree as MdTree);
 };
 
 /** prosaHtmlTag (a whitelisted kbd/sub/sup pair) → a real element. */
@@ -51,6 +54,31 @@ const processor = unified()
     handlers: {
       prosaHtmlTag: prosaHtmlTagHandler,
       prosaHtmlBlock: () => ({ type: 'text', value: '' }),
+      // #137: callouts copy/print as semantic blockquotes — Word, Outlook
+      // and the print sheet all map blockquote onto their native quote
+      // style; the title line becomes a bold lead paragraph
+      prosaCallout: (state: { all: (node: unknown) => unknown[] }, node: { children?: unknown[] }) => ({
+        type: 'element',
+        tagName: 'blockquote',
+        properties: {},
+        children: state.all(node),
+      }),
+      prosaCalloutTitle: (state: { all: (node: unknown) => unknown[] }, node: { children?: unknown[] }) =>
+        (node.children?.length ?? 0) === 0
+          ? { type: 'text', value: '' }
+          : {
+              type: 'element',
+              tagName: 'p',
+              properties: {},
+              children: [
+                {
+                  type: 'element',
+                  tagName: 'strong',
+                  properties: {},
+                  children: state.all(node),
+                },
+              ],
+            },
     },
   } as Parameters<typeof remarkRehype>[0])
   .use(rehypeStringify);

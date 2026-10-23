@@ -36,6 +36,7 @@ declare module '@milkdown/components/code-block' {
 }
 import { $remark, $shortcut, $prose, replaceAll } from '@milkdown/kit/utils';
 import { rawHtmlTagger, htmlKbdMark, htmlSubMark, htmlSupMark, htmlBlockNode, BR_FORM } from './raw-html';
+import { calloutNode, calloutTitleNode, calloutTagger } from './callouts';
 import { crepeLocaleConfigs, editorStrings } from './crepe-locale';
 import { displaySrc, ensureImageTarget, writeImageFile } from './image-assets';
 import { ContextPanel, type PanelClipboardActions } from './context-panel';
@@ -1562,6 +1563,15 @@ export class VisualEditor {
           ...(options.handlers ?? {}),
           emphasis: emphasisAttentionHandler,
           strong: strongAttentionHandler,
+          // #137: the callout marker serializes VERBATIM — the raw
+          // `[!type]`+fold spelling rides in the node props and must not
+          // pass through text escaping (which is what corrupted files into
+          // `\[!info]` before this handler existed)
+          prosaCalloutMarker(node: { calloutType?: string; fold?: string }): string {
+            const type = node.calloutType ?? 'note';
+            const fold = node.fold === 'minus' ? '-' : node.fold === 'plus' ? '+' : '';
+            return `[!${type}]${fold}`;
+          },
           // #61: the html_tag mark serializes into a custom mdast node —
           // this handler writes the original tag bytes around the phrasing
           // content (containerPhrasing keeps the library's escaping and
@@ -1648,6 +1658,13 @@ export class VisualEditor {
     this.crepe.editor.use(emphasisMarkerFix);
     this.crepe.editor.use(emphasisIntrawordFix);
     this.crepe.editor.use(makeLinkReferenceFix(() => this.definitions));
+    // #137: Obsidian callouts — nodes before create() (the schema is
+    // immutable once built), the tagger BEFORE rawHtmlTagger: raw-html's
+    // walk must already see `prosaCallout` as a block container to convert
+    // single-html paragraphs inside a callout body (BLOCK_PARENTS there)
+    this.crepe.editor.use(calloutNode);
+    this.crepe.editor.use(calloutTitleNode);
+    this.crepe.editor.use(calloutTagger);
     // #61: raw HTML — the mark and the block node must be registered before
     // create() (a ProseMirror schema is immutable once built), the tagger
     // before breakFlavorTagger (it pre-flavors `<br>`-converted break nodes;
