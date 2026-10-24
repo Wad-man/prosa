@@ -700,13 +700,16 @@ async function reloadTab(id: number): Promise<void> {
 }
 
 /** #145 «Закрыть все»: последовательное закрытие — грязная вкладка
- * спрашивает своим модалом, Отмена останавливает остаток серии. */
+ * спрашивает своим модалом, Отмена останавливает остаток серии. #147:
+ * закрытие последней вкладки оставляет окну свежую чистую «Без названия»
+ * (closeTabNow) — этот новорождённый слот не вкладка для закрытия, гнаться
+ * за ним значило пересоздавать его вечно. */
 async function closeAllTabs(): Promise<void> {
   for (;;) {
     syncActiveIntoTabs();
-    const id = docTabs[0]?.id;
-    if (id === undefined) return;
-    if (!(await closeTab(id))) return;
+    const target = docTabs.find((tb) => !(tb.id === activeTabId && pristine()));
+    if (target === undefined) return;
+    if (!(await closeTab(target.id))) return;
   }
 }
 
@@ -726,11 +729,6 @@ function cycleTabs(): void {
 // canon, RESEARCH-OPEN-FILES-UX §11.7).
 async function openPathBestWindow(path: string): Promise<void> {
   await openAsTab(path);
-}
-
-async function confirmLoseChanges(): Promise<boolean> {
-  if (!unsavedContent()) return true;
-  return await ask(t('discardQuestion'), { title: t('discardTitle'), kind: 'warning' });
 }
 
 function normalizeTabPath(p: string): string {
@@ -920,12 +918,14 @@ function pickFilesBrowser(): Promise<File[]> {
 }
 
 /** #146: open files by CONTENT (the browser build has no path to hand
- * anyone): one discard-confirm for the batch, the first file takes a
- * pristine window's place, the rest become tabs — unsaved drafts of
- * their bytes, the drop path's semantics. */
+ * anyone; the WebView2 drop path lands here too — an external OS drag
+ * carries no uri-list, so only the bytes are reachable, #148). The first
+ * file takes a pristine window's place, the rest become tabs — unsaved
+ * drafts of their bytes, the drop path's semantics. With tabs an open
+ * never discards anything (#148): the dirty document stays a tab, so no
+ * discard-confirm is asked on any open path. */
 async function openBrowserFiles(files: File[]): Promise<void> {
   if (files.length === 0) return;
-  if (!(await confirmLoseChanges())) return;
   for (const file of files) {
     if (!MD_PATH_RE.test(file.name)) {
       void message(t('notMarkdown'), { title: 'ProsaMD', kind: 'info' });
@@ -2883,12 +2883,13 @@ async function init(): Promise<void> {
   delete els.app.dataset.pending;
 }
 
-// The Rust side routes a file opened outside any window here when this window
-// is still pristine; otherwise it opens a new document window itself.
+// The Rust side routes a file opened outside any window (a second
+// instance) here. The file lands in THIS window — dedup activation, a
+// pristine untitled slot replacement, or a new tab (#11 canon, #149: a
+// window never spawns another window for a file).
 function prosaOpen(path: string): void {
   if (!MD_PATH_RE.test(path)) return;
-  if (pristine()) void loadPath(path);
-  else void invoke('open_document_window', { path }).catch(() => {});
+  void openAsTab(path);
 }
 (window as unknown as { __prosaOpen?: (path: string) => void }).__prosaOpen = prosaOpen;
 

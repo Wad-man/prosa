@@ -68,10 +68,22 @@ struct DocState {
 #[derive(Default)]
 struct LastFocused(Mutex<Option<String>>);
 
+/// Files routed in from second instances while no window's frontend has
+/// reported yet — the cold multi-open race (#149): Explorer starts one
+/// process per selected file, and the primary's first window is still
+/// booting when the forwarded paths arrive. Docs is empty then, and
+/// routing immediately would give every file its own window. The batch
+/// parks here and flows into the routing once a window reports
+/// (report_doc_state flushes it).
+#[derive(Default)]
+struct PendingExternal(Mutex<Vec<String>>);
+
 #[tauri::command]
 fn report_doc_state(
+    app: AppHandle,
     window: tauri::WebviewWindow,
     state: tauri::State<Docs>,
+    pending: tauri::State<PendingExternal>,
     watchdog: tauri::State<watchdog::Watchdog>,
     path: Option<String>,
     dirty: bool,
@@ -89,6 +101,17 @@ fn report_doc_state(
     // pre-save draft must not be restored over it by a later recovery
     if !dirty {
         watchdog.clear_draft(window.label());
+    }
+    // #149: this report is the readiness signal a parked multi-open batch
+    // was waiting for — route it now. Spawned like the single-instance
+    // handler: window creation must stay off this (command) thread.
+    let parked: Vec<String> = std::mem::take(&mut *pending.0.lock().unwrap());
+    if !parked.is_empty() {
+        tauri::async_runtime::spawn(async move {
+            for path in parked {
+                open_doc_external(&app, app.state::<Docs>().inner(), &path);
+            }
+        });
     }
 }
 
@@ -204,10 +227,10 @@ struct Geometry {
     fullscreen: bool,
 }
 
-/// One document per window: every window is an isolated editor instance, so
-/// window state never has to be shared. An empty `path` opens a fresh
-/// untitled document (#60): no `?file=` query, the frontend boots into the
-/// empty state.
+/// A new document window. Windows stay isolated editor instances (a
+/// window's tabs are its own, #11 — state is never shared between
+/// windows). An empty `path` opens a fresh untitled document (#60): no
+/// `?file=` query, the frontend boots into the empty state.
 fn create_doc_window(app: &AppHandle, path: &str) -> tauri::Result<()> {
     build_doc_window(app, path, None, None).map(|_| ())
 }
@@ -299,26 +322,12 @@ fn build_doc_window(
     Ok(label)
 }
 
-/// Open a file as a new document window (or focus the window already showing
-/// it). Called by a window whose own document is occupied.
-// async: WebviewWindowBuilder::build() deadlocks on Windows when called from
-// a synchronous command (known Webview2 issue)
-#[tauri::command]
-async fn open_document_window(
-    app: AppHandle,
-    state: tauri::State<'_, Docs>,
-    path: String,
-) -> Result<(), String> {
-    if focus_existing(&app, state.inner(), &path).is_some() {
-        return Ok(());
-    }
-    create_doc_window(&app, &path).map_err(|err| err.to_string())
-}
-
 /// Route a file opened outside any window (second app instance): focus the
 /// window already showing it, else hand it to the last focused window as a
 /// new tab via the frontend hook (#11 — the frontend applies the full
 /// canon: pristine-slot replacement, dedup, tab), else create a new window.
+/// #149: the frontend hook opens a TAB — a window never spawns another
+/// window for a file, so a routed batch lands in one window.
 fn open_doc_external(app: &AppHandle, state: &Docs, path: &str) {
     if focus_existing(app, state, path).is_some() {
         return;
@@ -353,11 +362,41 @@ fn open_doc_external(app: &AppHandle, state: &Docs, path: &str) {
     }
 }
 
+/// The safety net for parked files (#149): if no window ever reports — a
+/// dead frontend, the white-window failure — the batch would sit in the
+/// queue forever. After a grace period each parked file gets its own
+/// window after all: ugly, but a file the user opened must not vanish.
+/// Plain thread like show_fallback; window creation from a non-main
+/// thread, same constraint as the single-instance handler.
+fn spawn_pending_failsafe(app: &AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(10));
+        let parked = std::mem::take(&mut *handle.state::<PendingExternal>().0.lock().unwrap());
+        if parked.is_empty() {
+            return;
+        }
+        eprintln!(
+            "prosa: no window reported for {}s, opening {} parked file(s) in new windows",
+            10,
+            parked.len()
+        );
+        for path in parked {
+            if focus_existing(&handle, handle.state::<Docs>().inner(), &path).is_none() {
+                if let Err(err) = create_doc_window(&handle, &path) {
+                    eprintln!("prosa: failed to open document window: {err}");
+                }
+            }
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
         .manage(Docs::default())
         .manage(LastFocused::default())
+        .manage(PendingExternal::default())
         .manage(MenuLang::new())
         .manage(watchdog::Watchdog::default())
         .setup(|app| {
@@ -434,7 +473,10 @@ pub fn run() {
     // owner decision 2026-10-06: the "every file gets its own window"
     // model gives every launch click its own window too). #146: EVERY
     // markdown argument routes — a multi-select Explorer open lands as a
-    // batch of tabs in the last focused window (§11.7 canon).
+    // batch of tabs in the last focused window (§11.7 canon). #149: on a
+    // cold start the batch typically beats the first window's frontend —
+    // park it until a window reports instead of spawning a window per
+    // file.
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(
         |app, args, _cwd| {
@@ -447,6 +489,15 @@ pub fn run() {
                     if let Err(err) = create_doc_window(&handle, "") {
                         eprintln!("prosa: failed to open new window: {err}");
                     }
+                    return;
+                }
+                if handle.state::<Docs>().0.lock().unwrap().is_empty() {
+                    let pending = handle.state::<PendingExternal>();
+                    let mut queue = pending.0.lock().unwrap();
+                    if queue.is_empty() {
+                        spawn_pending_failsafe(&handle);
+                    }
+                    queue.extend(paths);
                     return;
                 }
                 let state = handle.state::<Docs>();
@@ -471,7 +522,6 @@ pub fn run() {
             get_initial_files,
             report_doc_state,
             has_dirty_windows,
-            open_document_window,
             set_menu_language,
             is_updater_install,
             print::print_document,
