@@ -112,6 +112,7 @@ const $ = (id: string): HTMLElement => {
 const els = {
   app: $('app'),
   menubar: $('menubar'),
+  btnOpenFiles: $('btn-open-files') as HTMLButtonElement,
   btnTheme: $('btn-theme') as HTMLButtonElement,
   btnReading: $('btn-mode-reading') as HTMLButtonElement,
   btnVisual: $('btn-mode-visual') as HTMLButtonElement,
@@ -578,11 +579,13 @@ function refreshOpenFiles(): void {
     name: tb.id === activeTabId ? fileName() : tabName(tb),
     dirty: tb.id === activeTabId ? activeUnsaved() : tb.dirty,
     active: tb.id === activeTabId,
+    hasPath: tb.path !== null,
   }));
   openFiles.setTabs(infos);
   // #109: one document in the window — no column, the chrome is exactly
-  // the pre-#11 single-file app
-  openFiles.setVisible(docTabs.length > 1);
+  // the pre-#11 single-file app; #144: the user's explicit toggle wins
+  openFiles.applyVisibility(docTabs.length > 1);
+  els.btnOpenFiles.setAttribute('aria-pressed', String(openFiles.isShown()));
 }
 
 function touchMru(id: number): void {
@@ -632,12 +635,29 @@ function activateTab(id: number): void {
   refreshOpenFiles();
 }
 
-async function closeTab(id: number): Promise<void> {
+async function closeTab(id: number): Promise<boolean> {
+  if (id === activeTabId) syncActiveIntoTabs();
+  const i = docTabs.findIndex((tb) => tb.id === id);
+  if (i === -1) return false;
+  const tab = docTabs[i];
+  if (tab.dirty) {
+    // #143: the dirty tab asks with the window-close wording — its own
+    // document modal, not the open-another-file ask() it used to show; a
+    // background tab comes to the front first: the dialog, the save and
+    // any «Сохранить как» are document-centric
+    if (id !== activeTabId) activateTab(id);
+    return await askUnsaved({ kind: 'tab', id }, fileName());
+  }
+  closeTabNow(id);
+  return true;
+}
+
+/** The unconditional half of the close — runs after the ask (if any) said
+ * yes; also the direct path for clean tabs. */
+function closeTabNow(id: number): void {
   if (id === activeTabId) syncActiveIntoTabs();
   const i = docTabs.findIndex((tb) => tb.id === id);
   if (i === -1) return;
-  const tab = docTabs[i];
-  if (!(await confirmTabClose(tab.dirty))) return;
   docTabs.splice(i, 1);
   tabMru = tabMru.filter((x) => x !== id);
   if (docTabs.length === 0) {
@@ -655,6 +675,39 @@ async function closeTab(id: number): Promise<void> {
     touchMru(nextId);
   }
   refreshOpenFiles();
+}
+
+/** #145 «Сохранить»: вкладка выходит на передний план (диалоги и запись
+ * документоцентричны) и сохраняется как обычно. */
+async function saveTabById(id: number): Promise<void> {
+  if (id !== activeTabId) activateTab(id);
+  await saveFile(filePath === null);
+}
+
+/** #145 «Обновить»: перечитать файл вкладки с диска; несохранённые
+ * изменения спрашивают тем же модалом (#143), чистая вкладка — сразу. */
+async function reloadTab(id: number): Promise<void> {
+  syncActiveIntoTabs();
+  const tab = docTabs.find((tb) => tb.id === id);
+  if (!tab || tab.path === null) return;
+  if (id !== activeTabId) activateTab(id);
+  if (tab.dirty) {
+    // ответ «Сохранить»/«Не сохранять» сам перечитает файл (answerCloseAsk)
+    await askUnsaved({ kind: 'reload' }, fileName());
+    return;
+  }
+  await loadPath(tab.path);
+}
+
+/** #145 «Закрыть все»: последовательное закрытие — грязная вкладка
+ * спрашивает своим модалом, Отмена останавливает остаток серии. */
+async function closeAllTabs(): Promise<void> {
+  for (;;) {
+    syncActiveIntoTabs();
+    const id = docTabs[0]?.id;
+    if (id === undefined) return;
+    if (!(await closeTab(id))) return;
+  }
 }
 
 // Ctrl+Tab: the most recently used tab other than the active one (the
@@ -677,13 +730,6 @@ async function openPathBestWindow(path: string): Promise<void> {
 
 async function confirmLoseChanges(): Promise<boolean> {
   if (!unsavedContent()) return true;
-  return await ask(t('discardQuestion'), { title: t('discardTitle'), kind: 'warning' });
-}
-
-// A close guard for one specific tab — background tabs must be asked about
-// by their own snapshot flag, not by the active document's state.
-async function confirmTabClose(isDirty: boolean): Promise<boolean> {
-  if (!isDirty) return true;
   return await ask(t('discardQuestion'), { title: t('discardTitle'), kind: 'warning' });
 }
 
@@ -813,64 +859,93 @@ async function loadPath(path: string): Promise<boolean> {
 // OS files dragged onto the window arrive as ordinary HTML5 drops: Tauri's
 // native drag-drop handler is disabled so that in-page drag-and-drop (block
 // handles, text) works in WebView2 — see dragDropEnabled in tauri.conf.json.
-async function openDroppedFile(dt: DataTransfer, file: File): Promise<void> {
-  if (!MD_PATH_RE.test(file.name)) {
-    void message(t('notMarkdown'), { title: 'ProsaMD', kind: 'info' });
-    return;
-  }
-  // A file dragged from Explorer may carry its file:/// URL — recover the
-  // real path so saving works in place
-  const uri = dt.getData('text/uri-list').trim().split('\n')[0] ?? '';
-  if (inTauri && uri.startsWith('file:')) {
-    try {
-      const path = decodeURIComponent(new URL(uri).pathname).replace(/^\//, '');
-      await openPathBestWindow(path);
+// #146: every dropped markdown file opens; files dragged from Explorer may
+// carry their file:/// URLs — the paths are recovered so saving works in
+// place, contents are the fallback only.
+async function openDroppedFiles(dt: DataTransfer, files: File[]): Promise<void> {
+  if (inTauri) {
+    const paths: string[] = [];
+    for (const line of dt.getData('text/uri-list').trim().split('\n')) {
+      if (!line.startsWith('file:')) continue;
+      try {
+        const path = decodeURIComponent(new URL(line).pathname).replace(/^\//, '');
+        if (MD_PATH_RE.test(path)) paths.push(path);
+      } catch {
+        // a malformed entry — skip it, the contents fallback decides
+      }
+    }
+    if (paths.length > 0) {
+      for (const path of paths) await openPathBestWindow(path);
       return;
-    } catch {
-      // no usable URL — fall back to the dragged file's contents
     }
   }
   // contents only: cannot be handed to another window — load here
-  if (!(await confirmLoseChanges())) return;
-  try {
-    applyLoaded(await file.text(), null, file.name);
-  } catch (err) {
-    void message(`${t('openError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
-  }
+  await openBrowserFiles(files);
 }
 
 async function openFile(): Promise<void> {
   if (!inTauri) {
     // browser build: the start screen's «Открыть файл» must not be a silent
     // no-op — same MD filter through a hidden file input; the contents land
-    // as an unsaved document, exactly the drop path's semantics
-    const file = await pickFileBrowser();
-    if (!file) return;
-    if (!(await confirmLoseChanges())) return;
-    try {
-      applyLoaded(await file.text(), null, file.name);
-    } catch (err) {
-      void message(`${t('openError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
-    }
+    // as unsaved documents, exactly the drop path's semantics (#146: every
+    // picked file, each its own tab)
+    const files = await pickFilesBrowser();
+    if (files.length > 0) await openBrowserFiles(files);
     return;
   }
-  const picked = await openFileDialog({ multiple: false, directory: false, filters: MD_FILTER });
-  if (typeof picked === 'string') await openPathBestWindow(picked);
+  // #146: multi-select — the dialog returns every picked file; each opens
+  // in this window (the dedup inside openAsTab just activates an already
+  // open one)
+  const picked = await openFileDialog({ multiple: true, directory: false, filters: MD_FILTER });
+  if (picked === null) return;
+  const paths = Array.isArray(picked) ? picked : [picked];
+  for (const path of paths) await openPathBestWindow(path);
 }
 
 /** Browser-build stand-in for the native open dialog: a hidden file input
- *  with the same extensions as MD_FILTER. Resolves null on a cancelled pick
- *  (the `cancel` event — Chromium/WebView2; a listener that never fires is
- *  harmless: the dangling promise has no cleanup to do). */
-function pickFileBrowser(): Promise<File | null> {
+ *  with the same extensions as MD_FILTER (#146: multi-select). Resolves
+ *  [] on a cancelled pick (the `cancel` event — Chromium/WebView2; a
+ *  listener that never fires is harmless: the dangling promise has no
+ *  cleanup to do). */
+function pickFilesBrowser(): Promise<File[]> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
+    input.multiple = true;
     input.accept = '.md,.markdown,.mdown,.mkd,.txt';
-    input.addEventListener('change', () => resolve(input.files?.[0] ?? null), { once: true });
-    input.addEventListener('cancel', () => resolve(null), { once: true });
+    input.addEventListener('change', () => resolve(Array.from(input.files ?? [])), { once: true });
+    input.addEventListener('cancel', () => resolve([]), { once: true });
     input.click();
   });
+}
+
+/** #146: open files by CONTENT (the browser build has no path to hand
+ * anyone): one discard-confirm for the batch, the first file takes a
+ * pristine window's place, the rest become tabs — unsaved drafts of
+ * their bytes, the drop path's semantics. */
+async function openBrowserFiles(files: File[]): Promise<void> {
+  if (files.length === 0) return;
+  if (!(await confirmLoseChanges())) return;
+  for (const file of files) {
+    if (!MD_PATH_RE.test(file.name)) {
+      void message(t('notMarkdown'), { title: 'ProsaMD', kind: 'info' });
+      continue;
+    }
+    try {
+      const text = await file.text();
+      if (pristine()) {
+        applyLoaded(text, null, file.name);
+        continue;
+      }
+      syncActiveIntoTabs();
+      activeTabId = nextTabId++;
+      applyLoaded(text, null, file.name);
+      touchMru(activeTabId);
+    } catch (err) {
+      void message(`${t('openError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
+    }
+  }
+  refreshOpenFiles();
 }
 
 async function saveFile(saveAs: boolean): Promise<void> {
@@ -1009,11 +1084,31 @@ function copyPayload(): string {
       !sel.isCollapsed &&
       sel.anchorNode !== null &&
       els.visualPane.contains(sel.anchorNode);
-    if (inPreview) return visual.selectionMarkdown() || visual.selectionText();
+    if (inPreview)
+      return (
+        visual.selectionMarkdown() ||
+        visual.selectionText() ||
+        domSelectionText()
+      );
     return selectionText();
   }
-  if (contentOf(mode) === 'visual') return visual.selectionMarkdown() || selectionText();
+  if (contentOf(mode) === 'visual') {
+    // #142: in Просмотр a drag also parks focus outside ProseMirror and
+    // the PM selection can lag behind the DOM one — the reader's visible
+    // selection is the truth the right-click Copy panel acts on
+    if (mode === 'reading')
+      return visual.selectionMarkdown() || domSelectionText();
+    return visual.selectionMarkdown() || selectionText();
+  }
   return selectionText();
+}
+
+/** #142: the plain text of the live DOM selection — the fallback for the
+ * readonly surfaces (Просмотр, split preview), where the ProseMirror
+ * selection may not have followed the reader's drag. */
+function domSelectionText(): string {
+  const sel = window.getSelection();
+  return sel !== null && !sel.isCollapsed ? sel.toString() : '';
 }
 
 async function editCopy(): Promise<void> {
@@ -1284,6 +1379,16 @@ function buildMenuSections(): (() => MenuSection)[] {
           hotkey: 'Ctrl+Shift+1',
           action: () => toggleToc(),
           checked: () => isFeatureEnabled('toc'),
+        },
+        // #144: the open-files column toggle — next to the outline twin
+        {
+          label: t('openFilesTitle'),
+          hotkey: 'Ctrl+Shift+2',
+          action: () => {
+            openFiles.toggle();
+            refreshOpenFiles();
+          },
+          checked: () => openFiles.isShown(),
         },
       ],
     }),
@@ -1885,9 +1990,90 @@ function closeWindow(): void {
   void currentWindow?.close().catch(() => {});
 }
 
-function askBeforeClose(): void {
-  els.ccText.textContent = t('closeQuestion').replace('{name}', fileName());
+// #143: one #close-overlay modal serves every unsaved-changes ask — the
+// window close, a dirty tab's × and a tab's «Обновить». A single document
+// names itself with the window-close wording the owner asked for; several
+// dirty tabs get the plural form and «Сохранить все». The ask resolves
+// true when the action may proceed (saved or discarded), false on Отмена
+// or a save that did not land.
+type CloseAsk = { kind: 'window' } | { kind: 'tab'; id: number } | { kind: 'reload' };
+let closeAsk: CloseAsk | null = null;
+let closeAskSettle: ((proceed: boolean) => void) | null = null;
+
+function askUnsaved(kind: CloseAsk, name: string, count = 1): Promise<boolean> {
+  closeAsk = kind;
+  els.ccText.textContent =
+    count > 1
+      ? t('closeQuestionMany').replace('{n}', String(count))
+      : t('closeQuestion').replace('{name}', name);
+  els.ccSave.textContent = count > 1 ? t('saveAll') : t('save');
   showModal(els.closeOverlay, els.ccSave);
+  return new Promise<boolean>((settle) => {
+    closeAskSettle = settle;
+  });
+}
+
+function settleCloseAsk(proceed: boolean): void {
+  const settle = closeAskSettle;
+  closeAsk = null;
+  closeAskSettle = null;
+  hideModal(els.closeOverlay);
+  settle?.(proceed);
+}
+
+/** The modal's «Сохранить» / «Не сохранять» (Отмена is ccCancel's own). */
+async function answerCloseAsk(save: boolean): Promise<void> {
+  const ask = closeAsk;
+  if (ask === null) {
+    settleCloseAsk(false);
+    return;
+  }
+  if (ask.kind === 'tab') {
+    // the tab was activated when the ask opened — the save is the plain
+    // document-centric saveFile (untitled goes through «Сохранить как»);
+    // a cancelled dialog keeps the dirty flag, i.e. the close aborts
+    if (save && !(await saveActiveForClose())) return settleCloseAsk(false);
+    settleCloseAsk(true);
+    closeTabNow(ask.id);
+    return;
+  }
+  if (ask.kind === 'reload') {
+    if (save && !(await saveActiveForClose())) return settleCloseAsk(false);
+    settleCloseAsk(true);
+    void reloadActiveFromDisk();
+    return;
+  }
+  // window: save every dirty tab first — a cancelled «Сохранить как» or a
+  // failed write keeps the window open
+  if (save && !(await saveAllDirtyTabs())) return settleCloseAsk(false);
+  settleCloseAsk(true);
+  closeWindow();
+}
+
+async function saveActiveForClose(): Promise<boolean> {
+  await saveFile(filePath === null);
+  return !activeUnsaved();
+}
+
+/** #143: sequential save of every dirty tab (the window close asks about
+ * them all at once). A tab that stayed dirty after its saveFile (cancel,
+ * write error) aborts the run — the window stays. */
+async function saveAllDirtyTabs(): Promise<boolean> {
+  for (;;) {
+    syncActiveIntoTabs();
+    const next = docTabs.find((tb) => tb.dirty);
+    if (next === undefined) return true;
+    if (next.id !== activeTabId) activateTab(next.id);
+    await saveFile(filePath === null);
+    syncActiveIntoTabs();
+    if (docTabs.find((tb) => tb.id === next.id)?.dirty) return false;
+  }
+}
+
+/** #145 «Обновить»: re-read the active tab's file from disk (the ask
+ * opened with the tab already active). */
+async function reloadActiveFromDisk(): Promise<void> {
+  if (filePath !== null) await loadPath(filePath);
 }
 
 /** #70: an outline mouse with the right button filled (Lucide "mouse"
@@ -1950,6 +2136,9 @@ function applyStaticTexts(): void {
   els.stVersion.setAttribute('aria-label', t('versionTip'));
   tip(els.btnToc, `${t('tocTitle')} · Ctrl+Shift+1`);
   els.btnToc.setAttribute('aria-label', `${t('tocTitle')} · Ctrl+Shift+1`);
+  // #144: the left column's twin of the outline toggle
+  tip(els.btnOpenFiles, `${t('openFilesTitle')} · Ctrl+Shift+2`);
+  els.btnOpenFiles.setAttribute('aria-label', `${t('openFilesTitle')} · Ctrl+Shift+2`);
   // #23: the shortcuts list is one click away in the statusbar; the tip
   // carries the F1 binding (the menu entry lists it too)
   tip(els.stHotkeys, `${t('help')} · F1`);
@@ -2094,6 +2283,14 @@ async function init(): Promise<void> {
   openFiles.mount(els.editorHost, {
     onActivate: (id) => activateTab(id),
     onClose: (id) => void closeTab(id),
+    // #145: ПКМ по строке файла — сохранить/обновить идут через активную
+    // вкладку (модалы и диалоги документоцентричны)
+    onSave: (id) => void saveTabById(id),
+    onReload: (id) => void reloadTab(id),
+    // #145: ПКМ по пустой области
+    onEmptyOpen: () => void openFile(),
+    onEmptyNew: () => void newFile(),
+    onEmptyCloseAll: () => void closeAllTabs(),
   });
   activeTabId = nextTabId++;
   tabMru = [activeTabId];
@@ -2307,7 +2504,10 @@ async function init(): Promise<void> {
       if (overlay === null) return;
       if (e.key === 'Escape') {
         e.preventDefault();
-        hideModal(overlay);
+        // #143: the unsaved-changes ask must settle (its awaiter decides
+        // what stays open), not just hide
+        if (overlay === els.closeOverlay) settleCloseAsk(false);
+        else hideModal(overlay);
       } else if (e.key === 'Tab') {
         trapTabKey(overlay, e);
       } else if (e.key.startsWith('Arrow') && !e.shiftKey && !e.altKey) {
@@ -2361,6 +2561,11 @@ async function init(): Promise<void> {
     } else if (code === 'Digit1' && e.shiftKey && !e.altKey) {
       e.preventDefault();
       toggleToc();
+    } else if (code === 'Digit2' && e.shiftKey && !e.altKey) {
+      // #144: the open-files column rides next to the outline toggle
+      e.preventDefault();
+      openFiles.toggle();
+      refreshOpenFiles();
     } else if (modalOpen === false && code === 'Comma' && !e.shiftKey && !e.altKey) {
       // Ctrl+, opens Settings (#87) — the VS Code convention; the combo is
       // free (no editor keymap or browser shortcut claims it, unlike the
@@ -2433,19 +2638,22 @@ async function init(): Promise<void> {
   );
 
   // files dragged from the OS: plain HTML5 drop (Tauri's native drag-drop
-  // handler is off — see openDroppedFile)
+  // handler is off — see openDroppedFiles)
   window.addEventListener('dragover', (e) => {
     if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
   });
   window.addEventListener('drop', (e) => {
     const dt = e.dataTransfer;
-    const file = dt?.files[0];
-    if (!dt || !file) return;
+    const files = Array.from(dt?.files ?? []);
+    if (!dt || files.length === 0) return;
     e.preventDefault();
-    if (!MD_PATH_RE.test(file.name)) {
-      // #68: an image dropped into the visual editor is inserted by the
-      // upload plugin (saved to assets/ next to the document); the
-      // not-a-markdown nag stays for drops elsewhere (chrome, source mode)
+    // #146: every dropped markdown file opens (its own tab when several)
+    const mdFiles = files.filter((f) => MD_PATH_RE.test(f.name));
+    if (mdFiles.length > 0) void openDroppedFiles(dt, mdFiles);
+    // #68: the rest — an image dropped into the visual editor is inserted
+    // by the upload plugin (saved to assets/ next to the document); the
+    // not-a-markdown nag stays for drops elsewhere (chrome, source mode)
+    if (files.length > mdFiles.length) {
       const intoVisualEditor =
         mode === 'visual' &&
         e.target instanceof Element &&
@@ -2453,9 +2661,7 @@ async function init(): Promise<void> {
       if (!intoVisualEditor) {
         void message(t('notMarkdown'), { title: 'ProsaMD', kind: 'info' });
       }
-      return;
     }
-    void openDroppedFile(dt, file);
   });
 
   refreshChrome();
@@ -2466,6 +2672,12 @@ async function init(): Promise<void> {
   els.stVersion.addEventListener('click', () => openAbout());
   // #91: toolbar outline toggle — same code path as View → Outline
   els.btnToc.addEventListener('click', () => toggleToc());
+  // #144: the open-files column toggle (the state itself lives in the
+  // panel's persisted preference; refreshOpenFiles syncs aria-pressed)
+  els.btnOpenFiles.addEventListener('click', () => {
+    openFiles.toggle();
+    refreshOpenFiles();
+  });
   // #23: statusbar entry point for the shortcuts list
   els.stHotkeys.addEventListener('click', () => openHotkeys());
   // #125: clicking the file path copies the full path — the minimal
@@ -2547,26 +2759,30 @@ async function init(): Promise<void> {
     });
   }
 
-  // close confirmation
-  els.ccCancel.addEventListener('click', () => hideModal(els.closeOverlay));
+  // close confirmation — #143: the shared unsaved-changes modal (a dirty
+  // tab's × or «Обновить», and the window close — plural wording and
+  // «Сохранить все» when several tabs are dirty)
+  els.ccCancel.addEventListener('click', () => settleCloseAsk(false));
   els.closeOverlay.addEventListener('click', (e) => {
-    if (e.target === els.closeOverlay) hideModal(els.closeOverlay);
+    if (e.target === els.closeOverlay) settleCloseAsk(false);
   });
-  els.ccDontSave.addEventListener('click', () => {
-    hideModal(els.closeOverlay);
-    closeWindow();
-  });
-  els.ccSave.addEventListener('click', () => {
-    hideModal(els.closeOverlay);
-    void (async () => {
-      await saveFile(filePath === null);
-      if (!dirty) closeWindow();
-    })();
-  });
+  els.ccDontSave.addEventListener('click', () => void answerCloseAsk(false));
+  els.ccSave.addEventListener('click', () => void answerCloseAsk(true));
   void currentWindow?.onCloseRequested(async (event) => {
-    if (!unsavedContent() || forceClose) return;
+    if (forceClose) return;
+    // #143: every dirty tab guards the window, and all of them are asked
+    // about in one modal (the old flow named and saved only the active
+    // document, silently dropping the background tabs)
+    syncActiveIntoTabs();
+    const dirtyTabs = docTabs.filter((tb) => tb.dirty);
+    if (dirtyTabs.length === 0) return;
     event.preventDefault();
-    askBeforeClose();
+    const first = dirtyTabs[0];
+    await askUnsaved(
+      { kind: 'window' },
+      first.id === activeTabId ? fileName() : tabName(first),
+      dirtyTabs.length,
+    );
   });
 
   if (inTauri) {
@@ -2574,12 +2790,17 @@ async function init(): Promise<void> {
     const qsFile = new URLSearchParams(location.search).get('file');
     let opened = false;
     if (qsFile !== null && MD_PATH_RE.test(qsFile)) opened = await loadPath(qsFile);
-    // cold start on the main window: the OS passed the associated file as a
-    // CLI argument
+    // cold start on the main window: the OS passed the associated file(s)
+    // as CLI arguments (#146: a multi-select open passes several — the
+    // first takes the pristine window, the rest become its tabs)
     if (!opened && currentWindow?.label === 'main') {
       try {
-        const initial = await invoke<string | null>('get_initial_file');
-        if (initial !== null && MD_PATH_RE.test(initial)) await loadPath(initial);
+        const initial = await invoke<string[]>('get_initial_files');
+        for (const path of initial) {
+          if (!MD_PATH_RE.test(path)) continue;
+          if (!opened) opened = await loadPath(path);
+          else await openAsTab(path);
+        }
       } catch {
         // command unavailable — nothing to open
       }

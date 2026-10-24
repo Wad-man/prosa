@@ -819,9 +819,10 @@ body {
    The visual language follows the outline column: same caption, same
    13px rows, hover a step short of active, active = --fg + accent mark. */
 #open-files {
+  position: relative; /* #144: the resize grip anchors to the panel */
   display: flex;
   flex-direction: column;
-  width: 240px; /* #109: 180–420, drag-resize lands with stage 2 */
+  width: 240px; /* #109: 180–420, #144 drag-resize persists the choice */
   min-width: 0;
   flex-shrink: 0;
   border-right: 1px solid var(--border);
@@ -929,6 +930,13 @@ body {
   cursor: pointer;
 }
 
+/* #143: the × glyph (Lucide "x", stroke = currentColor) */
+.of-close svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
 .of-item:hover .of-close,
 .of-item.active .of-close {
   display: flex;
@@ -937,6 +945,43 @@ body {
 .of-close:hover {
   background: var(--border);
   color: var(--fg);
+}
+
+/* #144: the width grip on the panel's right edge — a hairline on hover,
+   the accent while dragging; wide enough to hit (7px) */
+.of-resize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 5;
+}
+
+.of-resize::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 4px;
+  width: 2px;
+  background: transparent;
+}
+
+.of-resize:hover::after {
+  background: var(--fg-3);
+}
+
+.of-resize:active::after {
+  background: var(--accent);
+}
+
+/* #145: the list's own context menu — the editor panel's classes with a
+   list-menu width */
+.of-menu {
+  min-width: 200px;
 }
 
 /* the find bar keeps clear of the open column: --toc-fr is the measured
@@ -2249,6 +2294,12 @@ body {
   color: var(--accent);
 }
 
+/* #144: the open-files toggle in the left corner — the same pressed rules
+   as its outline twin: accent tint + the filled strip in the glyph */
+#btn-open-files[aria-pressed='true'] {
+  color: var(--accent);
+}
+
 /* owner audit 2026-10-15: the icon's side strip fills while the outline is
    shown — the state reads from the glyph itself, not only from the tint */
 #btn-toc .toc-fill {
@@ -2257,6 +2308,17 @@ body {
 }
 
 #btn-toc[aria-pressed='true'] .toc-fill {
+  opacity: 1;
+}
+
+/* owner audit 2026-10-15 rule, applied to the #144 left twin: the icon's
+   side strip fills while the column is shown */
+#btn-open-files .of-fill {
+  opacity: 0;
+  transition: opacity var(--t-1) var(--ease);
+}
+
+#btn-open-files[aria-pressed='true'] .of-fill {
   opacity: 1;
 }
 

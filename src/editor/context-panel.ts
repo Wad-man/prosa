@@ -130,22 +130,52 @@ export class ContextPanel {
   };
 
   private onContextMenu = (e: MouseEvent): void => {
-    // our panel replaces the native menu inside the editor (and on the
-    // block handle overlay) only — everywhere else the native menu stays
-    // (named `target` — `t` is the i18n translator here)
+    // #142 (owner 2026-10-24): the WebView's own menu must never show in
+    // the app — the browser items («Назад», «Обновить», «Печать») had
+    // leaked into the reading mode and the window chrome. This handler
+    // owns every right-click; what replaces the native menu (if anything)
+    // is decided by zone below. (named `target` — `t` is the i18n
+    // translator here)
     const target = e.target instanceof Element ? e.target : null;
     if (!target) return;
-    if (!this.root?.contains(target) && !target.closest('.milkdown-block-handle')) return;
-    // #49/R6: the front-matter service record is chrome, not editable
-    // content — the panel's «Копировать» reads the ProseMirror selection
-    // and would copy the wrong thing over it; the native menu stays
-    if (target.closest('#fm-view')) return;
-    // #66: a formatting panel has nothing to do in the read-only (reading)
-    // mode — the native menu (Copy) stays, as everywhere outside the editor
-    if (this.crepe?.readonly) return;
+    const inVisual =
+      (this.root?.contains(target) ?? false) ||
+      target.closest('.milkdown-block-handle') !== null;
+    if (!inVisual) {
+      // outside the visual editor our panel never shows; Chromium's menu
+      // survives only where it is the standard text-editing one
+      // (Cut/Copy/Paste, no navigation items) — form fields and
+      // contenteditable surfaces (the CodeMirror editor, dialog inputs)
+      if (!nativeTextMenu(target)) e.preventDefault();
+      return;
+    }
     e.preventDefault();
     this.close();
+    // #49/R6: the front-matter service record is chrome, not editable
+    // content — the panel's «Копировать» reads the ProseMirror selection
+    // and would copy the wrong thing over it
+    if (target.closest('#fm-view')) return;
     const s = editorStrings(getLang());
+    // #66 → #142: a formatting panel has nothing to do in the read-only
+    // (reading/split preview) mode — the native menu it used to fall back
+    // to is gone, so a selected text gets a one-button Copy panel instead
+    if (this.crepe?.readonly) {
+      const sel = getSelection();
+      const hasSel =
+        sel !== null &&
+        !sel.isCollapsed &&
+        this.root?.contains(sel.anchorNode ?? null) === true;
+      if (!hasSel || !this.clipboard) return;
+      const panel = document.createElement('div');
+      panel.className = 'prosa-ctx-panel';
+      panel.setAttribute('role', 'menu');
+      panel.setAttribute('aria-label', t('copy'));
+      const clip = row();
+      clip.append(btn(t('copy'), 'Ctrl+C', ICONS.copy, () => this.clipboard?.copy()));
+      panel.append(clip);
+      this.show(e, panel);
+      return;
+    }
     const hasSel =
       !getSelection()?.isCollapsed &&
       this.root?.contains(getSelection()?.anchorNode ?? null) === true;
@@ -204,19 +234,24 @@ export class ContextPanel {
       btn(s.orderedList, 'Ctrl+Alt+7', ICONS.ol, () => this.applyBlock('ol')),
     );
     panel.append(blocks, sep(), this.submenuRow(s));
+    this.show(e, panel);
+  };
+
+  /** Places a built panel at the click — shared by every zone variant.
+   * e.clientX/Y and the rect are VISUAL pixels (zoom-multiplied),
+   * style.left/top of a child of the zoomed <html> expect unzoomed CSS
+   * px (#25). */
+  private show(e: MouseEvent, panel: HTMLElement): void {
     panel.addEventListener('click', this.onPanelClick);
     panel.addEventListener('pointerleave', this.scheduleSubmenuClose);
     panel.addEventListener('pointerenter', this.cancelSubmenuClose);
-
     document.body.append(panel);
     this.panel = panel;
     const r = panel.getBoundingClientRect();
-    // e.clientX/Y and r are VISUAL pixels (zoom-multiplied), style.left/top
-    // of a child of the zoomed <html> expect unzoomed CSS px (#25)
     const z = cssZoom();
     panel.style.left = `${Math.min(Math.max(8, e.clientX), innerWidth - r.width - 8) / z}px`;
     panel.style.top = `${Math.min(Math.max(8, e.clientY + 6), innerHeight - r.height - 8) / z}px`;
-  };
+  }
 
   /** The «Параграф ▸» row: opens the block-type submenu on hover.
    * MVP note: the menu is mouse/Esc-driven only (no focus trap or arrow
@@ -286,6 +321,18 @@ export class ContextPanel {
 }
 
 // ---------- small DOM helpers ----------
+
+/** #142: true where Chromium's own context menu is the standard
+ * text-editing one (Undo/Cut/Copy/Paste — no navigation items): form
+ * controls and contenteditable surfaces. The CodeMirror editor rides the
+ * contenteditable branch, so its right-click keeps the clipboard menu. */
+function nativeTextMenu(target: Element): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
 
 function row(): HTMLElement {
   const r = document.createElement('div');

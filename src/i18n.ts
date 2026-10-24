@@ -46,7 +46,13 @@ const strings = {
     checkUpdates: 'Проверить обновления',
     closeTip: 'Закрыть',
     closeQuestion: 'В документе «{name}» есть несохранённые изменения.',
+    // #143: the window close with several dirty tabs at once
+    closeQuestionMany: 'В {n} документах есть несохранённые изменения.',
+    saveAll: 'Сохранить все',
     dontSave: 'Не сохранять',
+    // #145: the open-files list's context menus
+    reload: 'Обновить',
+    closeAll: 'Закрыть все',
     cancel: 'Отмена',
     upToDate: 'У вас последняя версия ProsaMD',
     updateTitle: 'Обновление ProsaMD',
@@ -189,7 +195,13 @@ const strings = {
     checkUpdates: 'Check for updates',
     closeTip: 'Close',
     closeQuestion: '"{name}" has unsaved changes.',
+    // #143: the window close with several dirty tabs at once
+    closeQuestionMany: '{n} documents have unsaved changes.',
+    saveAll: 'Save all',
     dontSave: "Don't save",
+    // #145: the open-files list's context menus
+    reload: 'Reload',
+    closeAll: 'Close all',
     cancel: 'Cancel',
     upToDate: 'ProsaMD is up to date',
     updateTitle: 'ProsaMD update',

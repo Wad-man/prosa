@@ -34,13 +34,16 @@ mod print;
 // link by the frontend's silence and recreates the webview
 mod watchdog;
 
-/// First non-flag CLI argument — the file Windows/shell passes when the user
-/// double-clicks a document associated with Prosa (cold start).
+/// The markdown files the OS passed on the command line. #146: a
+/// multi-select open (several files selected in Explorer) passes several
+/// arguments — the frontend gives the first one the pristine main window
+/// and opens the rest as its tabs.
 #[tauri::command]
-fn get_initial_file() -> Option<String> {
+fn get_initial_files() -> Vec<String> {
     std::env::args()
         .skip(1)
-        .find(|arg| !arg.starts_with('-') && !arg.starts_with("--"))
+        .filter(|arg| !arg.starts_with('-') && !arg.starts_with("--") && is_markdown(arg))
+        .collect()
 }
 
 /// Live document state of every open window, reported by the frontend via
@@ -366,7 +369,14 @@ pub fn run() {
             // the CLI argument a cold start was launched with — a white
             // main window must recover to the document the user opened
             for label in app.webview_windows().keys() {
-                let birth = if label == "main" { get_initial_file() } else { None };
+                // #146: multi-select cold start — the watchdog's birth file
+                // is the FIRST CLI document (what a white main window must
+                // recover to)
+                let birth = if label == "main" {
+                    get_initial_files().into_iter().next()
+                } else {
+                    None
+                };
                 app.state::<watchdog::Watchdog>().register(label, birth);
             }
             #[cfg(prosa_mac)]
@@ -418,29 +428,30 @@ pub fn run() {
             }
         });
 
-    // A second instance routes here: a markdown argument (double-clicked
-    // document) opens in a window; a plain relaunch — taskbar icon, Start
-    // menu shortcut — opens a fresh empty window (#60, owner decision
-    // 2026-10-06: the "every file gets its own window" model gives every
-    // launch click its own window too).
+    // A second instance routes here: markdown arguments (double-clicked or
+    // multi-selected documents) open in a window; a plain relaunch —
+    // taskbar icon, Start menu shortcut — opens a fresh empty window (#60,
+    // owner decision 2026-10-06: the "every file gets its own window"
+    // model gives every launch click its own window too). #146: EVERY
+    // markdown argument routes — a multi-select Explorer open lands as a
+    // batch of tabs in the last focused window (§11.7 canon).
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(
         |app, args, _cwd| {
             // spawn off the main thread: creating a webview window from
             // inside the message loop deadlocks on Windows (Webview2)
             let handle = app.clone();
-            let path = args.into_iter().nth(1).filter(|p| is_markdown(p));
+            let paths: Vec<String> = args.into_iter().skip(1).filter(|p| is_markdown(p)).collect();
             tauri::async_runtime::spawn(async move {
-                match path {
-                    Some(path) => {
-                        let state = handle.state::<Docs>();
-                        open_doc_external(&handle, state.inner(), &path);
+                if paths.is_empty() {
+                    if let Err(err) = create_doc_window(&handle, "") {
+                        eprintln!("prosa: failed to open new window: {err}");
                     }
-                    None => {
-                        if let Err(err) = create_doc_window(&handle, "") {
-                            eprintln!("prosa: failed to open new window: {err}");
-                        }
-                    }
+                    return;
+                }
+                let state = handle.state::<Docs>();
+                for path in paths {
+                    open_doc_external(&handle, state.inner(), &path);
                 }
             });
         },
@@ -457,7 +468,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
-            get_initial_file,
+            get_initial_files,
             report_doc_state,
             has_dirty_windows,
             open_document_window,
