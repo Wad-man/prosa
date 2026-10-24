@@ -88,6 +88,9 @@ const strings = {
     tocTitle: 'Оглавление',
     tocOnPage: 'На странице',
     tocEmpty: 'Заголовков нет',
+    // #11: open files panel
+    openFilesTitle: 'Открытые',
+    closeTab: 'Закрыть документ',
     // #96: start screen (empty state)
     ssNewFile: 'Новый файл',
     ssOpenFile: 'Открыть файл…',
@@ -228,6 +231,9 @@ const strings = {
     tocTitle: 'Outline',
     tocOnPage: 'On this page',
     tocEmpty: 'No headings yet',
+    // #11: open files panel
+    openFilesTitle: 'Open files',
+    closeTab: 'Close document',
     // #96: start screen (empty state)
     ssNewFile: 'New file',
     ssOpenFile: 'Open file…',

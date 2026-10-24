@@ -358,7 +358,7 @@ mod checker {
             crate::DocState {
                 path: path.clone(),
                 dirty: had_draft,
-                empty: false,
+                paths: Vec::new(),
             },
         );
         // destroy, not close: close() waits for the dead frontend's

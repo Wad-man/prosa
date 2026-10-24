@@ -47,6 +47,7 @@ import {
 import { CHANGELOG_URL, checkWhatsNew, markWhatsNewSeen, whatsNewItems } from './whats-new';
 import { MenuBar, type MenuSection } from './menu';
 import { TocPanel } from './toc';
+import { OpenFilesPanel } from './open-files';
 import { StartScreen } from './start-screen';
 import { addRecent, removeRecent } from './recent';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
@@ -229,6 +230,33 @@ let dirtyCheckTimer: number | undefined;
 // load must cancel it, or it would anchor the clean state to the draft
 let loadAnchorTimer: number | undefined;
 
+// ---------- open files (#11, этап 1) ----------
+// A window holds a SET of documents (#109: a vertical list in a left
+// column, never a tab strip). The active document keeps living in the
+// single-document slot above (mode/filePath/dirty/savedRaw/…); leaving a
+// tab serializes the slot into DocTab and coming back restores it —
+// applyLoaded/applyRecovered already own the editor plumbing, restoring
+// only has to reuse their shape.
+interface DocTab {
+  id: number;
+  text: string; // serialized content at the moment of leaving
+  path: string | null;
+  suggestion: string | null;
+  mode: Mode;
+  frontMatter: string | null;
+  unparsedPrefix: string | null;
+  savedRaw: string;
+  baseline: string;
+  editedSinceSave: boolean;
+  dirty: boolean; // unsavedContent() at the moment of leaving
+}
+let docTabs: DocTab[] = [];
+let activeTabId = 0;
+let nextTabId = 1;
+const openFiles = new OpenFilesPanel();
+// Ctrl+Tab MRU: most recently used tab ids first; the active tab rides on top
+let tabMru: number[] = [];
+
 /**
  * #83 review: a prefix/front-matter block that ended at EOF carries no
  * trailing newline — when the user later adds body text, the join must not
@@ -256,8 +284,18 @@ function currentFullText(): string {
  * untitled window with content on screen holds text that exists nowhere
  * on disk — the close/new/update guards must still treat it as unsaved.
  */
-function unsavedContent(): boolean {
+// The active document's own unsaved state — the tab dot and the tab's
+// snapshot flag. NOT the window guard: background tabs do not put a dot
+// on the active row.
+function activeUnsaved(): boolean {
   return dirty || (filePath === null && currentFullText().trim() !== '');
+}
+
+function unsavedContent(): boolean {
+  // #11: a background tab's unsaved work must guard the window too —
+  // closing the window or installing an update over dirty tabs would
+  // silently lose them
+  return activeUnsaved() || docTabs.some((tb) => tb.id !== activeTabId && tb.dirty);
 }
 
 /**
@@ -388,6 +426,7 @@ function markDirty(): void {
   if (!dirty) {
     dirty = true;
     refreshChrome();
+    refreshOpenFiles();
     reportDocState();
   } else {
     scheduleStats();
@@ -406,6 +445,7 @@ function scheduleDirtyCheck(): void {
       dirty = false;
       editedSinceSave = false;
       refreshChrome();
+      refreshOpenFiles();
       reportDocState();
     } else if (filePath === null && baseline !== '' && currentFullText().trim() === '') {
       // #86: an untitled document emptied again is pristine — void the
@@ -416,6 +456,7 @@ function scheduleDirtyCheck(): void {
       dirty = false;
       editedSinceSave = false;
       refreshChrome();
+      refreshOpenFiles();
       reportDocState();
     }
   }, 350);
@@ -456,13 +497,19 @@ function schedulePasteAnchor(): void {
 // force-closes other windows.
 function reportDocState(): void {
   if (!inTauri) return;
+  // #11: the Rust side routes an OS-opened file by every path this window
+  // holds — dedup must see background tabs too, not just the active doc
+  const paths = [
+    ...(filePath !== null ? [filePath] : []),
+    ...docTabs.filter((tb) => tb.path !== null && tb.id !== activeTabId).map((tb) => tb.path!),
+  ];
   void invoke('report_doc_state', {
     path: filePath,
     // unsavedContent (#86 review): an anchored paste clears `dirty`, but
     // the Rust side routes files and warns before update force-closes —
     // untitled on-screen content must count
     dirty: unsavedContent(),
-    empty: currentFullText().trim() === '',
+    paths,
   }).catch(() => {});
 }
 
@@ -472,18 +519,160 @@ function pristine(): boolean {
   return filePath === null && !dirty && currentFullText().trim() === '';
 }
 
-// Open a file in this window while it is still pristine; otherwise hand it
-// to the Rust side, which focuses an existing window for the file or opens
-// a new document window.
-async function openPathBestWindow(path: string): Promise<void> {
-  if (!inTauri || pristine()) {
-    await loadPath(path);
+// ---------- open files: tab bookkeeping (#11 этап 1) ----------
+
+// The single-document slot is the active tab; docTabs holds snapshots of
+// the others (the active one joins them lazily on sync — the boot tab is
+// born from the ?file= load and never needs a snapshot until it is left).
+function captureActive(): DocTab {
+  return {
+    id: activeTabId,
+    text: currentFullText(),
+    path: filePath,
+    suggestion: fileSuggestion,
+    mode,
+    frontMatter,
+    unparsedPrefix,
+    savedRaw,
+    baseline,
+    editedSinceSave,
+    dirty: activeUnsaved(),
+  };
+}
+
+function syncActiveIntoTabs(): void {
+  const i = docTabs.findIndex((tb) => tb.id === activeTabId);
+  const snap = captureActive();
+  if (i === -1) docTabs.push(snap);
+  else docTabs[i] = snap;
+}
+
+// Coming back to a tab rides applyLoaded's plumbing (editors, anchors,
+// TOC, chrome) and then re-arms the tab's own bookkeeping: a dirty tab
+// keeps its unsaved dot, and savedRaw/baseline return to the values the
+// document left with — applyLoaded just reset them to the tab's text.
+function restoreTab(tab: DocTab): void {
+  activeTabId = tab.id;
+  applyLoaded(tab.text, tab.path, tab.suggestion ?? undefined, { recent: false });
+  editedSinceSave = tab.editedSinceSave;
+  if (tab.dirty) {
+    dirty = true;
+    savedRaw = tab.savedRaw;
+    baseline = tab.baseline;
+  }
+  if (mode !== tab.mode) setMode(tab.mode);
+  refreshChrome();
+}
+
+function tabName(tb: DocTab): string {
+  if (tb.path !== null) return tb.path.split(/[\\/]/).pop() ?? t('untitled');
+  return tb.suggestion ?? t('untitled');
+}
+
+function refreshOpenFiles(): void {
+  // keep the invariant: docTabs mirrors the whole window, the active tab
+  // included (openAsTab/newFile switch ids before the first load settles)
+  if (!docTabs.some((tb) => tb.id === activeTabId)) docTabs.push(captureActive());
+  const infos = docTabs.map((tb) => ({
+    id: tb.id,
+    name: tb.id === activeTabId ? fileName() : tabName(tb),
+    dirty: tb.id === activeTabId ? activeUnsaved() : tb.dirty,
+    active: tb.id === activeTabId,
+  }));
+  openFiles.setTabs(infos);
+  // #109: one document in the window — no column, the chrome is exactly
+  // the pre-#11 single-file app
+  openFiles.setVisible(docTabs.length > 1);
+}
+
+function touchMru(id: number): void {
+  tabMru = [id, ...tabMru.filter((x) => x !== id)];
+}
+
+function findTabByPath(path: string): number | null {
+  const norm = normalizeTabPath(path);
+  if (filePath !== null && normalizeTabPath(filePath) === norm) return activeTabId;
+  const tab = docTabs.find((tb) => tb.path !== null && normalizeTabPath(tb.path) === norm);
+  return tab ? tab.id : null;
+}
+
+async function openAsTab(path: string): Promise<void> {
+  // dedup first (Sublime/Notepad canon): an already-open file activates
+  // its tab, in this window or another one of this window's tabs
+  const existing = findTabByPath(path);
+  if (existing !== null) {
+    activateTab(existing);
     return;
   }
-  await invoke('open_document_window', { path }).catch(async () => {
-    // window creation failed — fall back to replacing this document
-    if (await confirmLoseChanges()) await loadPath(path);
-  });
+  // a pristine untitled document takes the file's place — no tab noise
+  // for the first file of a window
+  if (pristine()) {
+    if (await loadPath(path)) refreshOpenFiles();
+    return;
+  }
+  syncActiveIntoTabs();
+  const prevId = activeTabId;
+  activeTabId = nextTabId++;
+  if (!(await loadPath(path))) {
+    // the file never loaded — the slot still holds the previous document
+    activeTabId = prevId;
+    return;
+  }
+  touchMru(activeTabId);
+  refreshOpenFiles();
+}
+
+function activateTab(id: number): void {
+  if (id === activeTabId) return;
+  const target = docTabs.find((tb) => tb.id === id);
+  if (!target) return;
+  syncActiveIntoTabs();
+  restoreTab(target);
+  touchMru(id);
+  refreshOpenFiles();
+}
+
+async function closeTab(id: number): Promise<void> {
+  if (id === activeTabId) syncActiveIntoTabs();
+  const i = docTabs.findIndex((tb) => tb.id === id);
+  if (i === -1) return;
+  const tab = docTabs[i];
+  if (!(await confirmTabClose(tab.dirty))) return;
+  docTabs.splice(i, 1);
+  tabMru = tabMru.filter((x) => x !== id);
+  if (docTabs.length === 0) {
+    // the last tab closed — the window honestly returns to a fresh
+    // untitled document (start screen), like Ctrl+N
+    activeTabId = nextTabId++;
+    applyLoaded('', null);
+    tabMru = [activeTabId];
+  } else if (id === activeTabId) {
+    // the closed tab was active: MRU pick, falling back to the neighbour
+    const nextId =
+      tabMru.find((x) => docTabs.some((tb) => tb.id === x)) ??
+      docTabs[Math.min(i, docTabs.length - 1)].id;
+    restoreTab(docTabs.find((tb) => tb.id === nextId)!);
+    touchMru(nextId);
+  }
+  refreshOpenFiles();
+}
+
+// Ctrl+Tab: the most recently used tab other than the active one (the
+// VS Code-style MRU overlay stays a v2 candidate — the plain switch is
+// the whole MVP behaviour).
+function cycleTabs(): void {
+  const next = tabMru.find((x) => x !== activeTabId && docTabs.some((tb) => tb.id === x));
+  if (next === undefined) return;
+  activateTab(next);
+}
+
+// Open a file in THIS window (#11: always a tab of this window — the
+// OS-level "which window" routing lives in Rust, in-window requests never
+// spawn windows). A pristine untitled document takes the file's place; a
+// file already open in a tab just activates it (Sublime/Notepad dedup
+// canon, RESEARCH-OPEN-FILES-UX §11.7).
+async function openPathBestWindow(path: string): Promise<void> {
+  await openAsTab(path);
 }
 
 async function confirmLoseChanges(): Promise<boolean> {
@@ -491,7 +680,24 @@ async function confirmLoseChanges(): Promise<boolean> {
   return await ask(t('discardQuestion'), { title: t('discardTitle'), kind: 'warning' });
 }
 
-function applyLoaded(text: string, path: string | null, suggestedName?: string): void {
+// A close guard for one specific tab — background tabs must be asked about
+// by their own snapshot flag, not by the active document's state.
+async function confirmTabClose(isDirty: boolean): Promise<boolean> {
+  if (!isDirty) return true;
+  return await ask(t('discardQuestion'), { title: t('discardTitle'), kind: 'warning' });
+}
+
+function normalizeTabPath(p: string): string {
+  return p.replace(/\\/g, '/').toLowerCase();
+}
+
+function applyLoaded(
+  text: string,
+  path: string | null,
+  suggestedName?: string,
+  opts?: { recent?: boolean },
+): void {
+  const recent = opts?.recent !== false;
   suppressChange = true;
   savedRaw = text;
   // the visual editor must not see the front-matter block (#33) nor the
@@ -527,13 +733,15 @@ function applyLoaded(text: string, path: string | null, suggestedName?: string):
     refreshChrome();
     reportDocState();
     toc.refresh();
+    refreshOpenFiles();
     // #71: a document landing in this window puts the caret at its start
     // (file open, drop, Ctrl+N, __prosaOpen into a pristine window)
     focusActiveEditor();
   }, 0);
   // #96: every file that lands here (open, drop, save-as target) becomes
-  // the most recent one on the start screen
-  if (path !== null) {
+  // the most recent one on the start screen — a tab SWITCH is not a file
+  // landing and must not churn the recent list
+  if (recent && path !== null) {
     addRecent(path);
     startScreen.refreshRecent();
     // a real file context resets the «started writing» state — an empty
@@ -692,6 +900,7 @@ async function saveFile(saveAs: boolean): Promise<void> {
     addRecent(path);
     startScreen.refreshRecent();
     refreshChrome();
+    refreshOpenFiles();
     reportDocState();
   } catch (err) {
     void message(`${t('saveError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
@@ -700,12 +909,14 @@ async function saveFile(saveAs: boolean): Promise<void> {
 
 // ---------- new document (Файл → Создать, Ctrl+N) ----------
 
-// Mirrors the in-app Открыть semantics: the new document replaces this
-// window's content after an unsaved-changes guard. Spawning windows is
-// multi-window territory (plugin #11), not this command's business.
+// Ctrl+N: a new document is a new TAB of this window (#11/#109 — same as
+// Notepad's new tab), never a window and never a replacement of unsaved
+// work. The previous document keeps its own tab.
 async function newFile(): Promise<void> {
-  if (!(await confirmLoseChanges())) return;
+  syncActiveIntoTabs();
+  activeTabId = nextTabId++;
   applyLoaded('', null);
+  touchMru(activeTabId);
   // #96 owner scenario: «Начать писать = Новый файл» — creating a document
   // IS starting to write. The start screen would otherwise stay up on the
   // empty document it just created (a visible no-op); .writing hides it
@@ -713,6 +924,7 @@ async function newFile(): Promise<void> {
   // caret needs a real editor (applyLoaded already schedules the focus).
   if (mode === 'reading') setMode('visual');
   els.app.classList.add('writing');
+  refreshOpenFiles();
 }
 
 // ---------- clipboard (Правка) ----------
@@ -1771,6 +1983,7 @@ function applyStaticTexts(): void {
   // render time, so a rebuild re-localizes them
   menuBar.relabel();
   toc.relabel();
+  openFiles.relabel();
   // #96: the start screen's buttons follow a live language switch too
   startScreen.relabel();
   // #32: the find bar (a no-op before its first open)
@@ -1875,6 +2088,15 @@ async function init(): Promise<void> {
   });
   onFeaturesChanged(() => applyTocFeature());
   applyTocFeature();
+  // #11 этап 1: the open files column mounts into the editor host (left
+  // of #editor-panes); the boot document becomes tab #1 — a window with a
+  // single document shows no column (#109)
+  openFiles.mount(els.editorHost, {
+    onActivate: (id) => activateTab(id),
+    onClose: (id) => void closeTab(id),
+  });
+  activeTabId = nextTabId++;
+  tabMru = [activeTabId];
   // active-heading tracking rides the panes' scroll (capture catches the
   // inner scrollers — crepe's wrapper, .cm-scroller)
   els.visualPane.addEventListener('scroll', queueTocActive, true);
@@ -2056,6 +2278,25 @@ async function init(): Promise<void> {
       e.preventDefault();
       openHotkeys();
       return;
+    }
+    // #11 (канон #109 §11.6): Ctrl+Tab — MRU-переключение вкладок,
+    // Ctrl+PgDn/PgUp — соседняя. Alt+цифра не занимается: Alt+1..4 уже
+    // режимные стопы (#110); MRU-оверлей — кандидат v2, MVP переключает сразу
+    if (e.ctrlKey && !e.altKey && !e.metaKey && !findBar.hasFocus()) {
+      if (e.key === 'Tab' && !e.shiftKey) {
+        e.preventDefault();
+        cycleTabs();
+        return;
+      }
+      if ((e.code === 'PageDown' || e.code === 'PageUp') && !e.shiftKey) {
+        const delta = e.code === 'PageDown' ? 1 : -1;
+        const idx = docTabs.findIndex((tb) => tb.id === activeTabId);
+        if (idx !== -1 && docTabs.length > 1) {
+          e.preventDefault();
+          activateTab(docTabs[(idx + delta + docTabs.length) % docTabs.length].id);
+          return;
+        }
+      }
     }
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) {

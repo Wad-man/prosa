@@ -814,6 +814,131 @@ body {
   color: var(--fg-3);
 }
 
+/* ---------- open files: the window's own document list (#11 этап 1) ----------
+   #109 (гейт ★2): vertical list in a left column, hidden at one document.
+   The visual language follows the outline column: same caption, same
+   13px rows, hover a step short of active, active = --fg + accent mark. */
+#open-files {
+  display: flex;
+  flex-direction: column;
+  width: 240px; /* #109: 180–420, drag-resize lands with stage 2 */
+  min-width: 0;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  user-select: none;
+}
+
+#open-files[hidden] {
+  display: none;
+}
+
+.of-cap {
+  margin: 10px 14px 6px 16px;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+.of-list {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 0 10px 12px 12px;
+  list-style: none;
+}
+
+.of-item {
+  position: relative;
+  border-radius: var(--r-sm);
+}
+
+.of-item.active {
+  background: var(--bg-sunk);
+}
+
+.of-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 26px 5px 8px;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-3);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+  transition: color var(--t-1) var(--ease);
+}
+
+.of-item:hover .of-btn {
+  color: var(--fg-2);
+}
+
+.of-item.active .of-btn {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.of-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* unsaved dot — the tab's only status signal (#109: точка вместо
+   крестика у несохранённой); reserves its slot so the name never jumps */
+.of-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.of-dot.dirty {
+  background: var(--accent);
+}
+
+.of-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-sm);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.of-item:hover .of-close,
+.of-item.active .of-close {
+  display: flex;
+}
+
+.of-close:hover {
+  background: var(--border);
+  color: var(--fg);
+}
+
 /* the find bar keeps clear of the open column: --toc-fr is the measured
    right offset (toc.ts), the fallback matches the widest tier */
 #editor-host:has(#editor-panes.toc-open) #find-bar {

@@ -45,8 +45,8 @@ fn get_initial_file() -> Option<String> {
 
 /// Live document state of every open window, reported by the frontend via
 /// `report_doc_state`. The Rust side uses it to route newly opened files:
-/// focus the window already showing the file, reuse a pristine window, or
-/// spawn a new document window.
+/// focus the window already showing the file, hand it to the last focused
+/// window as a new tab (#11), or spawn a new document window.
 #[derive(Default)]
 struct Docs(Mutex<HashMap<String, DocState>>);
 
@@ -54,8 +54,16 @@ struct Docs(Mutex<HashMap<String, DocState>>);
 struct DocState {
     path: Option<String>,
     dirty: bool,
-    empty: bool,
+    /// #11: every file this window holds as a tab — dedup must see the
+    /// background tabs, not just the active document
+    paths: Vec<String>,
 }
+
+/// The label of the window that held focus last (#11 routing: a file
+/// opened from the OS lands as a tab in the most recently focused window,
+/// the Sublime/Notepad canon).
+#[derive(Default)]
+struct LastFocused(Mutex<Option<String>>);
 
 #[tauri::command]
 fn report_doc_state(
@@ -64,13 +72,16 @@ fn report_doc_state(
     watchdog: tauri::State<watchdog::Watchdog>,
     path: Option<String>,
     dirty: bool,
-    empty: bool,
+    paths: Vec<String>,
 ) {
-    state
-        .0
-        .lock()
-        .unwrap()
-        .insert(window.label().to_string(), DocState { path, dirty, empty });
+    state.0.lock().unwrap().insert(
+        window.label().to_string(),
+        DocState {
+            path,
+            dirty,
+            paths,
+        },
+    );
     // #114: a clean state means the file on disk is the truth — a stale
     // pre-save draft must not be restored over it by a later recovery
     if !dirty {
@@ -145,14 +156,17 @@ fn is_markdown(path: &str) -> bool {
 }
 
 /// Focus the window already showing `path` (a file may only be open once —
-/// two windows editing one file would overwrite each other on save).
+/// two windows editing one file would overwrite each other on save). #11:
+/// a background tab counts as "showing" too.
 fn focus_existing(app: &AppHandle, state: &Docs, path: &str) -> Option<()> {
     let label = state
         .0
         .lock()
         .unwrap()
         .iter()
-        .find(|(_, doc)| doc.path.as_deref() == Some(path))
+        .find(|(_, doc)| {
+            doc.path.as_deref() == Some(path) || doc.paths.iter().any(|p| p == path)
+        })
         .map(|(label, _)| label.clone())?;
     focus_window(app, &label)
 }
@@ -299,20 +313,26 @@ async fn open_document_window(
 }
 
 /// Route a file opened outside any window (second app instance): focus the
-/// window already showing it, else load it into a pristine window, else
-/// create a new one.
+/// window already showing it, else hand it to the last focused window as a
+/// new tab via the frontend hook (#11 — the frontend applies the full
+/// canon: pristine-slot replacement, dedup, tab), else create a new window.
 fn open_doc_external(app: &AppHandle, state: &Docs, path: &str) {
     if focus_existing(app, state, path).is_some() {
         return;
     }
-    let pristine_label = state
+    // #11: the most recently focused window receives the file — the
+    // frontend decides whether it replaces a pristine untitled document or
+    // becomes a tab; no window has ever been focused (fresh boot race) —
+    // fall back to any known window
+    let fallback_label = state.0.lock().unwrap().keys().next().cloned();
+    let label = app
+        .state::<LastFocused>()
         .0
         .lock()
         .unwrap()
-        .iter()
-        .find(|(_, doc)| doc.path.is_none() && !doc.dirty && doc.empty)
-        .map(|(label, _)| label.clone());
-    if let Some(label) = pristine_label {
+        .clone()
+        .or(fallback_label);
+    if let Some(label) = label {
         if let Some(window) = app.get_webview_window(&label) {
             let arg = serde_json::to_string(path).unwrap_or_default();
             if window
@@ -334,6 +354,7 @@ fn open_doc_external(app: &AppHandle, state: &Docs, path: &str) {
 pub fn run() {
     let builder = tauri::Builder::default()
         .manage(Docs::default())
+        .manage(LastFocused::default())
         .manage(MenuLang::new())
         .manage(watchdog::Watchdog::default())
         .setup(|app| {
@@ -367,15 +388,33 @@ pub fn run() {
             #[cfg(not(prosa_mac))]
             let _ = (app, event);
         })
-        // drop document state of closed windows
+        // drop document state of closed windows; #11: track the last
+        // focused window for OS-file routing (a closed window obviously
+        // stops being the routing target)
         .on_window_event(|window, event| {
-            if matches!(event, WindowEvent::Destroyed) {
-                let label = window.label().to_string();
-                let app = window.app_handle();
-                app.state::<Docs>().0.lock().unwrap().remove(&label);
-                // #114: the watchdog no longer watches the dead label —
-                // its replacement registered under a fresh one
-                app.state::<watchdog::Watchdog>().unregister(&label);
+            let label = window.label().to_string();
+            match event {
+                WindowEvent::Focused(true) => {
+                    *window
+                        .app_handle()
+                        .state::<LastFocused>()
+                        .0
+                        .lock()
+                        .unwrap() = Some(label.clone());
+                }
+                WindowEvent::Destroyed => {
+                    let app = window.app_handle();
+                    app.state::<Docs>().0.lock().unwrap().remove(&label);
+                    let last_focused = app.state::<LastFocused>();
+                    let mut last = last_focused.0.lock().unwrap();
+                    if last.as_deref() == Some(label.as_str()) {
+                        *last = None;
+                    }
+                    // #114: the watchdog no longer watches the dead label —
+                    // its replacement registered under a fresh one
+                    app.state::<watchdog::Watchdog>().unregister(&label);
+                }
+                _ => {}
             }
         });
 
