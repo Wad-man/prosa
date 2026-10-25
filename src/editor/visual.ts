@@ -1506,6 +1506,10 @@ export class VisualEditor {
           // window listener runs. Claiming the combo here keeps the editor
           // silent; the swallowed event still bubbles to the window handler.
           'Shift-Mod-1': () => true,
+          // #153: same class for Ctrl+Shift+2, the open-files panel toggle
+          // (#144) — unclaimed, it fell back to 'Mod-2' and turned the
+          // caret's paragraph into an H2.
+          'Shift-Mod-2': () => true,
           'Mod-0': () => call.call(turnIntoTextCommand.key),
           'Mod-1': () => call.call(wrapInHeadingCommand.key, 1),
           'Mod-2': () => call.call(wrapInHeadingCommand.key, 2),
