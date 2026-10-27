@@ -196,6 +196,14 @@ const findBar = new FindReplaceBar({
 let userInteracted = false;
 
 let mode: Mode = 'visual';
+// #154: the body the VISUAL editor currently holds (null = unknown — a
+// load/rebuild ran while it was hidden). Mode switches re-feed setMarkdown
+// unconditionally, and a redundant whole-doc replace re-mounts Crepe's UI
+// (listener leak, K6) and re-parses the document (a ~1 s stall on 300KB,
+// P4); VisualEditor's own lastMd memo is not enough here — it resets on
+// milkdown's async update notifications, so this string-level memo at the
+// switch sites is the one that decides whether a replace is needed at all
+let visualBodySynced: string | null = null;
 let filePath: string | null = null;
 // name of a file whose contents were loaded without a path (OS drag-drop
 // without a usable file URL) — used for the title and the Save As default
@@ -786,8 +794,13 @@ function applyLoaded(
   // nodeView only rebinds when its node changes)
   filePath = path;
   fileSuggestion = path === null ? (suggestedName ?? null) : null;
-  if (contentOf(mode) === 'visual') visual.setMarkdown(body);
-  else {
+  if (contentOf(mode) === 'visual') {
+    visual.setMarkdown(body);
+    visualBodySynced = body;
+  } else {
+    // the visual editor still holds the PREVIOUS document — its memo must
+    // not claim otherwise (see setMode)
+    visualBodySynced = null;
     source?.setContent((fm ?? '') + body);
     // #62: a load while split must refresh the preview pane too
     if (mode === 'split') syncSplitPreview();
@@ -845,8 +858,11 @@ function applyRecovered(text: string, path: string | null): void {
   unparsedPrefix = up;
   filePath = path;
   fileSuggestion = null;
-  if (contentOf(mode) === 'visual') visual.setMarkdown(body);
-  else {
+  if (contentOf(mode) === 'visual') {
+    visual.setMarkdown(body);
+    visualBodySynced = body;
+  } else {
+    visualBodySynced = null;
     source?.setContent((fm ?? '') + body);
     if (mode === 'split') syncSplitPreview();
   }
@@ -1566,6 +1582,9 @@ function syncSplitPreview(): void {
   // source editor and ignores these
   frontMatter = fm;
   visual.setMarkdown(body);
+  // the preview now holds exactly this body — keep the switch memo honest
+  // (#154: split → visual must not re-parse what is already on screen)
+  visualBodySynced = body;
   refreshFrontMatterView();
   // #62 (гейт 2026-10-15): the re-render changed the preview's heights —
   // re-anchor it to where the code stands before the eye notices the drift
@@ -1736,6 +1755,9 @@ function setMode(next: Mode): void {
           if (mode === 'split') scheduleSplitSync();
         });
       else source.setContent(raw);
+      // leaving the visual side: its editor still holds exactly this body —
+      // remember it so a no-edit round-trip back does not re-parse (#154)
+      visualBodySynced = splitFrontMatter(md).body;
       if (next === 'split') {
         // the preview must show the same document the code now holds —
         // render-only (syncSplitPreview does not touch file-level state)
@@ -1750,7 +1772,13 @@ function setMode(next: Mode): void {
       const { frontMatter: fm, unparsedPrefix: up, body } = splitFrontMatter(md);
       frontMatter = fm;
       unparsedPrefix = up;
-      visual.setMarkdown(body);
+      // #154: entering the visual side re-parses only when the body really
+      // changed while the raw view owned the document — an unchanged
+      // round-trip must not re-mount Crepe (K6 leak, P4 stall)
+      if (body !== visualBodySynced) {
+        visual.setMarkdown(body);
+        visualBodySynced = body;
+      }
       refreshFrontMatterView();
     }
     window.setTimeout(() => {
@@ -2452,6 +2480,8 @@ async function init(): Promise<void> {
     void visual
       .rebuild(carved.body)
       .then(() => {
+        // the rebuilt editor holds carved.body — sync the switch memo (#154)
+        visualBodySynced = carved.body;
         // rebuild wipes the pane (visual.rebuild replaceChildren) — bring the
         // front-matter record back above the fresh editor
         refreshFrontMatterView();
