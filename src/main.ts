@@ -53,7 +53,7 @@ import { addRecent, removeRecent } from './recent';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
 import { applyWebView2DragFix } from './platform/webview2-dnd';
 import { getLang, t } from './i18n';
-import { applyTheme, currentTheme, onLangChanged, setLanguage, toggleTheme } from './settings';
+import { applyTheme, autoUpdateEnabled, currentTheme, onLangChanged, setAutoUpdateEnabled, setLanguage, toggleTheme } from './settings';
 import { FindReplaceBar } from './search';
 import { initZoom, zoomIn, zoomOut, zoomReset } from './zoom';
 import './styles.css';
@@ -162,6 +162,9 @@ const els = {
   settingsLangLabel: $('settings-lang-label'),
   settingsLangRu: $('settings-lang-ru') as HTMLButtonElement,
   settingsLangEn: $('settings-lang-en') as HTMLButtonElement,
+  settingsUpdatesLabel: $('settings-updates-label'),
+  settingsUpdatesAuto: $('settings-updates-auto') as HTMLInputElement,
+  settingsUpdatesAutoLabel: $('settings-updates-auto-label'),
   whatsnewOverlay: $('whatsnew-overlay'),
   whatsnewModal: document.querySelector('#whatsnew-overlay .modal') as HTMLElement,
   whatsnewClose: $('whatsnew-close') as HTMLButtonElement,
@@ -2225,6 +2228,10 @@ function applyStaticTexts(): void {
   els.settingsLangLabel.textContent = t('settingsLangSection');
   els.settingsLangRu.textContent = t('langRu');
   els.settingsLangEn.textContent = t('langEn');
+  els.settingsUpdatesLabel.textContent = t('settingsUpdatesSection');
+  els.settingsUpdatesAutoLabel.textContent = t('updatesAuto');
+  // the checked mark rides along so a live language switch cannot desync it
+  els.settingsUpdatesAuto.checked = autoUpdateEnabled();
   // the pressed button mirrors the live language (#88)
   els.settingsLangRu.setAttribute('aria-pressed', String(getLang() === 'ru'));
   els.settingsLangEn.setAttribute('aria-pressed', String(getLang() === 'en'));
@@ -2805,6 +2812,11 @@ async function init(): Promise<void> {
   });
   els.settingsLangRu.addEventListener('click', () => setLanguage('ru'));
   els.settingsLangEn.addEventListener('click', () => setLanguage('en'));
+  // #160: the toggle writes through immediately; applyStaticTexts re-syncs
+  // the mark from storage on the way (e.g. after a live language switch)
+  els.settingsUpdatesAuto.addEventListener('change', () => {
+    setAutoUpdateEnabled(els.settingsUpdatesAuto.checked);
+  });
   // #104: native macOS menu — report the resolved language once at boot
   // (the bar starts Russian) and receive its "Settings…" item back. The
   // listener must sit on THIS window (a global listen() matches in every
@@ -2943,8 +2955,10 @@ async function init(): Promise<void> {
       })
       .catch(() => {});
     // background update check shortly after launch; only the main window runs
-    // it so multiple documents don't race to install the same update
-    if (currentWindow?.label === 'main') {
+    // it so multiple documents don't race to install the same update. #160:
+    // with the automatic check off this never runs — no update network at
+    // startup; the manual check in About stays available
+    if (currentWindow?.label === 'main' && autoUpdateEnabled()) {
       window.setTimeout(() => void checkForUpdates(false), 3000);
     }
   }

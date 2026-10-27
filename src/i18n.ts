@@ -118,6 +118,9 @@ const strings = {
     settings: 'Настройки…',
     settingsTitle: 'Настройки',
     settingsLangSection: 'Язык интерфейса',
+    // #160: the auto-update toggle in Settings
+    settingsUpdatesSection: 'Обновления',
+    updatesAuto: 'Проверять обновления автоматически',
     // #32: find & replace bar + its Edit-menu entries
     findMenu: 'Найти…',
     findReplaceMenu: 'Найти и заменить…',
@@ -263,6 +266,9 @@ const strings = {
     settings: 'Settings…',
     settingsTitle: 'Settings',
     settingsLangSection: 'Interface language',
+    // #160: the auto-update toggle in Settings
+    settingsUpdatesSection: 'Updates',
+    updatesAuto: 'Check for updates automatically',
     // #32: find & replace bar + its Edit-menu entries
     findMenu: 'Find…',
     findReplaceMenu: 'Find and replace…',

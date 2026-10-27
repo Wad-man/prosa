@@ -5,7 +5,7 @@
 // is applied at cold start by an inline script in index.html (before first
 // paint, to avoid a flash); every runtime switch goes through here.
 import { getLang, setLang, type Lang } from './i18n';
-import { storageSet } from './storage';
+import { storageGet, storageSet } from './storage';
 
 const THEME_KEY = 'prosa.theme';
 
@@ -86,4 +86,19 @@ export function setLanguage(lang: Lang): void {
   }
   setLang(lang);
   for (const listener of langListeners) listener();
+}
+
+// ---------- automatic update check (#160) ----------
+
+// Whether the app checks for updates on its own shortly after startup. The
+// manual «Check for updates» in «About» is independent of this. Absent key
+// = on: checking is the default, opting out is an explicit act.
+const AUTO_UPDATE_KEY = 'prosa.updates.auto';
+
+export function autoUpdateEnabled(): boolean {
+  return storageGet(AUTO_UPDATE_KEY) !== '0';
+}
+
+export function setAutoUpdateEnabled(on: boolean): void {
+  storageSet(AUTO_UPDATE_KEY, on ? '1' : '0');
 }
