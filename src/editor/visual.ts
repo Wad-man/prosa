@@ -1128,6 +1128,15 @@ export class VisualEditor {
   private panelClipboard: PanelClipboardActions | null = null;
   // #66: the reading mode — this same instance with `editable` off
   private readonly = false;
+  // #154: the markdown string this instance currently holds (null = unknown,
+  // e.g. mid-rebuild). setMarkdown is called on EVERY source→visual switch
+  // and split-preview sync even when the text did not change — a redundant
+  // whole-doc replace re-mounts Crepe's Vue features (block-edit, link-tip)
+  // and the previous mounts leak their DOM listeners (K6), besides the
+  // re-parse cost itself (P4). Identical content = nothing to do.
+  private lastMd: string | null = null;
+  // true only for the ticks inside setMarkdown's own replace dispatch
+  private applyingReplace = false;
 
   // The link-edit tooltip's own Escape handler sits on its <input> (and stops
   // propagation there), but after Ctrl+K the focus can remain in the editor —
@@ -1694,8 +1703,12 @@ export class VisualEditor {
     // #66: a rebuild (language switch) in the reading mode stays read-only
     this.crepe.setReadonly(this.readonly);
     await this.crepe.create();
+    this.lastMd = defaultValue;
     this.crepe.editor.action((ctx) => {
       ctx.get(listenerCtx).markdownUpdated(() => {
+        // a user edit (typing, paste, drop) invalidates the lastMd memo —
+        // setMarkdown's own replace raises applyingReplace and keeps it
+        if (!this.applyingReplace) this.lastMd = null;
         onChange();
         // #65: a doc change can rebuild inline-image DOM without a fresh
         // load error event (cached failure) — resweep on every update
@@ -1726,6 +1739,8 @@ export class VisualEditor {
     if (!this.root) return;
     const onChange = this.onChange;
     await this.crepe?.destroy();
+    // the memo is dead along with the instance it described
+    this.lastMd = null;
     // destroy unmounts the ProseMirror DOM; clear any leftovers so the
     // new instance mounts into a clean root
     this.root.replaceChildren();
@@ -1734,10 +1749,17 @@ export class VisualEditor {
 
   setMarkdown(md: string): void {
     if (!this.crepe) return;
+    if (md === this.lastMd) return;
     // a whole-document replacement: re-capture definitions from the new
     // source (#55) — the parse below consumes them invisibly
     this.captureDefinitions(md, true);
-    this.crepe.editor.action(replaceAll(md, true));
+    this.applyingReplace = true;
+    try {
+      this.crepe.editor.action(replaceAll(md, true));
+      this.lastMd = md;
+    } finally {
+      this.applyingReplace = false;
+    }
   }
 
   focus(): void {
