@@ -266,9 +266,18 @@ function toggleFence(view: EditorView): void {
 /** Ctrl+D: delete the lines covered by the selection (Obsidian semantics). */
 export function sourceDeleteLines(view: EditorView): void {
   const { from, to } = lineRange(view);
+  const doc = view.state.doc;
+  // R-023: a deleted line takes its line break with it — clearing only
+  // [from, to] would leave an empty line behind. Mid-document the break
+  // AFTER the last line goes; the document's final line has none, so it
+  // takes the break before it instead
+  let start = from;
+  let end = to;
+  if (end < doc.length) end += 1;
+  else if (start > 0) start -= 1;
   view.dispatch({
-    changes: { from, to },
-    selection: { anchor: from },
+    changes: { from: start, to: end },
+    selection: { anchor: start },
     scrollIntoView: true,
   });
   view.focus();
