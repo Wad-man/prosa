@@ -250,10 +250,17 @@ interface DocTab {
   baseline: string;
   editedSinceSave: boolean;
   dirty: boolean; // unsavedContent() at the moment of leaving
+  // #157: born from an explicit «Новый документ» — an auto placeholder
+  // (boot, last-tab close) stays out of the open-files list while empty
+  explicit: boolean;
 }
 let docTabs: DocTab[] = [];
 let activeTabId = 0;
 let nextTabId = 1;
+// #157: the active slot was claimed by an explicit «Новый документ» — an
+// empty auto placeholder (boot, last-tab close) stays out of the
+// open-files list until it holds content
+let activeExplicit = false;
 const openFiles = new OpenFilesPanel();
 // Ctrl+Tab MRU: most recently used tab ids first; the active tab rides on top
 let tabMru: number[] = [];
@@ -538,6 +545,7 @@ function captureActive(): DocTab {
     baseline,
     editedSinceSave,
     dirty: activeUnsaved(),
+    explicit: activeExplicit,
   };
 }
 
@@ -556,6 +564,7 @@ function restoreTab(tab: DocTab): void {
   activeTabId = tab.id;
   applyLoaded(tab.text, tab.path, tab.suggestion ?? undefined, { recent: false });
   editedSinceSave = tab.editedSinceSave;
+  activeExplicit = tab.explicit;
   if (tab.dirty) {
     dirty = true;
     savedRaw = tab.savedRaw;
@@ -570,11 +579,26 @@ function tabName(tb: DocTab): string {
   return tb.suggestion ?? t('untitled');
 }
 
+/** #157 (схема владельца): список «Открытые» держит настоящие документы —
+ * пустой безымянный черновик, поднятый приложением самому (стартовое окно,
+ * новорождённая вкладка после закрытия последней), в списке нет, пока в нём
+ * не появится символ. Явно созданный «Новый документ» виден сразу; снимок
+ * хранит activeUnsaved(), так что dirty покрывает и контент безымянного. */
+function tabListed(tb: DocTab): boolean {
+  return tb.path !== null || tb.explicit || tb.dirty;
+}
+
 function refreshOpenFiles(): void {
   // keep the invariant: docTabs mirrors the whole window, the active tab
   // included (openAsTab/newFile switch ids before the first load settles)
   if (!docTabs.some((tb) => tb.id === activeTabId)) docTabs.push(captureActive());
-  const infos = docTabs.map((tb) => ({
+  // #157: the list holds real documents only — an empty auto draft is
+  // invisible until it gains content; the active tab rides live state
+  // (its docTabs snapshot may be stale, same as name/dirty in the map)
+  const listed = docTabs.filter((tb) =>
+    tb.id === activeTabId ? filePath !== null || activeExplicit || activeUnsaved() : tabListed(tb),
+  );
+  const infos = listed.map((tb) => ({
     id: tb.id,
     name: tb.id === activeTabId ? fileName() : tabName(tb),
     dirty: tb.id === activeTabId ? activeUnsaved() : tb.dirty,
@@ -584,7 +608,7 @@ function refreshOpenFiles(): void {
   openFiles.setTabs(infos);
   // #109: one document in the window — no column, the chrome is exactly
   // the pre-#11 single-file app; #144: the user's explicit toggle wins
-  openFiles.applyVisibility(docTabs.length > 1);
+  openFiles.applyVisibility(infos.length > 1);
   els.btnOpenFiles.setAttribute('aria-pressed', String(openFiles.isShown()));
 }
 
@@ -662,7 +686,8 @@ function closeTabNow(id: number): void {
   tabMru = tabMru.filter((x) => x !== id);
   if (docTabs.length === 0) {
     // the last tab closed — the window honestly returns to a fresh
-    // untitled document (start screen), like Ctrl+N
+    // untitled document (start screen); #157: it is an auto placeholder,
+    // out of the open-files list until it gains content or a Ctrl+N
     activeTabId = nextTabId++;
     applyLoaded('', null);
     tabMru = [activeTabId];
@@ -717,7 +742,11 @@ async function closeAllTabs(): Promise<void> {
 // VS Code-style MRU overlay stays a v2 candidate — the plain switch is
 // the whole MVP behaviour).
 function cycleTabs(): void {
-  const next = tabMru.find((x) => x !== activeTabId && docTabs.some((tb) => tb.id === x));
+  // #157: a hidden empty draft never takes the cycle — the switch would
+  // land on a document the list does not show
+  const next = tabMru.find(
+    (x) => x !== activeTabId && docTabs.some((tb) => tb.id === x && tabListed(tb)),
+  );
   if (next === undefined) return;
   activateTab(next);
 }
@@ -768,6 +797,9 @@ function applyLoaded(
   findBar.close();
   dirty = false;
   editedSinceSave = false;
+  // #157: a load makes the slot a plain document — newFile claims the
+  // explicitness back AFTER its own applyLoaded
+  activeExplicit = false;
   window.clearTimeout(dirtyCheckTimer);
   // let programmatic editor updates land before unmasking change events
   window.clearTimeout(loadAnchorTimer);
@@ -988,9 +1020,15 @@ async function saveFile(saveAs: boolean): Promise<void> {
 // Notepad's new tab), never a window and never a replacement of unsaved
 // work. The previous document keeps its own tab.
 async function newFile(): Promise<void> {
-  syncActiveIntoTabs();
-  activeTabId = nextTabId++;
+  // #157: a pristine slot the app raised itself already IS a new document
+  // — Ctrl+N claims it instead of spawning a phantom twin (an empty
+  // untitled the list would hide, yet Ctrl+Tab would still visit it)
+  if (activeExplicit || !pristine()) {
+    syncActiveIntoTabs();
+    activeTabId = nextTabId++;
+  }
   applyLoaded('', null);
+  activeExplicit = true;
   touchMru(activeTabId);
   // #96 owner scenario: «Начать писать = Новый файл» — creating a document
   // IS starting to write. The start screen would otherwise stay up on the
@@ -2487,10 +2525,13 @@ async function init(): Promise<void> {
       }
       if ((e.code === 'PageDown' || e.code === 'PageUp') && !e.shiftKey) {
         const delta = e.code === 'PageDown' ? 1 : -1;
-        const idx = docTabs.findIndex((tb) => tb.id === activeTabId);
-        if (idx !== -1 && docTabs.length > 1) {
+        // #157: hidden empty drafts never take the switch (cycleTabs
+        // likewise) — the neighbour runs over the listed documents only
+        const listed = docTabs.filter(tabListed);
+        const idx = listed.findIndex((tb) => tb.id === activeTabId);
+        if (idx !== -1 && listed.length > 1) {
           e.preventDefault();
-          activateTab(docTabs[(idx + delta + docTabs.length) % docTabs.length].id);
+          activateTab(listed[(idx + delta + listed.length) % listed.length].id);
           return;
         }
       }
@@ -2877,6 +2918,10 @@ async function init(): Promise<void> {
       window.setTimeout(() => void checkForUpdates(false), 3000);
     }
   }
+
+  // #157: an empty boot never runs applyLoaded, so nothing would apply the
+  // persisted #144 panel preference — sync the open-files chrome once here
+  refreshOpenFiles();
 
   // #34: the initial file (if any) has been applied — the honest empty
   // state may replace the pending loader

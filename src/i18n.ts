@@ -94,6 +94,7 @@ const strings = {
     // #11: open files panel
     openFilesTitle: 'Открытые',
     closeTab: 'Закрыть документ',
+    openFilesEmpty: 'Нет открытых документов',
     // #96: start screen (empty state)
     ssNewFile: 'Новый файл',
     ssOpenFile: 'Открыть файл…',
@@ -240,6 +241,7 @@ const strings = {
     // #11: open files panel
     openFilesTitle: 'Open files',
     closeTab: 'Close document',
+    openFilesEmpty: 'No open documents',
     // #96: start screen (empty state)
     ssNewFile: 'New file',
     ssOpenFile: 'Open file…',

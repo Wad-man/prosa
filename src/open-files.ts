@@ -95,6 +95,15 @@ export class OpenFilesPanel {
     const list = this.list;
     if (!list) return;
     list.replaceChildren();
+    if (tabs.length === 0) {
+      // #157: a forced-open panel (#144) over hidden empty drafts shows
+      // why it is empty instead of bare space
+      const empty = document.createElement('li');
+      empty.className = 'of-empty';
+      empty.textContent = t('openFilesEmpty');
+      list.append(empty);
+      return;
+    }
     for (const tab of tabs) {
       const li = document.createElement('li');
       li.className = 'of-item' + (tab.active ? ' active' : '');

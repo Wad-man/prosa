@@ -849,6 +849,14 @@ body {
   list-style: none;
 }
 
+/* #157: empty state of a forced-open panel — the app's own empty drafts
+   stay out of the list (схема владельца) until they gain content */
+.of-empty {
+  padding: 5px 8px;
+  font-size: 13px;
+  color: var(--fg-3);
+}
+
 .of-item {
   position: relative;
   border-radius: var(--r-sm);
