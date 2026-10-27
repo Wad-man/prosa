@@ -589,6 +589,20 @@ body {
   font-size: 11.5px;
 }
 
+/* #155: on the hover/focus wash the resting fg-3 hints drop to 3.7:1 —
+   the hint steps up a contrast tier while highlighted (light keeps it one
+   step below the label, dark matches the label tier like the dark label
+   override above) */
+.menu-item:hover .menu-kbd,
+.menu-item:focus-visible .menu-kbd {
+  color: var(--fg-2);
+}
+
+[data-theme='dark'] .menu-item:hover .menu-kbd,
+[data-theme='dark'] .menu-item:focus-visible .menu-kbd {
+  color: var(--fg);
+}
+
 /* ---------- editor panes ---------- */
 
 #editor-host {
@@ -1964,8 +1978,13 @@ body {
 }
 
 /* an empty title shows the kind's fallback name (the raw spelling rides
-   in --callout-ph on the root div, callouts.ts) — Obsidian's behavior */
-#visual-editor .prosa-callout-title-text:empty::before {
+   in --callout-ph on the root div, callouts.ts) — Obsidian's behavior.
+   In the live editor ProseMirror parks a trailing <br> inside empty inline
+   content, so :empty alone never matches there — the :has arm covers it
+   (WebView2/Chromium 105+, WebKitGTK 2.36+); print/Word HTML has no PM
+   break and hits the :empty arm */
+#visual-editor .prosa-callout-title-text:empty::before,
+#visual-editor .prosa-callout-title-text:has(> br.ProseMirror-trailingBreak:only-child)::before {
   content: var(--callout-ph);
   font-weight: 500;
   color: var(--fg-3);

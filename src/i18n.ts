@@ -284,7 +284,7 @@ const strings = {
     savePdf: 'Save as PDF…',
     printError: 'Failed to print',
     printErrorPdf: 'Failed to create the PDF',
-    closeWindow: 'Close Window',
+    closeWindow: 'Close window',
     // #125: the status-bar path copy feedback
     pathCopied: 'Path copied',
     // #37: what's new (Help menu + modal)

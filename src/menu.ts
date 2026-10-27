@@ -162,7 +162,13 @@ export class MenuBar {
       // keep editor focus/selection alive through the press (ctx-panel pattern)
       item.addEventListener('pointerdown', (e) => e.preventDefault());
       item.addEventListener('click', () => {
+        const trigger = this.buttons[this.openIndex];
         this.close();
+        // #155г: the item dies with the menu, so a dialog the action opens
+        // would capture <body>/an editor DIV as its Esc-return target —
+        // park focus on the section button (the persistent initiator, the
+        // same target the hotkeys window returns to) before running it
+        trigger?.focus();
         entry.action?.();
       });
       menu.append(item);

@@ -227,8 +227,10 @@ export const calloutNode = $node('callout', () => ({
         'data-callout-kind': kind.id,
         'data-fold': String(node.attrs.fold),
         'data-joined': node.attrs.joinedBody ? '1' : '0',
-        // the empty-title placeholder text (CSS reads it via :empty::before)
-        style: `--callout-ph: ${kind.label}`,
+        // the empty-title placeholder text (CSS reads it via :empty::before);
+        // content: needs a quoted string — JSON.stringify both quotes the
+        // fixed labels and neutralizes any quote in a raw user spelling
+        style: `--callout-ph: ${JSON.stringify(kind.label)}`,
       },
       0,
     ];
