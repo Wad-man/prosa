@@ -1,7 +1,7 @@
 {
   "name": "prosa",
   "private": true,
-  "version": "0.3.0-rc.1",
+  "version": "0.3.0-rc.2",
   "description": "ProsaMD — a minimal open-source Markdown editor & viewer",
   "repository": {
     "type": "git",
@@ -43,5 +43,8 @@
     "patch-package": "^8.0.1",
     "typescript": "~6.0.3",
     "vite": "^8.3.3"
+  },
+  "overrides": {
+    "katex": "^0.18.10"
   }
 }
