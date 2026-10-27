@@ -61,6 +61,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZGOTdEOEEzNkFBREJGQ0UKUldUT3Y2MXFvOWlYLzdjTUN2N2RaakRSK24xaHU5UlJwQzRyVU5Ib3QvVkZPQVRJSDM5Qld5a1IK",
       "endpoints": [
+        "https://prosamd.ru/update/latest.json",
         "https://github.com/Wad-man/prosa/releases/latest/download/latest.json"
       ]
     }
