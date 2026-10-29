@@ -48,6 +48,7 @@ import { CHANGELOG_URL, checkWhatsNew, markWhatsNewSeen, whatsNewItems } from '.
 import { MenuBar, type MenuSection } from './menu';
 import { TocPanel } from './toc';
 import { OpenFilesPanel } from './open-files';
+import { TabStrip } from './tabs';
 import { StartScreen } from './start-screen';
 import { addRecent, removeRecent } from './recent';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
@@ -113,6 +114,7 @@ const els = {
   app: $('app'),
   menubar: $('menubar'),
   btnOpenFiles: $('btn-open-files') as HTMLButtonElement,
+  tabStrip: $('tabstrip'),
   btnTheme: $('btn-theme') as HTMLButtonElement,
   btnReading: $('btn-mode-reading') as HTMLButtonElement,
   btnVisual: $('btn-mode-visual') as HTMLButtonElement,
@@ -242,9 +244,12 @@ let dirtyCheckTimer: number | undefined;
 // load must cancel it, or it would anchor the clean state to the draft
 let loadAnchorTimer: number | undefined;
 
-// ---------- open files (#11, этап 1) ----------
-// A window holds a SET of documents (#109: a vertical list in a left
-// column, never a tab strip). The active document keeps living in the
+// ---------- open files (#11: колонка этапа 1 + полоса табов, 2026-10-30) ----------
+// A window holds a SET of documents shown by TWO surfaces (владелец
+// 2026-10-30: сайдбар «Открытые» остаётся как был, табы добавляются —
+// модель Sublime из заявки #11): the vertical column (#109, этап 1)
+// and the horizontal tab strip under the toolbar. Both are pure UI over
+// this one state. The active document keeps living in the
 // single-document slot above (mode/filePath/dirty/savedRaw/…); leaving a
 // tab serializes the slot into DocTab and coming back restores it —
 // applyLoaded/applyRecovered already own the editor plumbing, restoring
@@ -273,6 +278,7 @@ let nextTabId = 1;
 // open-files list until it holds content
 let activeExplicit = false;
 const openFiles = new OpenFilesPanel();
+const tabStrip = new TabStrip();
 // Ctrl+Tab MRU: most recently used tab ids first; the active tab rides on top
 let tabMru: number[] = [];
 
@@ -590,6 +596,12 @@ function tabName(tb: DocTab): string {
   return tb.suggestion ?? t('untitled');
 }
 
+/** #109 §6: имя таба — базовое без расширения md-семейства (полное имя
+ * остаётся в подсказке таба); .txt не трогаем — это честный различитель. */
+function stripMdExtension(name: string): string {
+  return name.replace(/\.(md|markdown|mdown|mkd)$/i, '');
+}
+
 /** #157 (схема владельца): список «Открытые» держит настоящие документы —
  * пустой безымянный черновик, поднятый приложением самому (стартовое окно,
  * новорождённая вкладка после закрытия последней), в списке нет, пока в нём
@@ -603,24 +615,55 @@ function refreshOpenFiles(): void {
   // keep the invariant: docTabs mirrors the whole window, the active tab
   // included (openAsTab/newFile switch ids before the first load settles)
   if (!docTabs.some((tb) => tb.id === activeTabId)) docTabs.push(captureActive());
-  // #157: the list holds real documents only — an empty auto draft is
+  // #157: both surfaces hold real documents only — an empty auto draft is
   // invisible until it gains content; the active tab rides live state
   // (its docTabs snapshot may be stale, same as name/dirty in the map)
   const listed = docTabs.filter((tb) =>
     tb.id === activeTabId ? filePath !== null || activeExplicit || activeUnsaved() : tabListed(tb),
   );
-  const infos = listed.map((tb) => ({
-    id: tb.id,
-    name: tb.id === activeTabId ? fileName() : tabName(tb),
-    dirty: tb.id === activeTabId ? activeUnsaved() : tb.dirty,
-    active: tb.id === activeTabId,
-    hasPath: tb.path !== null,
-  }));
-  openFiles.setTabs(infos);
+  // колонка этапа 1 — как была: имя с расширением, своя механика видимости
+  openFiles.setTabs(
+    listed.map((tb) => ({
+      id: tb.id,
+      name: tb.id === activeTabId ? fileName() : tabName(tb),
+      dirty: tb.id === activeTabId ? activeUnsaved() : tb.dirty,
+      active: tb.id === activeTabId,
+      hasPath: tb.path !== null,
+    })),
+  );
   // #109: one document in the window — no column, the chrome is exactly
   // the pre-#11 single-file app; #144: the user's explicit toggle wins
-  openFiles.applyVisibility(infos.length > 1);
+  openFiles.applyVisibility(listed.length > 1);
   els.btnOpenFiles.setAttribute('aria-pressed', String(openFiles.isShown()));
+  // полоса табов (2026-10-30): имя — базовое без расширения, полный путь —
+  // в подсказке; одноимённые различаются суффиксом родительской папки
+  // («README · prosa»)
+  const rows = listed.map((tb) => {
+    const path = tb.id === activeTabId ? filePath : tb.path;
+    return { tb, path, base: stripMdExtension(tb.id === activeTabId ? fileName() : tabName(tb)) };
+  });
+  const dupCounts = new Map<string, number>();
+  for (const { base } of rows) {
+    const key = base.toLowerCase();
+    dupCounts.set(key, (dupCounts.get(key) ?? 0) + 1);
+  }
+  tabStrip.setTabs(
+    rows.map(({ tb, path, base }) => {
+      let name = base;
+      if (path !== null && (dupCounts.get(base.toLowerCase()) ?? 0) > 1) {
+        const dir = dirOf(path)?.split(/[\\/]/).pop();
+        if (dir) name = `${base} · ${dir}`;
+      }
+      return {
+        id: tb.id,
+        name,
+        title: path ?? '',
+        dirty: tb.id === activeTabId ? activeUnsaved() : tb.dirty,
+        active: tb.id === activeTabId,
+        hasPath: path !== null,
+      };
+    }),
+  );
 }
 
 function touchMru(id: number): void {
@@ -739,13 +782,20 @@ async function reloadTab(id: number): Promise<void> {
  * спрашивает своим модалом, Отмена останавливает остаток серии. #147:
  * закрытие последней вкладки оставляет окну свежую чистую «Без названия»
  * (closeTabNow) — этот новорождённый слот не вкладка для закрытия, гнаться
- * за ним значило пересоздавать его вечно. */
+ * за ним значило пересоздавать его вечно. Выживший единственный чистый
+ * слот перестаёт быть вкладкой: «Закрыть все» возвращает окно к стартовому
+ * экрану (#96), а не к полосе с одной пустой «Без названия». */
 async function closeAllTabs(): Promise<void> {
   for (;;) {
     syncActiveIntoTabs();
     const target = docTabs.find((tb) => !(tb.id === activeTabId && pristine()));
-    if (target === undefined) return;
+    if (target === undefined) break;
     if (!(await closeTab(target.id))) return;
+  }
+  if (docTabs.length === 1 && docTabs[0].id === activeTabId && pristine() && activeExplicit) {
+    activeExplicit = false;
+    docTabs[0].explicit = false;
+    refreshOpenFiles();
   }
 }
 
@@ -2246,6 +2296,9 @@ function applyStaticTexts(): void {
   menuBar.relabel();
   toc.relabel();
   openFiles.relabel();
+  // имена табов полосы локализуются вместе с остальным хромом: полоса
+  // перерисовывается из живого списка (её relabel трогает только «+»)
+  refreshOpenFiles();
   // #96: the start screen's buttons follow a live language switch too
   startScreen.relabel();
   // #32: the find bar (a no-op before its first open)
@@ -2351,8 +2404,8 @@ async function init(): Promise<void> {
   onFeaturesChanged(() => applyTocFeature());
   applyTocFeature();
   // #11 этап 1: the open files column mounts into the editor host (left
-  // of #editor-panes); the boot document becomes tab #1 — a window with a
-  // single document shows no column (#109)
+  // of #editor-panes); a window with a single document shows no column
+  // (#109, unchanged 2026-10-30)
   openFiles.mount(els.editorHost, {
     onActivate: (id) => activateTab(id),
     onClose: (id) => void closeTab(id),
@@ -2364,6 +2417,22 @@ async function init(): Promise<void> {
     onEmptyOpen: () => void openFile(),
     onEmptyNew: () => void newFile(),
     onEmptyCloseAll: () => void closeAllTabs(),
+  });
+  // #11 этап 2 (владелец 2026-10-30, ДОПОЛНЕНИЕ к колонке): полоса
+  // вкладок — второй ряд под тулбаром; boot-документ становится вкладкой
+  // #1, полоса скрыта только пока в окне нет ни одного настоящего
+  // документа (#157)
+  tabStrip.mount(els.tabStrip, {
+    onActivate: (id) => activateTab(id),
+    onClose: (id) => void closeTab(id),
+    // #145: ПКМ по табу — сохранить/обновить идут через активную вкладку
+    // (модалы и диалоги документоцентричны)
+    onSave: (id) => void saveTabById(id),
+    onReload: (id) => void reloadTab(id),
+    // #145: ПКМ по пустой области полосы
+    onOpen: () => void openFile(),
+    onNew: () => void newFile(),
+    onCloseAll: () => void closeAllTabs(),
   });
   activeTabId = nextTabId++;
   tabMru = [activeTabId];
@@ -2963,8 +3032,8 @@ async function init(): Promise<void> {
     }
   }
 
-  // #157: an empty boot never runs applyLoaded, so nothing would apply the
-  // persisted #144 panel preference — sync the open-files chrome once here
+  // #157: an empty boot never runs applyLoaded — draw the strip once here
+  // (it stays hidden: an auto placeholder is not a listed document)
   refreshOpenFiles();
 
   // #34: the initial file (if any) has been applied — the honest empty

@@ -77,6 +77,12 @@
         </div>
       </header>
 
+      <!-- #11 этап 2 (владелец 2026-10-30): полоса открытых вкладок окна —
+           второй ряд под тулбаром; скрыта, пока в окне нет ни одного
+           настоящего документа (стартовый экран, #157). Содержимым владеет
+           tabs.ts: табы, «+» нового документа, ПКМ-меню -->
+      <div id="tabstrip" role="tablist" hidden></div>
+
       <main id="editor-host">
         <div id="editor-panes">
           <!-- #91: panes-stack is the full-width text area; the outline

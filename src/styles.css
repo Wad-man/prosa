@@ -131,7 +131,8 @@ body {
 
 #app {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  /* toolbar / tab strip (#11 этап 2) / editor / statusbar */
+  grid-template-rows: auto auto 1fr auto;
   /* The implicit column track is auto-sized and grows to the widest item's
      max-content — a long nowrap string (#st-path full file path, #67) blew
      the track past the window and dragged the editor pane with it. A
@@ -828,10 +829,12 @@ body {
   color: var(--fg-3);
 }
 
-/* ---------- open files: the window's own document list (#11 этап 1) ----------
+/* ---------- open files: the window's document list (#11 этап 1) ----------
    #109 (гейт ★2): vertical list in a left column, hidden at one document.
    The visual language follows the outline column: same caption, same
-   13px rows, hover a step short of active, active = --fg + accent mark. */
+   13px rows, hover a step short of active, active = --fg + accent mark.
+   Владелец 2026-10-30: колонка остаётся без изменений — табы (ниже)
+   добавлены ВТОРОЙ поверхностью, не заменой (модель Sublime, #11). */
 #open-files {
   position: relative; /* #144: the resize grip anchors to the panel */
   display: flex;
@@ -1003,6 +1006,200 @@ body {
 /* #145: the list's own context menu — the editor panel's classes with a
    list-menu width */
 .of-menu {
+  min-width: 200px;
+}
+
+/* ---------- open files: the tab strip (#11 этап 2, владелец 2026-10-30) ----------
+   ДОПОЛНЕНИЕ к колонке выше (владелец: сайдбар без изменений, табы —
+   сверху, модель Sublime из заявки #11). Полоса — второй ряд под тулбаром:
+   тот же sunk-фон и нижний волосок; активный таб ярче + ультрамариновое
+   подчёркивание на нижней кромке — единственный акцент полосы. 10+ файлов:
+   табы сжимаются до 72px и полоса скроллится (колесо, без скроллбара),
+   активный автопоказывается, «+» закреплён вне скроллера. */
+#tabstrip {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  background: var(--bg-sunk);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  transition: background-color var(--t-2) var(--ease), border-color var(--t-2) var(--ease);
+}
+
+#tabstrip[hidden] {
+  display: none;
+}
+
+.ts-scroll {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  /* полоса листается колесом (tabs.ts) — собственный скроллбар дублировал
+     бы управление в ряду высотой 34px */
+  scrollbar-width: none;
+}
+
+.ts-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.ts-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 72px; /* 10+ файлов: полоса сжимается до отсюда, дальше скролл */
+  max-width: 200px;
+  padding: 0 28px 0 12px; /* справа слот ×/точки зарезервирован — имя не прыгает */
+  cursor: pointer;
+}
+
+/* активный: подчёркивание на нижней кромке соединяет таб с документом */
+.ts-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.ts-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-3);
+  transition: color var(--t-1) var(--ease);
+}
+
+.ts-tab:hover .ts-name,
+.ts-tab:focus-visible .ts-name {
+  color: var(--fg-2);
+}
+
+.ts-tab.active .ts-name {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+/* × и dirty-точка делят один слот (#109 §6): точка — у несохранённого,
+   крестик — по наведению; у активного крестик виден всегда, кроме
+   несохранённого (наведение возвращает его) */
+.ts-x,
+.ts-dot {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  visibility: hidden;
+}
+
+.ts-x {
+  appearance: none;
+  border: none;
+  background: transparent;
+  border-radius: var(--r-sm);
+  color: var(--fg-3);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* #143: the × glyph (Lucide "x", stroke = currentColor) */
+.ts-x svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.ts-tab:hover .ts-x,
+.ts-tab.active .ts-x,
+.ts-tab:focus-visible .ts-x {
+  visibility: visible;
+}
+
+.ts-x:hover {
+  background: var(--border);
+  color: var(--fg);
+}
+
+.ts-dot::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.ts-tab.dirty .ts-dot::after {
+  background: var(--accent);
+}
+
+/* у несохранённого слот занимает точка; наведение меняет её на крестик */
+.ts-tab.dirty .ts-x {
+  visibility: hidden;
+}
+
+.ts-tab.dirty:hover .ts-x,
+.ts-tab.dirty:focus-visible .ts-x {
+  visibility: visible;
+}
+
+.ts-tab.dirty .ts-dot {
+  visibility: visible;
+}
+
+.ts-tab.dirty:hover .ts-dot,
+.ts-tab.dirty:focus-visible .ts-dot {
+  visibility: hidden;
+}
+
+/* «+» нового документа — закреплён справа вне скроллера: доступен и при
+   десятках открытых вкладок */
+.ts-new {
+  appearance: none;
+  border: none;
+  background: transparent;
+  flex: none;
+  align-self: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 4px;
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+
+.ts-new:hover {
+  background: var(--border);
+  color: var(--fg);
+}
+
+.ts-new svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+/* #145: контекстное меню полосы — классы панели редактора + ширина списка */
+.ts-menu {
   min-width: 200px;
 }
 
@@ -2321,12 +2518,6 @@ body {
   color: var(--accent);
 }
 
-/* #144: the open-files toggle in the left corner — the same pressed rules
-   as its outline twin: accent tint + the filled strip in the glyph */
-#btn-open-files[aria-pressed='true'] {
-  color: var(--accent);
-}
-
 /* owner audit 2026-10-15: the icon's side strip fills while the outline is
    shown — the state reads from the glyph itself, not only from the tint */
 #btn-toc .toc-fill {
@@ -2336,6 +2527,12 @@ body {
 
 #btn-toc[aria-pressed='true'] .toc-fill {
   opacity: 1;
+}
+
+/* #144: the open-files toggle in the left corner — the same pressed rules
+   as its outline twin: accent tint + the filled strip in the glyph */
+#btn-open-files[aria-pressed='true'] {
+  color: var(--accent);
 }
 
 /* owner audit 2026-10-15 rule, applied to the #144 left twin: the icon's

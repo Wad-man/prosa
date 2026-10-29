@@ -91,7 +91,7 @@ const strings = {
     tocTitle: 'Оглавление',
     tocOnPage: 'На странице',
     tocEmpty: 'Заголовков нет',
-    // #11: open files panel
+    // #11: open files column + tab strip
     openFilesTitle: 'Открытые',
     closeTab: 'Закрыть документ',
     openFilesEmpty: 'Нет открытых документов',
@@ -241,7 +241,7 @@ const strings = {
     tocTitle: 'Outline',
     tocOnPage: 'On this page',
     tocEmpty: 'No headings yet',
-    // #11: open files panel
+    // #11: open files column + tab strip
     openFilesTitle: 'Open files',
     closeTab: 'Close document',
     openFilesEmpty: 'No open documents',
