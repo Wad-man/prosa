@@ -196,11 +196,15 @@ export class TabStrip {
   }
 
   /** Довести таб до зоны видимости полосы — переключение и так мгновенное,
-   * анимация прокрутки только добавила бы лаг. */
+   * анимация прокрутки только добавила бы лаг. Позиция считается
+   * rect-дельтой: offsetLeft привязан к offsetParent, и сайдбар слева
+   * (владелец 2026-10-30: полоса сдвигается колонкой) сдвигал бы
+   * арифметику на ширину колонки. */
   private reveal(el: HTMLElement): void {
     const scroller = this.scroller;
     if (!scroller) return;
-    const left = el.offsetLeft;
+    const left =
+      el.getBoundingClientRect().left - scroller.getBoundingClientRect().left + scroller.scrollLeft;
     const right = left + el.offsetWidth;
     if (left < scroller.scrollLeft) scroller.scrollLeft = left;
     else if (right > scroller.scrollLeft + scroller.clientWidth)

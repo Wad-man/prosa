@@ -131,8 +131,9 @@ body {
 
 #app {
   display: grid;
-  /* toolbar / tab strip (#11 этап 2) / editor / statusbar */
-  grid-template-rows: auto auto 1fr auto;
+  /* toolbar / workspace (sidebar + strip + editor, #11 2026-10-30) /
+     statusbar */
+  grid-template-rows: auto 1fr auto;
   /* The implicit column track is auto-sized and grows to the widest item's
      max-content — a long nowrap string (#st-path full file path, #67) blew
      the track past the window and dragged the editor pane with it. A
@@ -606,10 +607,28 @@ body {
 
 /* ---------- editor panes ---------- */
 
+/* #11 (владелец 2026-10-30): сайдбар НЕ под табами — рабочая область
+   делится по горизонтали: колонка «Открытые» (монтируется open-files.ts
+   слева) + правая стопка (полоса табов над редактором); тумблер колонки
+   сдвигает табы и редактор целиком */
+#workspace {
+  display: flex;
+  min-height: 0;
+}
+
+#work-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
 #editor-host {
   position: relative;
   overflow: hidden;
   display: flex;
+  flex: 1;
+  min-height: 0;
 }
 
 /* #91 → аудит владельца 2026-10-15: колонка оглавления «прижата к тексту»

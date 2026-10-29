@@ -115,6 +115,7 @@ const els = {
   menubar: $('menubar'),
   btnOpenFiles: $('btn-open-files') as HTMLButtonElement,
   tabStrip: $('tabstrip'),
+  workspace: $('workspace'),
   btnTheme: $('btn-theme') as HTMLButtonElement,
   btnReading: $('btn-mode-reading') as HTMLButtonElement,
   btnVisual: $('btn-mode-visual') as HTMLButtonElement,
@@ -2403,10 +2404,11 @@ async function init(): Promise<void> {
   });
   onFeaturesChanged(() => applyTocFeature());
   applyTocFeature();
-  // #11 этап 1: the open files column mounts into the editor host (left
-  // of #editor-panes); a window with a single document shows no column
-  // (#109, unchanged 2026-10-30)
-  openFiles.mount(els.editorHost, {
+  // #11 этап 1: the open files column mounts into the workspace, LEFT of
+  // the strip+editor stack (владелец 2026-10-30: сайдбар не под табами —
+  // его тумблер сдвигает полосу и редактор целиком); a window with a
+  // single document shows no column (#109, unchanged)
+  openFiles.mount(els.workspace, {
     onActivate: (id) => activateTab(id),
     onClose: (id) => void closeTab(id),
     // #145: ПКМ по строке файла — сохранить/обновить идут через активную

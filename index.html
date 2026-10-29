@@ -77,14 +77,20 @@
         </div>
       </header>
 
-      <!-- #11 этап 2 (владелец 2026-10-30): полоса открытых вкладок окна —
-           второй ряд под тулбаром; скрыта, пока в окне нет ни одного
-           настоящего документа (стартовый экран, #157). Содержимым владеет
-           tabs.ts: табы, «+» нового документа, ПКМ-меню -->
-      <div id="tabstrip" role="tablist" hidden></div>
+      <!-- #11 (владелец 2026-10-30): сайдбар «Открытые» НЕ под табами —
+           колонка живёт от тулбара вниз, слева от полосы табов и редактора;
+           открытие/скрытие сайдбара СДВИГАЕТ табы. Панель монтируется в
+           #workspace (open-files.ts prepend'ит aside слева) -->
+      <div id="workspace">
+        <div id="work-main">
+          <!-- #11 этап 2 (владелец 2026-10-30): полоса открытых вкладок —
+               верхний ряд рабочей области; скрыта, пока в окне нет ни одного
+               настоящего документа (стартовый экран, #157). Содержимым
+               владеет tabs.ts: табы, «+» нового документа, ПКМ-меню -->
+          <div id="tabstrip" role="tablist" hidden></div>
 
-      <main id="editor-host">
-        <div id="editor-panes">
+          <main id="editor-host">
+            <div id="editor-panes">
           <!-- #91: panes-stack is the full-width text area; the outline
                (#toc-panel, created by toc.ts) is a measured page column
                that hugs the text from the right -->
@@ -114,7 +120,9 @@
           <div id="source-editor" class="editor-pane"></div>
           </div>
         </div>
-      </main>
+          </main>
+        </div>
+      </div>
 
       <footer id="statusbar">
         <div class="st-left">
