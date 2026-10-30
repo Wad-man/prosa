@@ -2336,8 +2336,9 @@ function applyStaticTexts(): void {
   menuBar.relabel();
   toc.relabel();
   openFiles.relabel();
-  // имена табов полосы локализуются вместе с остальным хромом: полоса
-  // перерисовывается из живого списка (её relabel трогает только «+»)
+  // QA rc.3: живая смена языка перелокализует и статические строки полосы
+  // (aria-label, тултип «+»); имена табов перерисуются refreshOpenFiles ниже
+  tabStrip.relabel();
   refreshOpenFiles();
   // #96: the start screen's buttons follow a live language switch too
   startScreen.relabel();

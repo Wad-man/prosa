@@ -22,10 +22,14 @@ function read(): RecentEntry[] {
   try {
     const raw: unknown = JSON.parse(storageGet(KEY) ?? '[]');
     if (!Array.isArray(raw)) return [];
-    return raw.filter(
-      (e): e is RecentEntry =>
-        typeof e === 'object' && e !== null && typeof (e as RecentEntry).path === 'string',
-    );
+    return raw
+      .filter(
+        (e): e is RecentEntry =>
+          typeof e === 'object' && e !== null && typeof (e as RecentEntry).path === 'string',
+      )
+      // QA rc.3: CAP действовал только на запись — storage, переживший старые
+      // версии или правку руками, показывался длиннее десяти (меню «Файл»)
+      .slice(0, CAP);
   } catch {
     return [];
   }
