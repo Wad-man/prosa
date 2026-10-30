@@ -50,7 +50,7 @@ import { TocPanel } from './toc';
 import { OpenFilesPanel } from './open-files';
 import { TabStrip } from './tabs';
 import { StartScreen } from './start-screen';
-import { addRecent, removeRecent } from './recent';
+import { addRecent, listRecent, removeRecent } from './recent';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
 import { applyWebView2DragFix } from './platform/webview2-dnd';
 import { getLang, t } from './i18n';
@@ -800,6 +800,21 @@ async function closeAllTabs(): Promise<void> {
   }
 }
 
+/** Перетаскивание вкладок (владелец 2026-10-30): полоса прислала новый
+ * порядок перечисленных вкладок — применяем его к docTabs; невидимый
+ * слот (пустой авто-черновик, #157) едет в конец, он в порядке не
+ * участвует. Ctrl+PgDn/PgUp ходят по соседям в этом же порядке. */
+function reorderTabs(orderedIds: number[]): void {
+  if (orderedIds.length === 0) return;
+  syncActiveIntoTabs();
+  const set = new Set(orderedIds);
+  const ordered = orderedIds
+    .map((id) => docTabs.find((tb) => tb.id === id))
+    .filter((tb): tb is DocTab => tb !== undefined);
+  docTabs = [...ordered, ...docTabs.filter((tb) => !set.has(tb.id))];
+  refreshOpenFiles();
+}
+
 // Ctrl+Tab: the most recently used tab other than the active one (the
 // VS Code-style MRU overlay stays a v2 candidate — the plain switch is
 // the whole MVP behaviour).
@@ -1340,6 +1355,29 @@ function queueTocActive(): void {
 
 const sep = (): MenuSection['entries'][number] => ({ label: '', separator: true });
 
+/** #97 (владелец 2026-10-30): «Файл → недавние» — плоский список вслед за
+ * «Открыть…» (канон Typora; секции — фабрики, состав свежий при каждом
+ * открытии). Имя — базовое; одноимённые различаются суффиксом папки, как
+ * у табов; недавних нет — группа не занимает места вовсе. */
+function recentMenuEntries(): MenuSection['entries'] {
+  const recents = listRecent();
+  if (recents.length === 0) return [];
+  const names = recents.map((r) => r.path.split(/[\\/]/).pop() ?? r.path);
+  const counts = new Map<string, number>();
+  for (const n of names) counts.set(n.toLowerCase(), (counts.get(n.toLowerCase()) ?? 0) + 1);
+  return [
+    sep(),
+    ...recents.map((r, i) => {
+      let label = names[i];
+      if ((counts.get(label.toLowerCase()) ?? 0) > 1) {
+        const dir = dirOf(r.path)?.split(/[\\/]/).pop();
+        if (dir) label = `${label} · ${dir}`;
+      }
+      return { label, action: () => void openPathBestWindow(r.path) };
+    }),
+  ];
+}
+
 function buildMenuSections(): (() => MenuSection)[] {
   return [
     (): MenuSection => ({
@@ -1348,6 +1386,7 @@ function buildMenuSections(): (() => MenuSection)[] {
       entries: [
         { label: t('newDoc'), hotkey: 'Ctrl+N', action: () => void newFile() },
         { label: t('open'), hotkey: 'Ctrl+O', action: () => void openFile() },
+        ...recentMenuEntries(),
         sep(),
         { label: t('save'), hotkey: 'Ctrl+S', action: () => void saveFile(false) },
         { label: t('saveAs'), hotkey: 'Ctrl+Shift+S', action: () => void saveFile(true) },
@@ -2435,6 +2474,8 @@ async function init(): Promise<void> {
     onOpen: () => void openFile(),
     onNew: () => void newFile(),
     onCloseAll: () => void closeAllTabs(),
+    // перетаскивание вкладок (владелец 2026-10-30)
+    onReorder: (ids) => reorderTabs(ids),
   });
   activeTabId = nextTabId++;
   tabMru = [activeTabId];

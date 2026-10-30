@@ -33,6 +33,9 @@ export interface TabStripHandlers {
   onOpen(): void;
   onNew(): void;
   onCloseAll(): void;
+  /** Перетаскивание (владелец 2026-10-30): новый порядок перечисленных
+   * вкладок целиком — main.ts применяет его к docTabs */
+  onReorder(orderedIds: number[]): void;
 }
 
 interface MenuEntry {
@@ -50,6 +53,16 @@ export class TabStrip {
   private tabs: TabInfo[] = [];
   private menu: HTMLElement | null = null;
   private lastActiveId: number | null = null;
+  /** живое перетаскивание таба (владелец 2026-10-30): порядок меняется */
+  private drag: {
+    id: number;
+    el: HTMLElement;
+    pointerId: number;
+    startX: number;
+    started: boolean;
+  } | null = null;
+  /** клик, пришедший сразу после перетаскивания, — не активация */
+  private dragClickSuppress = false;
 
   mount(root: HTMLElement, handlers: TabStripHandlers): void {
     this.root = root;
@@ -87,6 +100,19 @@ export class TabStrip {
     root.append(scroller, newBtn);
     // список сам решает, чьё меню открыть — таб или пустота
     root.addEventListener('contextmenu', (e) => this.onContextMenu(e));
+    // владелец 2026-10-30: двойной клик по пустому месту полосы — новая
+    // вкладка (канос браузеров; клик по табу и «+» не считается)
+    root.addEventListener('dblclick', (e) => {
+      const target = e.target instanceof Element ? e.target : null;
+      if (target?.closest('.ts-tab, .ts-new')) return;
+      this.handlers?.onNew();
+    });
+    // перетаскивание живёт на window: захват указателя best-effort
+    // (синтетические события CDP не создают активный указатель — capture
+    // бросает), потому move/up ловятся глобально с фильтром по pointerId
+    window.addEventListener('pointermove', this.onDragPointerMove);
+    window.addEventListener('pointerup', this.onDragPointerUp);
+    window.addEventListener('pointercancel', this.onDragPointerUp);
     // меню закрывается внешним нажатием и Esc (capture — раньше клика по
     // пункту-соседу; полоса живёт всё время приложения, снятия нет)
     document.addEventListener('pointerdown', this.onMenuPointerDown, true);
@@ -139,9 +165,26 @@ export class TabStrip {
     el.dataset.id = String(tab.id);
     if (tab.title !== '') el.title = tab.title;
     // клик по любой точке таба активирует (кроме ×) — мишень не должна
-    // сжиматься вместе с табом (Фиттс, #109 §2.3)
+    // сжиматься вместе с табом (Фиттс, #109 §2.3); клик сразу после
+    // перетаскивания проглатывается
     el.addEventListener('click', () => {
+      if (this.dragClickSuppress) {
+        this.dragClickSuppress = false;
+        return;
+      }
       if (!tab.active) this.handlers?.onActivate(tab.id);
+    });
+    // перетаскивание начинается с небольшого порога — простой клик не
+    // должен «прилипать» к пальцу; × не тянет
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || (e.target instanceof Element && e.target.closest('.ts-x'))) return;
+      this.dragClickSuppress = false;
+      this.drag = { id: tab.id, el, pointerId: e.pointerId, startX: e.clientX, started: false };
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        // синтетический указатель — глобальные слушатели продолжат drag
+      }
     });
     // средний клик — закрыть (канон Sublime/Блокнота)
     el.addEventListener('auxclick', (e) => {
@@ -194,6 +237,57 @@ export class TabStrip {
       this.reveal(next);
     }
   }
+
+  // ---------- перетаскивание вкладок (владелец 2026-10-30) ----------
+
+  private onDragPointerMove = (e: PointerEvent): void => {
+    const drag = this.drag;
+    const scroller = this.scroller;
+    if (!drag || !scroller || e.pointerId !== drag.pointerId) return;
+    if (!drag.started) {
+      if (Math.abs(e.clientX - drag.startX) < 5) return;
+      drag.started = true;
+      drag.el.classList.add('ts-drag');
+    }
+    // живая перестановка: таб встаёт перед тем, через чью середину прошёл
+    // указатель (ни до кого не дошёл — в конец)
+    const tabs = Array.from(scroller.querySelectorAll<HTMLElement>('.ts-tab')).filter(
+      (t) => t !== drag.el,
+    );
+    let anchor: HTMLElement | null = null;
+    for (const t of tabs) {
+      const r = t.getBoundingClientRect();
+      if (e.clientX < r.left + r.width / 2) {
+        anchor = t;
+        break;
+      }
+    }
+    if (anchor) scroller.insertBefore(drag.el, anchor);
+    else scroller.append(drag.el);
+    // у края полосы перетаскиваемый таб тянет скролл за собой
+    const sr = scroller.getBoundingClientRect();
+    if (e.clientX > sr.right - 36) scroller.scrollLeft += 10;
+    else if (e.clientX < sr.left + 36) scroller.scrollLeft -= 10;
+  };
+
+  private onDragPointerUp = (e: PointerEvent): void => {
+    const drag = this.drag;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    this.drag = null;
+    try {
+      drag.el.releasePointerCapture(e.pointerId);
+    } catch {
+      // указатель уже ушёл
+    }
+    if (!drag.started) return;
+    drag.el.classList.remove('ts-drag');
+    // up по тому же элементу родит click — это была перестановка, не выбор
+    this.dragClickSuppress = true;
+    const ids = Array.from(this.scroller?.querySelectorAll<HTMLElement>('.ts-tab') ?? []).map(
+      (el) => Number(el.dataset.id),
+    );
+    this.handlers?.onReorder(ids);
+  };
 
   /** Довести таб до зоны видимости полосы — переключение и так мгновенное,
    * анимация прокрутки только добавила бы лаг. Позиция считается

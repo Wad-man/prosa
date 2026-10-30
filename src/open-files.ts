@@ -38,6 +38,9 @@ const OF_PREFS_KEY = 'prosa.openFiles';
 const WIDTH_MIN = 180;
 const WIDTH_MAX = 420;
 const WIDTH_DEFAULT = 240;
+/** владелец 2026-10-30: появление/скрытие колонки анимируется (ширина,
+ * содержимое не сжимается — дети держат --of-w); совпадает с т-кой токена */
+const OF_ANIM_MS = 200;
 
 interface MenuEntry {
   label: string;
@@ -55,6 +58,7 @@ export class OpenFilesPanel {
   private userShow: boolean | null = null;
   private shown = false;
   private menu: HTMLElement | null = null;
+  private hideTimer = 0;
 
   mount(host: HTMLElement, handlers: OpenFilesHandlers): void {
     this.host = host;
@@ -171,7 +175,29 @@ export class OpenFilesPanel {
     if (visible === this.shown || !this.host) return;
     this.shown = visible;
     const panel = this.host.querySelector('#open-files') as HTMLElement | null;
-    if (panel) panel.hidden = !visible;
+    if (panel) {
+      // владелец 2026-10-30: показать/скрыть — анимация ширины; в конце
+      // скрытия панель честно уходит из потока и a11y ([hidden])
+      window.clearTimeout(this.hideTimer);
+      panel.classList.add('of-anim');
+      if (visible) {
+        panel.hidden = false;
+        panel.classList.add('of-collapsed');
+        // перекомпоновка до снятия класса, иначе переход не стартанёт с нуля
+        void panel.offsetWidth;
+        panel.classList.remove('of-collapsed');
+        this.hideTimer = window.setTimeout(
+          () => panel.classList.remove('of-anim'),
+          OF_ANIM_MS + 40,
+        );
+      } else {
+        panel.classList.add('of-collapsed');
+        this.hideTimer = window.setTimeout(() => {
+          panel.hidden = true;
+          panel.classList.remove('of-anim');
+        }, OF_ANIM_MS + 40);
+      }
+    }
     this.host.classList.toggle('of-open', visible);
   }
 
@@ -287,7 +313,9 @@ export class OpenFilesPanel {
 
   private applyWidth(): void {
     const panel = this.host?.querySelector('#open-files') as HTMLElement | null;
-    if (panel) panel.style.width = `${this.width}px`;
+    // ширина живёт в CSS-переменной: класс .of-collapsed анимирует ширину
+    // в ноль, не воюя с инлайном, а дети держат её же — не сжимаясь
+    if (panel) panel.style.setProperty('--of-w', `${this.width}px`);
   }
 
   private readPrefs(): void {

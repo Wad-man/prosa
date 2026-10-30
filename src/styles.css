@@ -858,9 +858,13 @@ body {
   position: relative; /* #144: the resize grip anchors to the panel */
   display: flex;
   flex-direction: column;
-  width: 240px; /* #109: 180–420, #144 drag-resize persists the choice */
+  /* #109: 180–420, #144 drag-resize persists the choice; владелец
+     2026-10-30: ширина в переменной — .of-collapsed анимирует её в ноль,
+     дети держат её же и не сжимаются в полёте */
+  width: var(--of-w, 240px);
   min-width: 0;
   flex-shrink: 0;
+  overflow: hidden;
   border-right: 1px solid var(--border);
   background: var(--bg);
   user-select: none;
@@ -868,6 +872,28 @@ body {
 
 #open-files[hidden] {
   display: none;
+}
+
+/* владелец 2026-10-30: анимация появления/скрытия колонки — только на
+   время переключения (ресайз грипом не анимируется) */
+#open-files.of-anim {
+  transition: width var(--t-2) var(--ease), border-color var(--t-2) var(--ease);
+}
+
+#open-files.of-collapsed {
+  width: 0;
+  border-right-color: transparent;
+}
+
+#open-files .of-cap,
+#open-files .of-list {
+  width: var(--of-w, 240px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #open-files.of-anim {
+    transition: none;
+  }
 }
 
 .of-cap {
@@ -1185,6 +1211,16 @@ body {
 .ts-tab.dirty:hover .ts-dot,
 .ts-tab.dirty:focus-visible .ts-dot {
   visibility: hidden;
+}
+
+/* перетаскиваемая вкладка (владелец 2026-10-30) — приподнимается над
+   полосой; активное подчёркивание остаётся при себе */
+.ts-tab.ts-drag {
+  opacity: 0.85;
+  cursor: grabbing;
+  z-index: 3;
+  box-shadow: var(--shadow-2);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
 }
 
 /* «+» нового документа — закреплён справа вне скроллера: доступен и при
