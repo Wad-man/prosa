@@ -48,22 +48,26 @@ export const CHANGELOG_URL = 'https://prosamd.ru/changelog.html';
  *   (prosa-changelog skill), this window does not replace them. */
 const RELEASE_SUMMARY: Record<Lang, string[]> = {
   ru: [
+    'Открытые файлы — ещё и полосой вкладок: переключение, перетаскивание, × у каждой вкладки, кнопка «+» и двойное нажатие по пустому месту.',
+    'Колонка открытых файлов анимирована; меню «Файл» показывает недавние файлы.',
     'Несколько документов в одном окне: список открытых слева, нажатие переключает документ.',
     'Двойное нажатие файла в Проводнике открывает его в последнем активном окне ProsaMD.',
     'В диалоге «Открыть» и в Проводнике можно выделить несколько файлов — все откроются в одном окне.',
     'Добавлена поддержка выносок Obsidian (> [!note], > [!warning] и другие).',
     'Широкие таблицы и блоки кода используют всю ширину окна.',
-    'Список открытых: кнопка показать/скрыть на панели слева, ширина колонки меняется перетаскиванием.',
+    'В настройках — тумблер автоматической проверки обновлений.',
     'Значок × и меню списка: закрыть документ, закрыть все; при несохранённых изменениях — подтверждение.',
     'Исправления: зависание «Закрыть все», открытие из Проводника, браузерное меню вне редактора, кнопка оглавления в документе без заголовков.',
   ],
   en: [
+    'Open files now also live in a tab strip: switch, drag to reorder, × on every tab, the + button and a double-click on the empty space.',
+    'The open-files column is animated; the File menu lists recent files.',
     'Several documents in one window: the open-files list on the left; pressing an entry switches documents.',
     'Double-clicking a file in Explorer opens it in the last active ProsaMD window.',
     'The Open dialog and Explorer accept selecting several files — all open in one window.',
     'Added Obsidian callouts (> [!note], > [!warning] and more).',
     'Wide tables and code blocks now span the full window width.',
-    'Open-files list: a show/hide button on the left of the toolbar; drag to resize the column.',
+    'Settings gained a toggle for the automatic update check.',
     'The × icon and the list menu: close a document, close all; unsaved changes ask to confirm.',
     'Fixes: the "Close all" freeze, opening files from Explorer, the browser menu outside the editor, the outline toggle in a document without headings.',
   ],
