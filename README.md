@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/Wad-man/prosa/actions/workflows/ci.yml"><img src="https://github.com/Wad-man/prosa/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/Wad-man/prosa/releases/latest"><img src="https://img.shields.io/badge/release-v0.3.0%E2%80%9CSpread%E2%80%9D-4C52C5" alt="ProsaMD v0.3.0 “Spread”"></a>
+  <a href="https://github.com/Wad-man/prosa/releases/latest"><img src="https://img.shields.io/github/v/release/Wad-man/prosa?color=4C52C5" alt="latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1D1B26" alt="MIT"></a>
 </p>
 
