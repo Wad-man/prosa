@@ -1,3 +1,5 @@
+**English** · [Русский](README.ru.md)
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="kit/prosamd-horizontal-white.svg">
@@ -5,25 +7,39 @@
   </picture>
 </p>
 
+### A minimal open-source Markdown editor & viewer — a "notepad" for `.md` files.
+
+Open a file, read or edit, save. No vaults and no databases — just your `.md` files on disk,
+kept byte-exact even through the visual editor. Light and fast: Tauri 2 instead of Electron,
+a ~4 MB installer, no accounts, clouds or telemetry.
+
 <p align="center">
   <a href="https://github.com/Wad-man/prosa/actions/workflows/ci.yml"><img src="https://github.com/Wad-man/prosa/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/Wad-man/prosa/releases/latest"><img src="https://img.shields.io/github/v/release/Wad-man/prosa?color=4C52C5" alt="latest release"></a>
+  <a href="https://tauri.app"><img src="https://img.shields.io/badge/built_with-Tauri_2-24C8DB?logo=tauri&logoColor=white" alt="Built with Tauri 2"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1D1B26" alt="MIT"></a>
 </p>
 
-**A minimal open-source Markdown editor & viewer — a "notepad" for `.md` files.**
-Минималистичный открытый редактор и просмотрщик Markdown — «блокнот» для `.md`-файлов. **[Русская версия README](README.ru.md)**
+![ProsaMD with the open-files list, the tab strip and a chapter in the visual editor](assets/readme/hero-light.png)
 
-Project site — **[prosamd.ru](https://prosamd.ru)** (RU) · [Download the latest version](https://github.com/Wad-man/prosa/releases/latest)
+Dark theme:
+![The same ProsaMD window in the dark theme](assets/readme/hero-dark.png)
 
-Stable builds — Windows 10/11 x64: installer (~4 MB) and a portable exe (~8 MB).
-Early Linux builds since v0.2.0 (`.deb` and AppImage, x64/ARM64); macOS lives in a downstream repo — [Wad-man/prosa-mac](https://github.com/Wad-man/prosa-mac). iOS and Android are planned (v0.4).
+**[Download the latest version](https://github.com/Wad-man/prosa/releases/latest)** · [prosamd.ru](https://prosamd.ru)
 
-<details>
-<summary>Installing on Linux (unsigned builds)</summary>
+If ProsaMD is your kind of notepad, a ⭐ helps other people find it.
 
-- **Ubuntu/Debian**: the `.deb` package — `sudo apt install ./ProsaMD_*_amd64.deb` (adds the launcher icon and `.md` associations; on ARM machines — `*_arm64.deb`). Other distros — the portable AppImage: `chmod +x ProsaMD_*_amd64.AppImage && ./ProsaMD_*_amd64.AppImage`.
-</details>
+## Contents
+
+- [What makes ProsaMD different](#what-makes-prosamd-different)
+- [Install](#install)
+- [Features](#features)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Building from source](#building-from-source)
+- [Updates](#updates)
+- [Architecture](#architecture)
+- [Roadmap](#roadmap)
+- [Contributing and licenses](#contributing-and-licenses)
 
 ## What makes ProsaMD different
 
@@ -36,6 +52,19 @@ Early Linux builds since v0.2.0 (`.deb` and AppImage, x64/ARM64); macOS lives in
   - **Split** — the code and the live preview side by side, scrolling together.
 - **Light and fast**: the installer is around 4 MB, startup is quick — Tauri 2 instead of Electron.
 - **No accounts, no subscriptions**: no sign-ups, clouds or telemetry. Free and open (MIT).
+
+![Split mode: the source on the left, the live preview on the right](assets/readme/split.png)
+
+## Install
+
+Download the latest version from [Releases](https://github.com/Wad-man/prosa/releases) or [prosamd.ru](https://prosamd.ru).
+
+| Platform | How |
+| --- | --- |
+| **Windows** 10/11 x64 | Run `ProsaMD_<version>_x64-setup.exe` (~4 MB installer) or use the portable `*-portable-x64.exe` (~8 MB). The installer is not signed yet, so SmartScreen may warn: **More info → Run anyway**. |
+| **Linux** x64 / ARM64 | Ubuntu/Debian: `sudo apt install ./ProsaMD_*_amd64.deb` (ARM64 — `*_arm64.deb`); it adds the launcher icon and `.md` associations. Other distros: make the `*.AppImage` executable and run it. |
+| **macOS** | A separate downstream version: [Wad-man/prosa-mac](https://github.com/Wad-man/prosa-mac). |
+| **iOS / Android** | Planned for v0.4. |
 
 ## Features
 
@@ -58,6 +87,8 @@ Early Linux builds since v0.2.0 (`.deb` and AppImage, x64/ARM64); macOS lives in
 - Update check and install from inside the app; the automatic check can be turned off in Settings — off means no network requests at all
 - Wide tables and code blocks bleed into the window margins — no empty gutters on wide screens
 - GFM tables, checklists, code highlighting, formulas (KaTeX) — out of the box in the visual mode; diagrams (Mermaid) are planned as a plugin
+
+![A wide comparison table reaching into the window margins](assets/readme/wide.png)
 
 ### Keyboard shortcuts
 
@@ -98,7 +129,6 @@ Ready-made builds — in [this repository's releases](https://github.com/Wad-man
 ProsaMD checks for updates on launch (quietly, in the background); the automatic check can be turned off in Settings. A manual check lives in the About dialog (click the version in the status bar's bottom-right corner).
 Installing means downloading the package, verifying its signature and restarting; administrator rights are not needed (per-user install).
 The portable build (a bare `exe` without the installer) has no auto-update — download a new version by hand.
-The installer is not signed with a publisher certificate, so SmartScreen may warn — this is expected.
 
 Releases and their signatures are published in [this repository's releases](https://github.com/Wad-man/prosa/releases)
 (before the source code went public — in a separate, now archived [Wad-man/prosa-releases](https://github.com/Wad-man/prosa-releases)).

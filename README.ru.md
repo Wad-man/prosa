@@ -1,3 +1,5 @@
+[English](README.md) · **Русский**
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="kit/prosamd-horizontal-white.svg">
@@ -5,19 +7,39 @@
   </picture>
 </p>
 
-**Минималистичный открытый редактор и просмотрщик Markdown — «блокнот» для `.md`-файлов.**
-A minimal open-source Markdown editor & viewer. **[English version of this README](README.md)**
+### Минималистичный открытый редактор и просмотрщик Markdown — «блокнот» для `.md`-файлов.
 
-Сайт проекта — **[prosamd.ru](https://prosamd.ru)** · [Скачать последнюю версию](https://github.com/Wad-man/prosa/releases/latest)
+Открыл файл, читаешь или редактируешь, сохранил. Никаких хранилищ и баз данных — только ваши
+`.md`-файлы на диске, сохраняемые побайтово даже из визуального редактора. Лёгкий и быстрый:
+Tauri 2 вместо Electron, установщик ~4 МБ, без аккаунтов, облаков и телеметрии.
 
-Стабильные сборки — Windows 10/11 x64: установщик (~4 МБ) и переносная версия (~8 МБ).
-С версии v0.2.0 — ранние сборки Linux (`.deb` и AppImage, x64/ARM64); macOS развивается отдельной версией — [Wad-man/prosa-mac](https://github.com/Wad-man/prosa-mac). iOS и Android — в планах (v0.4).
+<p align="center">
+  <a href="https://github.com/Wad-man/prosa/actions/workflows/ci.yml"><img src="https://github.com/Wad-man/prosa/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Wad-man/prosa/releases/latest"><img src="https://img.shields.io/github/v/release/Wad-man/prosa?color=4C52C5" alt="свежий релиз"></a>
+  <a href="https://tauri.app"><img src="https://img.shields.io/badge/built_with-Tauri_2-24C8DB?logo=tauri&logoColor=white" alt="Сделано на Tauri 2"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1D1B26" alt="MIT"></a>
+</p>
 
-<details>
-<summary>Установка на Linux (сборки без подписи)</summary>
+![ProsaMD: список открытых файлов, полоса вкладок и глава в визуальном редакторе](assets/readme/hero-light.png)
 
-- **Linux**: для Ubuntu/Debian — пакет `.deb`: `sudo apt install ./ProsaMD_*_amd64.deb` (ставит иконку в лаунчер и ассоциации `.md`; на ARM-машинах — `*_arm64.deb`). Для остальных дистрибутивов — портативный AppImage: `chmod +x ProsaMD_*_amd64.AppImage && ./ProsaMD_*_amd64.AppImage`.
-</details>
+Тёмная тема:
+![То же окно ProsaMD в тёмной теме](assets/readme/hero-dark.png)
+
+**[Скачать последнюю версию](https://github.com/Wad-man/prosa/releases/latest)** · [prosamd.ru](https://prosamd.ru)
+
+Если ProsaMD — ваш тип блокнота, звёздочка репозиторию помогает другим его найти.
+
+## Содержание
+
+- [Чем ProsaMD отличается](#чем-prosamd-отличается)
+- [Установка](#установка)
+- [Возможности](#возможности)
+- [Горячие клавиши](#горячие-клавиши)
+- [Сборка из исходников](#сборка-из-исходников)
+- [Обновления](#обновления)
+- [Архитектура](#архитектура)
+- [Дорожная карта](#дорожная-карта)
+- [Участие и лицензии](#участие-и-лицензии)
 
 ## Чем ProsaMD отличается
 
@@ -30,6 +52,19 @@ A minimal open-source Markdown editor & viewer. **[English version of this READM
   - **Сплит** — код и живое превью бок о бок, прокрутка синхронна.
 - **Лёгкий и быстрый**: установщик около 4 МБ, быстрый старт — Tauri 2 вместо Electron.
 - **Без аккаунтов и подписок**: никаких регистраций, облаков и телеметрии. Бесплатно и открыто (MIT).
+
+![Режим «Сплит»: исходник слева, живое превью справа](assets/readme/split.png)
+
+## Установка
+
+Скачать свежую версию — [Releases](https://github.com/Wad-man/prosa/releases) или [prosamd.ru](https://prosamd.ru).
+
+| Платформа | Как |
+| --- | --- |
+| **Windows** 10/11 x64 | Запустите `ProsaMD_<версия>_x64-setup.exe` (установщик ~4 МБ) или используйте переносной `*-portable-x64.exe` (~8 МБ). Установщик пока без подписи, SmartScreen может предупредить: **Подробнее → Выполнить в любом случае**. |
+| **Linux** x64 / ARM64 | Ubuntu/Debian: `sudo apt install ./ProsaMD_*_amd64.deb` (ARM64 — `*_arm64.deb`); ставит иконку в лаунчер и ассоциации `.md`. Прочие дистрибутивы: сделайте `*.AppImage` исполняемым и запустите. |
+| **macOS** | Отдельная downstream-версия: [Wad-man/prosa-mac](https://github.com/Wad-man/prosa-mac). |
+| **iOS / Android** | Планируется в v0.4. |
 
 ## Возможности
 
@@ -52,6 +87,8 @@ A minimal open-source Markdown editor & viewer. **[English version of this READM
 - Проверка и установка обновлений прямо из приложения; автоматическую проверку можно выключить в настройках — выключенная не делает никаких сетевых запросов
 - Широкие таблицы и блоки кода выходят в поля окна — без пустоты по краям на широких экранах
 - GFM-таблицы, чек-листы, подсветка кода, формулы (KaTeX) — из коробки в визуальном режиме; диаграммы (Mermaid) — в планах плагинов
+
+![Широкая таблица сравнения, выходящая в поля окна](assets/readme/wide.png)
 
 ### Горячие клавиши
 
@@ -92,7 +129,6 @@ npm run tauri build    # release-сборка (Windows: exe + NSIS-устано�
 ProsaMD проверяет обновления при запуске (тихо, в фоне); автоматическую проверку можно выключить в настройках. Ручная проверка — в диалоге «О программе» (клик по версии в правом нижнем углу статусной строки).
 Установка — скачивание пакета, проверка подписи и перезапуск; права администратора не нужны (установка для текущего пользователя).
 У переносной сборки (голый `exe` без установщика) автообновления нет — новую версию нужно скачать вручную.
-Установщик не подписан сертификатом издателя, поэтому SmartScreen может показать предупреждение — это ожидаемо.
 
 Релизы и их подписи публикуются в [релизах этого репозитория](https://github.com/Wad-man/prosa/releases)
 (до открытия исходников — в отдельном репозитории [Wad-man/prosa-releases](https://github.com/Wad-man/prosa-releases), теперь архивном).
