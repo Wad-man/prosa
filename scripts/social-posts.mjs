@@ -81,7 +81,7 @@ function stripMd(s) {
     .replace(/<\/?sub>/g, '')
     .replace(/\*\*/g, '')
     .replace(/`/g, '')
-    .replace(/\s*\(#\d+\)/g, '')
+    .replace(/\s*\(#\d+(?:,\s*#\d+)*\)/g, '')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/\s{2,}/g, ' ')
