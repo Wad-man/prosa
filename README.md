@@ -20,10 +20,10 @@ a ~4 MB installer, no accounts, clouds or telemetry.
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1D1B26" alt="MIT"></a>
 </p>
 
-![ProsaMD with the open-files list, the tab strip and a chapter in the visual editor](assets/readme/hero-light.png)
+![ProsaMD with the open-files list, the tab strip and a chapter in the visual editor](assets/readme/en/hero-light.png)
 
 Dark theme:
-![The same ProsaMD window in the dark theme](assets/readme/hero-dark.png)
+![The same ProsaMD window in the dark theme](assets/readme/en/hero-dark.png)
 
 **[Download the latest version](https://github.com/Wad-man/prosa/releases/latest)** · [prosamd.ru](https://prosamd.ru)
 
@@ -53,7 +53,7 @@ If ProsaMD is your kind of notepad, a ⭐ helps other people find it.
 - **Light and fast**: the installer is around 4 MB, startup is quick — Tauri 2 instead of Electron.
 - **No accounts, no subscriptions**: no sign-ups, clouds or telemetry. Free and open (MIT).
 
-![Split mode: the source on the left, the live preview on the right](assets/readme/split.png)
+![Split mode: the source on the left, the live preview on the right](assets/readme/en/split.png)
 
 ## Install
 
@@ -88,7 +88,7 @@ Download the latest version from [Releases](https://github.com/Wad-man/prosa/rel
 - Wide tables and code blocks bleed into the window margins — no empty gutters on wide screens
 - GFM tables, checklists, code highlighting, formulas (KaTeX) — out of the box in the visual mode; diagrams (Mermaid) are planned as a plugin
 
-![A wide comparison table reaching into the window margins](assets/readme/wide.png)
+![A wide comparison table reaching into the window margins](assets/readme/en/wide.png)
 
 ### Keyboard shortcuts
 
