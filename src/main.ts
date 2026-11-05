@@ -2638,6 +2638,25 @@ async function init(): Promise<void> {
     true,
   );
 
+  // #170: in the WebView shell F5/Ctrl+R/Cmd+R are the engine's "reload
+  // page" accelerators. A reload restarts the whole frontend and the open
+  // tab list does not survive it (only the active file is restored), so
+  // unsaved edits in background tabs are lost silently — no beforeunload,
+  // no drafts. Block the reload accelerators in the capture phase, before
+  // editors and menus see them (Chromium cancels the reload when the F5
+  // keydown default is prevented). Alt stays out of the R check: AltGr is
+  // Ctrl+Alt on Windows and must keep typing characters.
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.code === 'F5' || (e.code === 'KeyR' && (e.ctrlKey || e.metaKey) && !e.altKey)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    },
+    true,
+  );
+
   window.addEventListener('keydown', (e) => {
     // Alt+F/E/P/O/V/H open the menu sections (physical key — the RU layout
     // reports Cyrillic in e.key); suppressed while a modal dialog is up
