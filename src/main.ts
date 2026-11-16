@@ -2664,6 +2664,19 @@ async function init(): Promise<void> {
     },
     true,
   );
+  // #161: the first content must hide the start screen in the same frame
+  // it appears. The markdownUpdated chain can land ~200ms later and the
+  // debounced stats refresh is 250ms away — meanwhile the pasted text
+  // flashes over the hint and the recents. DOM 'input' events don't fire
+  // for ProseMirror/CM edits (they prevent the default and write the DOM
+  // themselves), so watch the DOM: a MutationObserver callback runs as a
+  // microtask BEFORE the next paint. The empty-class guard makes it a
+  // cheap no-op once any content is in; every entry path (typing, paste,
+  // drop) in both editors is covered
+  new MutationObserver(() => {
+    if (!els.app.classList.contains('empty')) return;
+    if (currentFullText().trim() !== '') refreshEmptyState();
+  }).observe(els.app, { childList: true, subtree: true, characterData: true });
 
   // #170: in the WebView shell F5/Ctrl+R/Cmd+R are the engine's "reload
   // page" accelerators. A reload restarts the whole frontend and the open
