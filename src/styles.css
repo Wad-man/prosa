@@ -202,6 +202,9 @@ body {
 
 .tb-spacer {
   flex: 1;
+  /* #173: a guaranteed gap — however narrow the window, the menu never
+     touches the right group (it scrolls inside its own box instead) */
+  min-width: 10px;
 }
 
 .tb-sep {
@@ -481,6 +484,15 @@ body {
   align-items: center;
   gap: 1px;
   min-width: 0;
+  /* #173: the items are nowrap, so a squeezed window must scroll them
+     inside this box — never overflow onto the toolbar's right group */
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+
+#menubar::-webkit-scrollbar {
+  display: none;
 }
 
 .menu-btn {
