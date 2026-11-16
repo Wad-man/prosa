@@ -4,6 +4,7 @@ import { commandsCtx, editorViewCtx, parserCtx } from '@milkdown/kit/core';
 import { Slice, type NodeType } from '@milkdown/kit/prose/model';
 import { Selection } from '@milkdown/kit/prose/state';
 import { selectAll, deleteSelection, lift } from '@milkdown/kit/prose/commands';
+import { findWrapping } from '@milkdown/kit/prose/transform';
 import { undoCommand, redoCommand } from '@milkdown/kit/plugin/history';
 import { toggleLinkCommand } from '@milkdown/kit/component/link-tooltip';
 import {
@@ -270,17 +271,17 @@ export function visualToggleTask(crepe: Crepe): void {
       view.focus();
       return;
     }
-    // not in a list yet — wrap into an unchecked task item
+    // not in a list yet — wrap into an unchecked task item. findWrapping
+    // also reports whether the schema allows the wrap AT ALL: in a table
+    // cell only paragraph content fits, and a bare wrap there used to throw
+    // TransformError "Invalid content for node table_header" (#111) — now
+    // the command is a quiet no-op, like in every other unwrappable context
     const range = $from.blockRange();
     if (!range) return;
-    const bulletList = bulletListSchema.type(ctx);
     const listItem = listItemSchema.type(ctx);
-    view.dispatch(
-      tr.wrap(range, [
-        { type: bulletList },
-        { type: listItem, attrs: { checked: false } },
-      ]),
-    );
+    const wrapping = findWrapping(range, listItem, { checked: false });
+    if (!wrapping) return;
+    view.dispatch(tr.wrap(range, wrapping));
     view.focus();
   });
 }
