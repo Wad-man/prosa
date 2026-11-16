@@ -1344,8 +1344,23 @@ export class VisualEditor {
       return;
     }
     if (types.includes('text/html')) return;
+    // #118: a paste over a whole-document selection REPLACES the document —
+    // its old definitions lose every reference and must not ride along into
+    // the new content (they would serialize back into the file on save). A
+    // partial replace keeps them: the surviving text may still reference
+    // them, and in visual mode there is no other way for a def to exist.
+    let replacesWholeDoc = false;
+    if (!this.readonly) {
+      this.crepe?.editor.action((ctx) => {
+        const state = ctx.get(editorViewCtx).state;
+        replacesWholeDoc =
+          !state.selection.empty &&
+          state.selection.from <= 0 &&
+          state.selection.to >= state.doc.content.size;
+      });
+    }
     const before = this.definitions.size;
-    captureDefinitions(text, this.definitions, false);
+    captureDefinitions(text, this.definitions, replacesWholeDoc);
     // a definitions-only paste changes nothing in the model (they are
     // consumed invisibly), so the change listener never fires and the save
     // would write the untouched raw bytes back, dropping them — mark edited
