@@ -22,7 +22,6 @@ const strings = {
     saveError: 'Не удалось сохранить файл',
     notMarkdown: 'Это не Markdown-файл',
     toolbar: 'Панель инструментов',
-    themeTip: 'Переключить тему (светлая / тёмная)',
     minShort: 'мин',
     emptyDrop: 'Начните писать или вставьте текст — это станет новым документом',
     // #131-4: Просмотр cannot write — its own empty-document line
@@ -175,7 +174,6 @@ const strings = {
     saveError: 'Failed to save file',
     notMarkdown: 'Not a Markdown file',
     toolbar: 'Toolbar',
-    themeTip: 'Switch theme (light / dark)',
     minShort: 'min',
     emptyDrop: 'Start writing or paste text — it becomes a new document',
     // #131-4: reading cannot write — its own empty-document line

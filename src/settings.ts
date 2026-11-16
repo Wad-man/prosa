@@ -46,7 +46,7 @@ function osTheme(): 'light' | 'dark' {
 }
 
 /** DOM flip + wipe only — no storage write. The mode write belongs to the
- *  explicit user actions (setThemeMode/toggleTheme); an ambient OS flip
+ *  explicit user action (setThemeMode); an ambient OS flip
  *  must not pin the theme (#172). */
 function applyResolved(theme: 'light' | 'dark', origin?: ThemeOrigin): void {
   const root = document.documentElement;
@@ -82,14 +82,6 @@ export function setThemeMode(mode: ThemeMode, origin?: ThemeOrigin): void {
 /** The theme currently applied to <html data-theme>; "light" when unset. */
 export function currentTheme(): 'light' | 'dark' {
   return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
-}
-
-/** The #btn-theme action: flip and persist the current theme — the pressed
- *  side gets pinned, leaving "system" (#172 decision, issue #172). The
- *  origin (button center) starts the wipe; without one it grows from the
- *  center. */
-export function toggleTheme(origin?: ThemeOrigin): void {
-  setThemeMode(currentTheme() === 'dark' ? 'light' : 'dark', origin);
 }
 
 // While in "system" the window follows the OS live. One listener for the

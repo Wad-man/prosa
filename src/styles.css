@@ -264,13 +264,6 @@ body {
   letter-spacing: 0.02em;
 }
 
-/* #69: the toggle shows the theme a click will switch TO (site parity —
-   light carries the moon, dark the sun), not the current one */
-[data-theme='light'] .icon-sun,
-[data-theme='dark'] .icon-moon {
-  display: none;
-}
-
 @media (max-width: 780px) {
   .btn .btn-label {
     display: none;
@@ -424,6 +417,16 @@ body {
 
 #mode-switch[data-active='split'] .seg-thumb {
   transform: translateX(108px);
+}
+
+/* #174: the theme switch rides the base 3-track .seg — the thumb just
+   slides to its column (light rests at 0) */
+#theme-switch[data-active='dark'] .seg-thumb {
+  transform: translateX(100%);
+}
+
+#theme-switch[data-active='system'] .seg-thumb {
+  transform: translateX(200%);
 }
 
 /* in Просмотр the dot under an editing cell marks where Ctrl+/ returns.

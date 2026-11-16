@@ -54,7 +54,7 @@ import { addRecent, listRecent, removeRecent } from './recent';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
 import { applyWebView2DragFix } from './platform/webview2-dnd';
 import { getLang, t } from './i18n';
-import { autoUpdateEnabled, onLangChanged, setAutoUpdateEnabled, setLanguage, setThemeMode, themeMode, toggleTheme, type ThemeOrigin } from './settings';
+import { autoUpdateEnabled, onLangChanged, setAutoUpdateEnabled, setLanguage, setThemeMode, themeMode, type ThemeOrigin } from './settings';
 import { FindReplaceBar } from './search';
 import { initZoom, zoomIn, zoomOut, zoomReset } from './zoom';
 import './styles.css';
@@ -116,7 +116,10 @@ const els = {
   btnOpenFiles: $('btn-open-files') as HTMLButtonElement,
   tabStrip: $('tabstrip'),
   workspace: $('workspace'),
-  btnTheme: $('btn-theme') as HTMLButtonElement,
+  themeSwitch: $('theme-switch'),
+  btnThemeLight: $('btn-theme-light') as HTMLButtonElement,
+  btnThemeDark: $('btn-theme-dark') as HTMLButtonElement,
+  btnThemeSystem: $('btn-theme-system') as HTMLButtonElement,
   btnReading: $('btn-mode-reading') as HTMLButtonElement,
   btnVisual: $('btn-mode-visual') as HTMLButtonElement,
   btnSource: $('btn-mode-source') as HTMLButtonElement,
@@ -2109,14 +2112,25 @@ function openSettings(): void {
   showModal(els.settingsOverlay, els.settingsModal);
 }
 
-/** The pressed theme segment mirrors the live mode (#172); runs after any
- *  mode change and from applyStaticTexts, so neither a live language switch
- *  nor a menu/toolbar theme switch can desync the dialog. */
+/** Both theme controls mirror the live mode — the Settings segments (#172)
+ *  and the toolbar switch (#174); runs after any mode change and from
+ *  applyStaticTexts, so neither a live language switch nor a theme switch
+ *  from any entry point can desync either control. */
 function syncThemeSegments(): void {
   const mode = themeMode();
   els.settingsThemeLight.setAttribute('aria-pressed', String(mode === 'light'));
   els.settingsThemeDark.setAttribute('aria-pressed', String(mode === 'dark'));
   els.settingsThemeSystem.setAttribute('aria-pressed', String(mode === 'system'));
+  els.themeSwitch.dataset.active = mode;
+  const cells: [HTMLButtonElement, string][] = [
+    [els.btnThemeLight, 'light'],
+    [els.btnThemeDark, 'dark'],
+    [els.btnThemeSystem, 'system'],
+  ];
+  for (const [btn, m] of cells) {
+    btn.classList.toggle('active', mode === m);
+    btn.setAttribute('aria-selected', String(mode === m));
+  }
 }
 
 // ---------- what's new dialog (#37) ----------
@@ -2307,8 +2321,14 @@ function applyStaticTexts(): void {
   els.btnVisual.setAttribute('aria-label', t('visual'));
   els.btnSource.setAttribute('aria-label', t('source'));
   els.btnSplit.setAttribute('aria-label', t('split'));
-  tip(els.btnTheme, t('themeTip'));
-  els.btnTheme.setAttribute('aria-label', t('themeTip'));
+  // #174: the toolbar switch — icons carry the mode, tooltips name it
+  els.themeSwitch.setAttribute('aria-label', t('settingsThemeSection'));
+  tip(els.btnThemeLight, t('themeLight'));
+  tip(els.btnThemeDark, t('themeDark'));
+  tip(els.btnThemeSystem, t('themeSystem'));
+  els.btnThemeLight.setAttribute('aria-label', t('themeLight'));
+  els.btnThemeDark.setAttribute('aria-label', t('themeDark'));
+  els.btnThemeSystem.setAttribute('aria-label', t('themeSystem'));
 
   els.stPath.textContent = filePath ?? t('untitled');
   els.stVersion.title = t('versionTip');
@@ -2649,11 +2669,17 @@ async function init(): Promise<void> {
         }, 0);
       });
   });
-  // the theme wipe (#106, owner gate 2026-10-15) grows from this button
-  els.btnTheme.addEventListener('click', () => {
-    const r = els.btnTheme.getBoundingClientRect();
-    toggleTheme({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
-  });
+  // #174: the toolbar theme switch — same rule as the Settings segments:
+  // the wipe (#106, owner gate 2026-10-15) grows from the pressed cell
+  const themeCell = (btn: HTMLButtonElement): void => {
+    const m = btn === els.btnThemeLight ? 'light' : btn === els.btnThemeDark ? 'dark' : 'system';
+    const r = btn.getBoundingClientRect();
+    setThemeMode(m, { x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    syncThemeSegments();
+  };
+  els.btnThemeLight.addEventListener('click', () => themeCell(els.btnThemeLight));
+  els.btnThemeDark.addEventListener('click', () => themeCell(els.btnThemeDark));
+  els.btnThemeSystem.addEventListener('click', () => themeCell(els.btnThemeSystem));
   // #86: real Ctrl+V pastes in either editor — the capture-phase event
   // fires before the editor consumes it, so the pristine-untitled gate
   // still sees the pre-paste (empty) document
