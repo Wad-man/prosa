@@ -2959,7 +2959,7 @@ body {
   color: var(--fg-3);
 }
 
-.settings-lang {
+.settings-segmented {
   display: flex;
   gap: 8px;
 }
@@ -2980,9 +2980,10 @@ body {
   accent-color: var(--accent);
 }
 
-/* the pressed button is the active interface language (#88); a
- * non-color cue (weight) keeps it distinguishable without color */
-.settings-lang .modal-btn[aria-pressed='true'] {
+/* the pressed button is the active segment — the language (#88) or the
+ * theme mode (#172); a non-color cue (weight) keeps it distinguishable
+ * without color */
+.settings-segmented .modal-btn[aria-pressed='true'] {
   border-color: var(--accent);
   color: var(--fg);
   font-weight: 600;

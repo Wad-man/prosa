@@ -54,7 +54,7 @@ import { addRecent, listRecent, removeRecent } from './recent';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
 import { applyWebView2DragFix } from './platform/webview2-dnd';
 import { getLang, t } from './i18n';
-import { applyTheme, autoUpdateEnabled, currentTheme, onLangChanged, setAutoUpdateEnabled, setLanguage, toggleTheme } from './settings';
+import { autoUpdateEnabled, onLangChanged, setAutoUpdateEnabled, setLanguage, setThemeMode, themeMode, toggleTheme, type ThemeOrigin } from './settings';
 import { FindReplaceBar } from './search';
 import { initZoom, zoomIn, zoomOut, zoomReset } from './zoom';
 import './styles.css';
@@ -165,6 +165,10 @@ const els = {
   settingsLangLabel: $('settings-lang-label'),
   settingsLangRu: $('settings-lang-ru') as HTMLButtonElement,
   settingsLangEn: $('settings-lang-en') as HTMLButtonElement,
+  settingsThemeLabel: $('settings-theme-label'),
+  settingsThemeLight: $('settings-theme-light') as HTMLButtonElement,
+  settingsThemeDark: $('settings-theme-dark') as HTMLButtonElement,
+  settingsThemeSystem: $('settings-theme-system') as HTMLButtonElement,
   settingsUpdatesLabel: $('settings-updates-label'),
   settingsUpdatesAuto: $('settings-updates-auto') as HTMLInputElement,
   settingsUpdatesAutoLabel: $('settings-updates-auto-label'),
@@ -1504,15 +1508,21 @@ function buildMenuSections(): (() => MenuSection)[] {
         { label: t('source'), action: () => setMode('source'), checked: () => mode === 'source' },
         { label: t('split'), action: () => setMode('split'), checked: () => mode === 'split' },
         sep(),
+        // #172: the three modes — light/dark pin, system follows the OS
         {
           label: t('themeLight'),
-          action: () => applyTheme('light'),
-          checked: () => currentTheme() !== 'dark',
+          action: () => setThemeMode('light'),
+          checked: () => themeMode() === 'light',
         },
         {
           label: t('themeDark'),
-          action: () => applyTheme('dark'),
-          checked: () => currentTheme() === 'dark',
+          action: () => setThemeMode('dark'),
+          checked: () => themeMode() === 'dark',
+        },
+        {
+          label: t('themeSystem'),
+          action: () => setThemeMode('system'),
+          checked: () => themeMode() === 'system',
         },
         sep(),
         // #25: zoom ladder (reset lives on Ctrl+Num0 — Ctrl+0 is the
@@ -2099,6 +2109,16 @@ function openSettings(): void {
   showModal(els.settingsOverlay, els.settingsModal);
 }
 
+/** The pressed theme segment mirrors the live mode (#172); runs after any
+ *  mode change and from applyStaticTexts, so neither a live language switch
+ *  nor a menu/toolbar theme switch can desync the dialog. */
+function syncThemeSegments(): void {
+  const mode = themeMode();
+  els.settingsThemeLight.setAttribute('aria-pressed', String(mode === 'light'));
+  els.settingsThemeDark.setAttribute('aria-pressed', String(mode === 'dark'));
+  els.settingsThemeSystem.setAttribute('aria-pressed', String(mode === 'system'));
+}
+
 // ---------- what's new dialog (#37) ----------
 
 /** Opens the «What's new» modal: the current release's summary plus a link
@@ -2318,6 +2338,13 @@ function applyStaticTexts(): void {
   els.settingsLangLabel.textContent = t('settingsLangSection');
   els.settingsLangRu.textContent = t('langRu');
   els.settingsLangEn.textContent = t('langEn');
+  els.settingsThemeLabel.textContent = t('settingsThemeSection');
+  els.settingsThemeLight.textContent = t('themeLight');
+  els.settingsThemeDark.textContent = t('themeDark');
+  els.settingsThemeSystem.textContent = t('themeSystem');
+  // the pressed mark rides along — a menu/toolbar switch must not desync
+  // the segments while the dialog is open
+  syncThemeSegments();
   els.settingsUpdatesLabel.textContent = t('settingsUpdatesSection');
   els.settingsUpdatesAutoLabel.textContent = t('updatesAuto');
   // the checked mark rides along so a live language switch cannot desync it
@@ -2944,6 +2971,24 @@ async function init(): Promise<void> {
   });
   els.settingsLangRu.addEventListener('click', () => setLanguage('ru'));
   els.settingsLangEn.addEventListener('click', () => setLanguage('en'));
+  // #172: the theme segmented control — the wipe (#106) grows from the
+  // pressed segment, same rule as the toolbar button
+  const themeSegOrigin = (btn: HTMLElement): ThemeOrigin => {
+    const r = btn.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  };
+  els.settingsThemeLight.addEventListener('click', () => {
+    setThemeMode('light', themeSegOrigin(els.settingsThemeLight));
+    syncThemeSegments();
+  });
+  els.settingsThemeDark.addEventListener('click', () => {
+    setThemeMode('dark', themeSegOrigin(els.settingsThemeDark));
+    syncThemeSegments();
+  });
+  els.settingsThemeSystem.addEventListener('click', () => {
+    setThemeMode('system', themeSegOrigin(els.settingsThemeSystem));
+    syncThemeSegments();
+  });
   // #160: the toggle writes through immediately; applyStaticTexts re-syncs
   // the mark from storage on the way (e.g. after a live language switch)
   els.settingsUpdatesAuto.addEventListener('change', () => {

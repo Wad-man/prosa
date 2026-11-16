@@ -1,13 +1,21 @@
-// App-level user settings: the theme (light/dark, persisted under
-// prosa.theme) and the interface-language switch. The language state itself
-// (the prosa.lang key, autodetection and the string dictionaries) lives in
-// i18n.ts — this module only flips it and notifies the app. The stored theme
-// is applied at cold start by an inline script in index.html (before first
-// paint, to avoid a flash); every runtime switch goes through here.
+// App-level user settings: the theme mode (light/dark/system, persisted
+// under prosa.theme) and the interface-language switch. The language state
+// itself (the prosa.lang key, autodetection and the string dictionaries)
+// lives in i18n.ts — this module only flips it and notifies the app. The
+// stored mode is applied at cold start by an inline script in index.html
+// (before first paint, to avoid a flash); every runtime switch goes through
+// here.
 import { getLang, setLang, type Lang } from './i18n';
 import { storageGet, storageSet } from './storage';
 
 const THEME_KEY = 'prosa.theme';
+
+// #172: three modes. "system" follows the OS prefers-color-scheme live
+// (one matchMedia listener for the whole session, below); light/dark are
+// pinned. The stored value is the MODE — an absent key reads as "system",
+// which is the same first-run behavior the app always had, only
+// live-following now instead of sniffed once at first paint.
+export type ThemeMode = 'light' | 'dark' | 'system';
 
 // #106 → owner gate 2026-10-15: the switch is a single compositor wipe of
 // the whole window FROM THE TOGGLE BUTTON — slow (600ms) and ease-in-out on
@@ -26,7 +34,21 @@ export interface ThemeOrigin {
   y: number;
 }
 
-export function applyTheme(theme: 'light' | 'dark', origin?: ThemeOrigin): void {
+/** The stored mode; an absent (or foreign) value reads as "system". */
+export function themeMode(): ThemeMode {
+  const stored = storageGet(THEME_KEY);
+  return stored === 'light' || stored === 'dark' ? stored : 'system';
+}
+
+/** The OS scheme right now — the "system" mode's source of truth. */
+function osTheme(): 'light' | 'dark' {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+/** DOM flip + wipe only — no storage write. The mode write belongs to the
+ *  explicit user actions (setThemeMode/toggleTheme); an ambient OS flip
+ *  must not pin the theme (#172). */
+function applyResolved(theme: 'light' | 'dark', origin?: ThemeOrigin): void {
   const root = document.documentElement;
   if (root.dataset.theme === theme) return;
   const flip = (): void => {
@@ -47,7 +69,14 @@ export function applyTheme(theme: 'light' | 'dark', origin?: ThemeOrigin): void 
   }
   if (canWipe) doc.startViewTransition!(flip);
   else flip();
-  storageSet(THEME_KEY, theme);
+}
+
+/** #172: pick a mode — the Settings segmented control and the «Вид» menu
+ *  items land here. Persists the mode and applies its resolved theme; the
+ *  origin (the pressed segment) starts the wipe. */
+export function setThemeMode(mode: ThemeMode, origin?: ThemeOrigin): void {
+  storageSet(THEME_KEY, mode);
+  applyResolved(mode === 'system' ? osTheme() : mode, origin);
 }
 
 /** The theme currently applied to <html data-theme>; "light" when unset. */
@@ -55,10 +84,24 @@ export function currentTheme(): 'light' | 'dark' {
   return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
 }
 
-/** The #btn-theme action: flip and persist the current theme. The origin
- *  (button center) starts the wipe; without one it grows from the center. */
+/** The #btn-theme action: flip and persist the current theme — the pressed
+ *  side gets pinned, leaving "system" (#172 decision, issue #172). The
+ *  origin (button center) starts the wipe; without one it grows from the
+ *  center. */
 export function toggleTheme(origin?: ThemeOrigin): void {
-  applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', origin);
+  setThemeMode(currentTheme() === 'dark' ? 'light' : 'dark', origin);
+}
+
+// While in "system" the window follows the OS live. One listener for the
+// whole session (the K6 #163 discipline — nothing per-switch); the wipe
+// grows from the center like menu-triggered switches (no origin).
+if (typeof window.matchMedia === 'function') {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const follow = (): void => {
+    if (themeMode() === 'system') applyResolved(mq.matches ? 'dark' : 'light');
+  };
+  if (typeof mq.addEventListener === 'function') mq.addEventListener('change', follow);
+  else mq.addListener(follow); // pre-Safari-14 / older WebKitGTK
 }
 
 // ---------- interface language (#88) ----------

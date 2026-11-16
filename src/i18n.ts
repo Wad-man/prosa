@@ -88,6 +88,7 @@ const strings = {
     imgSaveError: 'Не удалось сохранить файл картинки',
     themeLight: 'Светлая',
     themeDark: 'Тёмная',
+    themeSystem: 'Системная',
     tocTitle: 'Оглавление',
     tocOnPage: 'На странице',
     tocEmpty: 'Заголовков нет',
@@ -118,6 +119,8 @@ const strings = {
     settings: 'Настройки…',
     settingsTitle: 'Настройки',
     settingsLangSection: 'Язык интерфейса',
+    // #172: the theme mode segmented control in Settings
+    settingsThemeSection: 'Тема оформления',
     // #160: the auto-update toggle in Settings
     settingsUpdatesSection: 'Обновления',
     updatesAuto: 'Проверять обновления автоматически',
@@ -238,6 +241,7 @@ const strings = {
     imgSaveError: 'Failed to save the image file',
     themeLight: 'Light',
     themeDark: 'Dark',
+    themeSystem: 'System',
     tocTitle: 'Outline',
     tocOnPage: 'On this page',
     tocEmpty: 'No headings yet',
@@ -266,6 +270,8 @@ const strings = {
     settings: 'Settings…',
     settingsTitle: 'Settings',
     settingsLangSection: 'Interface language',
+    // #172: the theme mode segmented control in Settings
+    settingsThemeSection: 'Theme',
     // #160: the auto-update toggle in Settings
     settingsUpdatesSection: 'Updates',
     updatesAuto: 'Check for updates automatically',

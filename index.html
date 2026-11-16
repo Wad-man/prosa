@@ -19,8 +19,11 @@
           stored = localStorage.getItem('prosa.theme');
         } catch (e) {}
         var theme =
-          stored ||
-          (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          stored === 'light' || stored === 'dark'
+            ? stored
+            : window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
         document.documentElement.dataset.theme = theme;
       })();
     </script>
@@ -194,9 +197,17 @@
         </button>
         <h2 class="settings-title" id="settings-title"></h2>
         <h3 class="settings-section-title" id="settings-lang-label"></h3>
-        <div class="settings-lang" role="group" aria-labelledby="settings-lang-label">
+        <div class="settings-segmented" role="group" aria-labelledby="settings-lang-label">
           <button id="settings-lang-ru" class="modal-btn" type="button" aria-pressed="false"></button>
           <button id="settings-lang-en" class="modal-btn" type="button" aria-pressed="false"></button>
+        </div>
+        <!-- #172: the mode, not the resolved theme — "system" follows the OS
+             live (a listener in settings.ts), light/dark pin it -->
+        <h3 class="settings-section-title" id="settings-theme-label"></h3>
+        <div class="settings-segmented" role="group" aria-labelledby="settings-theme-label">
+          <button id="settings-theme-light" class="modal-btn" type="button" aria-pressed="false"></button>
+          <button id="settings-theme-dark" class="modal-btn" type="button" aria-pressed="false"></button>
+          <button id="settings-theme-system" class="modal-btn" type="button" aria-pressed="false"></button>
         </div>
         <h3 class="settings-section-title" id="settings-updates-label"></h3>
         <label class="settings-check" for="settings-updates-auto">
