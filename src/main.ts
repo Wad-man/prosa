@@ -2952,6 +2952,20 @@ async function init(): Promise<void> {
   els.hotkeysOverlay.addEventListener('click', (e) => {
     if (e.target === els.hotkeysOverlay) hideModal(els.hotkeysOverlay);
   });
+  // #42: focus lands on the dialog card, and the scrollable list is a
+  // descendant, not the ancestor — arrows would do nothing there. While
+  // the CARD holds focus, Up/Down scroll the list (a third of its visible
+  // height per press) and stop — moveModalFocus would otherwise pull the
+  // focus off the card to the first button. On the × / online-link the
+  // Windows-style arrow focus cycling stays as is
+  els.hotkeysModal.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    if (e.target !== els.hotkeysModal) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const step = Math.round(els.hotkeysBody.clientHeight / 3);
+    els.hotkeysBody.scrollTop += e.key === 'ArrowDown' ? step : -step;
+  });
   // settings dialog: same modal mechanics; the language buttons apply the
   // switch live — setLanguage runs the onLangChanged machinery above, and
   // applyStaticTexts re-labels the dialog (and its pressed mark) on the way
