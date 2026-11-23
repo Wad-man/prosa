@@ -9,7 +9,7 @@ import { commandsCtx, remarkStringifyOptionsCtx, schemaCtx, SchemaReady, Seriali
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 import type { NodeType, Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
-import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
+import { Decoration, DecorationSet, type EditorView as ProseMirrorView } from '@milkdown/kit/prose/view';
 import { headingIdGenerator } from '@milkdown/kit/preset/commonmark';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import { uploadConfig } from '@milkdown/kit/plugin/upload';
@@ -954,6 +954,24 @@ const makeLinkReferenceFix = (getDefinitions: () => Map<string, string>): Milkdo
 };
 
 /**
+ * #118: a paste over the whole document swaps the link definitions — and the
+ * swap must follow the undo history. It cannot happen in the paste capture
+ * phase: there it outlives Ctrl+Z (the text comes back, the definitions do
+ * not, and the next save drops them from the file — v0.3.3 diff review). The
+ * capture phase only records both ends; this plugin swaps them when the
+ * replacing transaction lands and restores them whenever the document is
+ * undone or redone back to either end (document identity is the key: Ctrl+Z
+ * rebuilds the old content, never the old Map).
+ */
+const makeDefinitionsHistory = (onUpdate: (view: ProseMirrorView) => void) =>
+  $prose(
+    () =>
+      new Plugin({
+        view: () => ({ update: onUpdate }),
+      }),
+  );
+
+/**
  * A link reference definition, outside code fences/indented code (#55).
  * Footnote definitions `[^id]: …` are a different mdast node (Crepe keeps
  * them in the model) and must NOT match — without the `^` guard they would
@@ -1349,6 +1367,8 @@ export class VisualEditor {
     // the new content (they would serialize back into the file on save). A
     // partial replace keeps them: the surviving text may still reference
     // them, and in visual mode there is no other way for a def to exist.
+    // The swap itself waits for the replacing transaction (see
+    // definitionsHistoryUpdate): done here, it would outlive Ctrl+Z.
     let replacesWholeDoc = false;
     if (!this.readonly) {
       this.crepe?.editor.action((ctx) => {
@@ -1357,14 +1377,57 @@ export class VisualEditor {
           !state.selection.empty &&
           state.selection.from <= 0 &&
           state.selection.to >= state.doc.content.size;
+        if (replacesWholeDoc) {
+          const pasted = new Map<string, string>();
+          captureDefinitions(text, pasted, false);
+          this.pendingReplace = { doc: state.doc, defs: new Map(this.definitions), pasted };
+        }
       });
     }
+    if (replacesWholeDoc) {
+      // ProseMirror applies a paste synchronously; a paste it swallows
+      // (or refuses) replaces nothing and must leave the definitions alone
+      setTimeout(() => {
+        this.pendingReplace = null;
+      }, 0);
+      return;
+    }
     const before = this.definitions.size;
-    captureDefinitions(text, this.definitions, replacesWholeDoc);
+    captureDefinitions(text, this.definitions, false);
     // a definitions-only paste changes nothing in the model (they are
     // consumed invisibly), so the change listener never fires and the save
     // would write the untouched raw bytes back, dropping them — mark edited
     if (this.definitions.size > before) this.onChange?.();
+  };
+
+  // #118: both ends of the last whole-document replacement by paste, keyed
+  // by document content — see makeDefinitionsHistory
+  private pendingReplace: {
+    doc: ProseNode;
+    defs: Map<string, string>;
+    pasted: Map<string, string>;
+  } | null = null;
+  private replaceEnds: { doc: ProseNode; defs: Map<string, string> }[] = [];
+
+  private definitionsHistoryUpdate = (view: ProseMirrorView): void => {
+    const pending = this.pendingReplace;
+    if (pending) {
+      // a transaction before the replacing one (a selection change, say)
+      // leaves the document as it was — keep waiting for the replacement
+      if (view.state.doc.eq(pending.doc)) return;
+      this.pendingReplace = null;
+      this.replaceEnds = [
+        { doc: pending.doc, defs: pending.defs },
+        { doc: view.state.doc, defs: pending.pasted },
+      ];
+      this.definitions = pending.pasted;
+      return;
+    }
+    for (const end of this.replaceEnds) {
+      if (!view.state.doc.eq(end.doc)) continue;
+      if (this.definitions !== end.defs) this.definitions = end.defs;
+      break;
+    }
   };
 
   // #49: the main.ts-side landing for a carved-out front-matter block (the
@@ -1686,6 +1749,7 @@ export class VisualEditor {
     this.crepe.editor.use(emphasisMarkerFix);
     this.crepe.editor.use(emphasisIntrawordFix);
     this.crepe.editor.use(makeLinkReferenceFix(() => this.definitions));
+    this.crepe.editor.use(makeDefinitionsHistory(this.definitionsHistoryUpdate));
     // #137: Obsidian callouts — nodes before create() (the schema is
     // immutable once built), the tagger BEFORE rawHtmlTagger: raw-html's
     // walk must already see `prosaCallout` as a block container to convert
@@ -1766,8 +1830,11 @@ export class VisualEditor {
     if (!this.crepe) return;
     if (md === this.lastMd) return;
     // a whole-document replacement: re-capture definitions from the new
-    // source (#55) — the parse below consumes them invisibly
+    // source (#55) — the parse below consumes them invisibly. Not a paste:
+    // the #118 ends belong to the document that just went away
     this.captureDefinitions(md, true);
+    this.pendingReplace = null;
+    this.replaceEnds = [];
     this.applyingReplace = true;
     try {
       this.crepe.editor.action(replaceAll(md, true));
