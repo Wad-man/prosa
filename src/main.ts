@@ -1514,17 +1514,26 @@ function buildMenuSections(): (() => MenuSection)[] {
         // #172: the three modes — light/dark pin, system follows the OS
         {
           label: t('themeLight'),
-          action: () => setThemeMode('light'),
+          action: () => {
+            setThemeMode('light');
+            syncThemeSegments();
+          },
           checked: () => themeMode() === 'light',
         },
         {
           label: t('themeDark'),
-          action: () => setThemeMode('dark'),
+          action: () => {
+            setThemeMode('dark');
+            syncThemeSegments();
+          },
           checked: () => themeMode() === 'dark',
         },
         {
           label: t('themeSystem'),
-          action: () => setThemeMode('system'),
+          action: () => {
+            setThemeMode('system');
+            syncThemeSegments();
+          },
           checked: () => themeMode() === 'system',
         },
         sep(),
