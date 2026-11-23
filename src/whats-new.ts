@@ -48,7 +48,7 @@ export const CHANGELOG_URL = 'https://prosamd.ru/changelog.html';
  *   (prosa-changelog skill), this window does not replace them. */
 const RELEASE_SUMMARY: Record<Lang, string[]> = {
   ru: [
-    'Тема: светлая, тёмная или системная (следует за ОС) — переключатель на панели инструментов.',
+    'Тема: светлая, тёмная или системная.',
     'В узком окне меню прокручивается и больше не перекрывает кнопки.',
     'Список горячих клавиш листается стрелками (↑ ↓).',
     'Вставленный текст больше не мелькает поверх стартового экрана.',
@@ -56,7 +56,7 @@ const RELEASE_SUMMARY: Record<Lang, string[]> = {
     'Вставка поверх всего документа больше не тянет за собой его старые определения ссылок.',
   ],
   en: [
-    'Theme: light, dark or system (follows the OS) — the switch is in the toolbar.',
+    'Theme: light, dark or system.',
     'In a narrow window the menu bar scrolls and no longer covers the buttons.',
     'The hotkeys list scrolls with the arrow keys (↑ ↓).',
     'Pasted text no longer flashes over the start screen.',
