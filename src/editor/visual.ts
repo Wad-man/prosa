@@ -958,16 +958,20 @@ const makeLinkReferenceFix = (getDefinitions: () => Map<string, string>): Milkdo
  * swap must follow the undo history. It cannot happen in the paste capture
  * phase: there it outlives Ctrl+Z (the text comes back, the definitions do
  * not, and the next save drops them from the file — v0.3.3 diff review). The
- * capture phase only records both ends; this plugin swaps them when the
- * replacing transaction lands and restores them whenever the document is
- * undone or redone back to either end (document identity is the key: Ctrl+Z
- * rebuilds the old content, never the old Map).
+ * capture phase only records the moment; this plugin swaps the definitions
+ * when the replacing transaction lands and restores them whenever the
+ * document is undone or redone back into either branch (document content is
+ * the key: Ctrl+Z rebuilds the old content, never the old Map).
  */
-const makeDefinitionsHistory = (onUpdate: (view: ProseMirrorView) => void) =>
+const makeDefinitionsHistory = (onUpdate: (view: ProseMirrorView, prevDoc: ProseNode) => void) =>
   $prose(
     () =>
       new Plugin({
-        view: () => ({ update: onUpdate }),
+        view: () => ({
+          // the previous document tells which definitions the outgoing
+          // state carried
+          update: (view, prevState) => onUpdate(view, prevState.doc),
+        }),
       }),
   );
 
@@ -1361,37 +1365,18 @@ export class VisualEditor {
       e.stopPropagation();
       return;
     }
-    if (types.includes('text/html')) return;
     // #118: a paste over a whole-document selection REPLACES the document —
     // its old definitions lose every reference and must not ride along into
     // the new content (they would serialize back into the file on save). A
     // partial replace keeps them: the surviving text may still reference
     // them, and in visual mode there is no other way for a def to exist.
     // The swap itself waits for the replacing transaction (see
-    // definitionsHistoryUpdate): done here, it would outlive Ctrl+Z.
-    let replacesWholeDoc = false;
-    if (!this.readonly) {
-      this.crepe?.editor.action((ctx) => {
-        const state = ctx.get(editorViewCtx).state;
-        replacesWholeDoc =
-          !state.selection.empty &&
-          state.selection.from <= 0 &&
-          state.selection.to >= state.doc.content.size;
-        if (replacesWholeDoc) {
-          const pasted = new Map<string, string>();
-          captureDefinitions(text, pasted, false);
-          this.pendingReplace = { doc: state.doc, defs: new Map(this.definitions), pasted };
-        }
-      });
-    }
-    if (replacesWholeDoc) {
-      // ProseMirror applies a paste synchronously; a paste it swallows
-      // (or refuses) replaces nothing and must leave the definitions alone
-      setTimeout(() => {
-        this.pendingReplace = null;
-      }, 0);
-      return;
-    }
+    // definitionsHistoryUpdate): done here, it would outlive Ctrl+Z. It runs
+    // before the html branch — a rich paste replaces the document just the
+    // same; its plain-text shadow is not markdown to scan, hence null.
+    const rich = types.includes('text/html');
+    if (this.stageWholeDocReplace(rich ? null : text)) return;
+    if (rich) return;
     const before = this.definitions.size;
     captureDefinitions(text, this.definitions, false);
     // a definitions-only paste changes nothing in the model (they are
@@ -1400,33 +1385,86 @@ export class VisualEditor {
     if (this.definitions.size > before) this.onChange?.();
   };
 
-  // #118: both ends of the last whole-document replacement by paste, keyed
-  // by document content — see makeDefinitionsHistory
-  private pendingReplace: {
-    doc: ProseNode;
-    defs: Map<string, string>;
-    pasted: Map<string, string>;
-  } | null = null;
-  private replaceEnds: { doc: ProseNode; defs: Map<string, string> }[] = [];
+  // #118: the link definitions sit outside the ProseMirror history, so which
+  // document carried which definitions is tracked by document content — see
+  // makeDefinitionsHistory. A state is one definitions Map plus every
+  // document known to have carried it: history may compose a replacement
+  // with the typing next to it, so a single anchor per side is not enough.
+  // The current state is the last one; its Map is `this.definitions`.
+  private defsStates: { defs: Map<string, string>; docs: ProseNode[] }[] = [];
+  private pendingReplace: { doc: ProseNode; pasted: Map<string, string> } | null = null;
 
-  private definitionsHistoryUpdate = (view: ProseMirrorView): void => {
+  /** The document was replaced outside the paste path (open, mode switch,
+   *  rebuild): nothing of the old document's history can come back. */
+  private resetDefinitionsHistory(): void {
+    this.pendingReplace = null;
+    this.defsStates = [];
+  }
+
+  /** #118: an insertion about to replace the whole document — remember the
+   *  moment for the swap that follows the replacing transaction (see
+   *  definitionsHistoryUpdate). `markdown` is the plain text being inserted,
+   *  or null when there is none to scan (a rich paste). Returns false — and
+   *  changes nothing — when part of the document survives the insertion. */
+  private stageWholeDocReplace(markdown: string | null): boolean {
+    if (this.readonly || !this.crepe) return false;
+    let staged = false;
+    this.crepe.editor.action((ctx) => {
+      const state = ctx.get(editorViewCtx).state;
+      const whole =
+        !state.selection.empty &&
+        state.selection.from <= 0 &&
+        state.selection.to >= state.doc.content.size;
+      if (!whole) return;
+      const pasted = new Map<string, string>();
+      if (markdown !== null) captureDefinitions(markdown, pasted, false);
+      this.pendingReplace = { doc: state.doc, pasted };
+      staged = true;
+    });
+    if (staged) {
+      // the editor applies an insertion synchronously; one it swallows (or
+      // refuses), or one that rebuilds the very same content, replaces
+      // nothing — the old definitions stay
+      setTimeout(() => {
+        this.pendingReplace = null;
+      }, 0);
+    }
+    return staged;
+  }
+
+  private definitionsHistoryUpdate = (view: ProseMirrorView, prevDoc: ProseNode): void => {
+    const doc = view.state.doc;
     const pending = this.pendingReplace;
     if (pending) {
       // a transaction before the replacing one (a selection change, say)
       // leaves the document as it was — keep waiting for the replacement
-      if (view.state.doc.eq(pending.doc)) return;
+      if (doc.eq(pending.doc)) return;
       this.pendingReplace = null;
-      this.replaceEnds = [
-        { doc: pending.doc, defs: pending.defs },
-        { doc: view.state.doc, defs: pending.pasted },
-      ];
+      // the state that was current freezes into the "before" side the
+      // moment the instance stops pointing at its Map
+      this.defsStates.push({ defs: pending.pasted, docs: [doc] });
+      if (this.defsStates.length > 8) this.defsStates.shift();
       this.definitions = pending.pasted;
       return;
     }
-    for (const end of this.replaceEnds) {
-      if (!view.state.doc.eq(end.doc)) continue;
-      if (this.definitions !== end.defs) this.definitions = end.defs;
-      break;
+    if (this.defsStates.length === 0) {
+      this.defsStates.push({ defs: this.definitions, docs: [] });
+    }
+    const current = this.defsStates[this.defsStates.length - 1];
+    // the previous document carried the current definitions
+    const seen = current.docs;
+    if (seen[seen.length - 1] !== prevDoc) {
+      seen.push(prevDoc);
+      if (seen.length > 40) seen.splice(1, 1);
+    }
+    for (let i = this.defsStates.length - 2; i >= 0; i--) {
+      const state = this.defsStates[i];
+      if (!state.docs.some((d) => d === doc || d.eq(doc))) continue;
+      // undone or redone back into that state's branch
+      this.defsStates.splice(i, 1);
+      this.defsStates.push(state);
+      this.definitions = state.defs;
+      return;
     }
   };
 
@@ -1541,6 +1579,7 @@ export class VisualEditor {
     // #55: the whole-document source is scanned for link reference
     // definitions before the parse consumes them (see makeLinkReferenceFix)
     this.captureDefinitions(defaultValue, true);
+    this.resetDefinitionsHistory();
     const lang = getLang();
     const locale = crepeLocaleConfigs(lang);
     this.crepe = new Crepe({
@@ -1831,10 +1870,9 @@ export class VisualEditor {
     if (md === this.lastMd) return;
     // a whole-document replacement: re-capture definitions from the new
     // source (#55) — the parse below consumes them invisibly. Not a paste:
-    // the #118 ends belong to the document that just went away
+    // the #118 bookkeeping belongs to the document that just went away
     this.captureDefinitions(md, true);
-    this.pendingReplace = null;
-    this.replaceEnds = [];
+    this.resetDefinitionsHistory();
     this.applyingReplace = true;
     try {
       this.crepe.editor.action(replaceAll(md, true));
@@ -2004,8 +2042,10 @@ export class VisualEditor {
     // same semantics as a direct Ctrl+V into the empty editor
     if (!this.readonly && this.carvePastedFrontMatter(md)) return;
     // menu/right-panel paste goes through the parser directly (not the
-    // clipboard event), so definitions in it are captured here too (#55)
-    captureDefinitions(md, this.definitions, false);
+    // clipboard event), so definitions in it are captured here too (#55) —
+    // unless the insertion replaces the whole document: then the old
+    // definitions must not ride along, exactly as with a paste (#118)
+    if (!this.stageWholeDocReplace(md)) captureDefinitions(md, this.definitions, false);
     if (this.crepe) visualInsertMarkdown(this.crepe, md);
   }
 
