@@ -48,22 +48,20 @@ export const CHANGELOG_URL = 'https://prosamd.ru/changelog.html';
  *   (prosa-changelog skill), this window does not replace them. */
 const RELEASE_SUMMARY: Record<Lang, string[]> = {
   ru: [
-    'Тема оформления — три режима: светлая, тёмная и системная (следует за настройками системы). Переключатель — в тулбаре; те же режимы — в меню «Вид» и в настройках.',
-    'В узком окне строка меню прокручивается и больше не перекрывает кнопки справа.',
-    'В окне горячих клавиш список листается стрелками вверх и вниз.',
-    'На стартовом экране подсказки больше не накладываются на вставленный текст.',
+    'Тема: светлая, тёмная или системная (следует за ОС) — переключатель на панели инструментов.',
+    'В узком окне меню прокручивается и не перекрывает кнопки.',
+    'Список горячих клавиш листается стрелками (↑ ↓).',
+    'Вставленный текст больше не мелькает поверх стартового экрана.',
     'В светлой теме неактивные пункты оглавления читаются лучше.',
-    'Исправлено: Ctrl+L в ячейке таблицы вызывал ошибку.',
-    'При замене всего документа вставкой определения ссылок старого документа не переносятся в новый; Ctrl+Z возвращает их вместе с текстом.',
+    'Вставка поверх всего документа больше не тянет за собой его старые определения ссылок.',
   ],
   en: [
-    'Theme — three modes: light, dark and system (follows the OS). The switch is in the toolbar; the same modes are in the View menu and in Settings.',
-    'In a narrow window the menu bar scrolls instead of covering the buttons on the right.',
-    'In the hotkeys window the list scrolls with the up and down arrows.',
-    'On the start screen the hints no longer overlap pasted text.',
+    'Theme: light, dark or system (follows the OS) — the switch is in the toolbar.',
+    'In a narrow window the menu bar scrolls and no longer covers the buttons.',
+    'The hotkeys list scrolls with the arrow keys (↑ ↓).',
+    'Pasted text no longer flashes over the start screen.',
     'In the light theme inactive outline entries are easier to read.',
-    'Fixed: Ctrl+L inside a table cell raised an error.',
-    'When a paste replaces the whole document, the old link definitions do not carry over; Ctrl+Z brings them back with the text.',
+    'Pasting over the whole document no longer carries over its old link definitions.',
   ],
 };
 
