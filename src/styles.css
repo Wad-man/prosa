@@ -825,8 +825,10 @@ body {
 
 /* inactive entries sit one step darker in the light theme only (owner
    2026-11-23, #171): --fg-3 passes AA on white but falls to 4.02 over
-   tinted surfaces; the shared token stays untouched, dark theme keeps it */
-[data-theme='light'] .toc-item {
+   tinted surfaces; the shared token stays untouched, dark theme keeps it.
+   :where() keeps this at the base rule's specificity, so hover and active
+   win by specificity, not by source order */
+:where([data-theme='light']) .toc-item {
   color: #5F6167;
 }
 
