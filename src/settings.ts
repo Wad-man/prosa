@@ -79,11 +79,6 @@ export function setThemeMode(mode: ThemeMode, origin?: ThemeOrigin): void {
   applyResolved(mode === 'system' ? osTheme() : mode, origin);
 }
 
-/** The theme currently applied to <html data-theme>; "light" when unset. */
-export function currentTheme(): 'light' | 'dark' {
-  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
-}
-
 // While in "system" the window follows the OS live. One listener for the
 // whole session (the K6 #163 discipline — nothing per-switch); the wipe
 // grows from the center like menu-triggered switches (no origin).
