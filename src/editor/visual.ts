@@ -10,6 +10,7 @@ import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 import type { NodeType, Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
 import { Decoration, DecorationSet, type EditorView as ProseMirrorView } from '@milkdown/kit/prose/view';
+import { isHistoryTransaction } from '@milkdown/kit/prose/history';
 import { headingIdGenerator } from '@milkdown/kit/preset/commonmark';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import { uploadConfig } from '@milkdown/kit/plugin/upload';
@@ -963,15 +964,34 @@ const makeLinkReferenceFix = (getDefinitions: () => Map<string, string>): Milkdo
  * document is undone or redone back into either branch (document content is
  * the key: Ctrl+Z rebuilds the old content, never the old Map).
  */
-const makeDefinitionsHistory = (onUpdate: (view: ProseMirrorView, prevDoc: ProseNode) => void) =>
+const definitionsHistoryKey = new PluginKey<number>('prosaDefinitionsHistory');
+
+const makeDefinitionsHistory = (
+  onUpdate: (view: ProseMirrorView, prevDoc: ProseNode, undoneOrRedone: boolean) => void,
+) =>
   $prose(
     () =>
       new Plugin({
-        view: () => ({
-          // the previous document tells which definitions the outgoing
-          // state carried
-          update: (view, prevState) => onUpdate(view, prevState.doc),
-        }),
+        key: definitionsHistoryKey,
+        // counts undo/redo transactions; the view compares the counter
+        // between updates. Only those may switch the definitions — a
+        // document rebuilt by typing must not pick up an older state's
+        // Map just because the content happens to match
+        state: {
+          init: () => 0,
+          apply: (tr, value) => (isHistoryTransaction(tr) ? value + 1 : value),
+        },
+        view: () => {
+          let seen = 0;
+          return {
+            update: (view, prevState) => {
+              const count = definitionsHistoryKey.getState(view.state) ?? 0;
+              const history = count > seen;
+              seen = count;
+              onUpdate(view, prevState.doc, history);
+            },
+          };
+        },
       }),
   );
 
@@ -1373,9 +1393,12 @@ export class VisualEditor {
     // The swap itself waits for the replacing transaction (see
     // definitionsHistoryUpdate): done here, it would outlive Ctrl+Z. It runs
     // before the html branch — a rich paste replaces the document just the
-    // same; its plain-text shadow is not markdown to scan, hence null.
+    // same. Most rich pastes carry no markdown in their plain-text shadow,
+    // hence null; a copy made in ProseMirror (data-pm-slice) does — the
+    // definitions included.
     const rich = types.includes('text/html');
-    if (this.stageWholeDocReplace(rich ? null : text)) return;
+    const fromProseMirror = rich && data.getData('text/html').includes('data-pm-slice');
+    if (this.stageWholeDocReplace(rich && !fromProseMirror ? null : text)) return;
     if (rich) return;
     const before = this.definitions.size;
     captureDefinitions(text, this.definitions, false);
@@ -1432,7 +1455,11 @@ export class VisualEditor {
     return staged;
   }
 
-  private definitionsHistoryUpdate = (view: ProseMirrorView, prevDoc: ProseNode): void => {
+  private definitionsHistoryUpdate = (
+    view: ProseMirrorView,
+    prevDoc: ProseNode,
+    undoneOrRedone: boolean,
+  ): void => {
     const doc = view.state.doc;
     const pending = this.pendingReplace;
     if (pending) {
@@ -1440,13 +1467,26 @@ export class VisualEditor {
       // leaves the document as it was — keep waiting for the replacement
       if (doc.eq(pending.doc)) return;
       this.pendingReplace = null;
+      // the outgoing state must know the document it is losing: nothing
+      // guarantees a transaction between that document's last change and
+      // the replacement (the Edit-menu paste reads the clipboard first)
+      const outgoing = this.defsStates[this.defsStates.length - 1];
+      if (!outgoing || outgoing.defs !== this.definitions) {
+        this.defsStates.push({ defs: this.definitions, docs: [] });
+      }
+      const before = this.defsStates[this.defsStates.length - 1];
+      if (before.docs[before.docs.length - 1] !== pending.doc) before.docs.push(pending.doc);
       // the state that was current freezes into the "before" side the
       // moment the instance stops pointing at its Map
       this.defsStates.push({ defs: pending.pasted, docs: [doc] });
-      if (this.defsStates.length > 8) this.defsStates.shift();
+      // a bound keeps the bookkeeping finite; past it, an undo deeper than
+      // the oldest kept state leaves the current definitions in place
+      while (this.defsStates.length > 8) this.defsStates.shift();
       this.definitions = pending.pasted;
       return;
     }
+    // selection-only and other document-preserving updates cost nothing
+    if (doc === prevDoc) return;
     if (this.defsStates.length === 0) {
       this.defsStates.push({ defs: this.definitions, docs: [] });
     }
@@ -1457,6 +1497,8 @@ export class VisualEditor {
       seen.push(prevDoc);
       if (seen.length > 40) seen.splice(1, 1);
     }
+    // typing never changes the definitions — only going back does
+    if (!undoneOrRedone) return;
     for (let i = this.defsStates.length - 2; i >= 0; i--) {
       const state = this.defsStates[i];
       if (!state.docs.some((d) => d === doc || d.eq(doc))) continue;
