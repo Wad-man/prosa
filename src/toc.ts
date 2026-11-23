@@ -122,6 +122,9 @@ export class TocPanel {
     this.panel.setAttribute('aria-label', t('tocTitle'));
     const cap = this.panel.querySelector('.toc-cap');
     if (cap) cap.textContent = t('tocOnPage');
+    // the headings did not change, their labels did: drop the render cache,
+    // or an empty outline keeps its placeholder in the previous language
+    this.renderedSig = null;
     this.render(); // placeholder text is localized too
   }
 
