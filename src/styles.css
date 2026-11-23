@@ -823,6 +823,13 @@ body {
   transition: color var(--t-1) var(--ease);
 }
 
+/* inactive entries sit one step darker in the light theme only (owner
+   2026-11-23, #171): --fg-3 passes AA on white but falls to 4.02 over
+   tinted surfaces; the shared token stays untouched, dark theme keeps it */
+[data-theme='light'] .toc-item {
+  color: #5F6167;
+}
+
 /* hover is a step short of active (design audit #1): active owns --fg
    plus the accent dot, hovering shows --fg-2 so the two never collide */
 .toc-item:hover {
