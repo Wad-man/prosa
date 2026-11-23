@@ -981,12 +981,14 @@ const makeDefinitionsHistory = (
           init: () => 0,
           apply: (tr, value) => (isHistoryTransaction(tr) ? value + 1 : value),
         },
-        view: () => {
-          let seen = 0;
+        // start from the state's own count: a view recreated over a kept
+        // state must not read its first edit as an undo
+        view: (view) => {
+          let seen = definitionsHistoryKey.getState(view.state) ?? 0;
           return {
             update: (view, prevState) => {
               const count = definitionsHistoryKey.getState(view.state) ?? 0;
-              const history = count > seen;
+              const history = count !== seen;
               seen = count;
               onUpdate(view, prevState.doc, history);
             },
@@ -1464,7 +1466,10 @@ export class VisualEditor {
     const pending = this.pendingReplace;
     if (pending) {
       // a transaction before the replacing one (a selection change, say)
-      // leaves the document as it was — keep waiting for the replacement
+      // leaves the document as it was — keep waiting for the replacement.
+      // Content equal to the document is no replacement either: the
+      // definitions in place stay (pasting the same text with different
+      // definitions loses those — the one trade-off of this rule)
       if (doc.eq(pending.doc)) return;
       this.pendingReplace = null;
       // the outgoing state must know the document it is losing: nothing
@@ -1883,7 +1888,16 @@ export class VisualEditor {
     this.panel.mount(this.crepe, root, this.panelClipboard ?? undefined);
   }
 
+  // the document a rebuild (language switch) carries from the old instance
+  // to the new one; null outside a rebuild
+  private rebuildCarry: string | null = null;
+
   getMarkdown(): string {
+    // mid-rebuild neither instance can answer — the old one is destroyed,
+    // the new one not created yet — while observers of the unmount still
+    // ask (#161 start-screen guard: an uncaught "editorView not found").
+    // The carried-over document is exactly what the new instance will hold
+    if (this.rebuildCarry !== null) return this.rebuildCarry;
     return this.crepe?.getMarkdown() ?? '';
   }
 
@@ -1898,13 +1912,18 @@ export class VisualEditor {
   async rebuild(defaultValue: string): Promise<void> {
     if (!this.root) return;
     const onChange = this.onChange;
-    await this.crepe?.destroy();
-    // the memo is dead along with the instance it described
-    this.lastMd = null;
-    // destroy unmounts the ProseMirror DOM; clear any leftovers so the
-    // new instance mounts into a clean root
-    this.root.replaceChildren();
-    if (onChange) await this.create(this.root, defaultValue, onChange);
+    this.rebuildCarry = defaultValue;
+    try {
+      await this.crepe?.destroy();
+      // the memo is dead along with the instance it described
+      this.lastMd = null;
+      // destroy unmounts the ProseMirror DOM; clear any leftovers so the
+      // new instance mounts into a clean root
+      this.root.replaceChildren();
+      if (onChange) await this.create(this.root, defaultValue, onChange);
+    } finally {
+      this.rebuildCarry = null;
+    }
   }
 
   setMarkdown(md: string): void {
