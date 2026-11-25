@@ -135,14 +135,14 @@ export function setAutoUpdateEnabled(on: boolean): void {
 
 // ---------- opening mode (#178) ----------
 
-// The mode a file opens in: every fresh document landing from disk (open
-// dialog, double-click, drop, recents, cold start) enters it. The stored
-// value overrides the window's current mode — that override is the point
-// of the setting (owner feedback: open in Просмотр without touching each
-// file). Tab switches and reloads keep a document's own mode; Ctrl+N and
-// the empty window stay in the editor. Absent key = "visual", the cold
-// start mode the app always had — opting out is an explicit act, same
-// policy as AUTO_UPDATE_KEY above.
+// The mode a document landing from disk opens in: open dialog, double-click,
+// drop, recents, cold start — every fresh file enters it. The stored value
+// overrides the window's current mode; that override is the point of the
+// setting (owner feedback: open in Просмотр without touching each file).
+// Tab switches and reloads keep a document's own mode; Ctrl+N and the empty
+// window stay in the editor. Absent key = "visual": at cold start the mode
+// the app always had — and in a running window it means a new file no longer
+// follows the active document's mode, the way it did before #178.
 const OPEN_MODE_KEY = 'prosa.openMode';
 
 export type OpenMode = 'reading' | 'visual' | 'source' | 'split';

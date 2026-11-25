@@ -588,12 +588,15 @@ function syncActiveIntoTabs(): void {
 
 // Coming back to a tab rides applyLoaded's plumbing (editors, anchors,
 // TOC, chrome) and then re-arms the tab's own bookkeeping: a dirty tab
-// keeps its unsaved dot, and savedRaw/baseline return to the values the
-// document left with.
+// keeps its unsaved dot, and its anchors return to the values the document
+// left with.
 function restoreTab(tab: DocTab): void {
   activeTabId = tab.id;
   applyLoaded(tab.text, tab.path, tab.suggestion ?? undefined, {
     recent: false,
+    // #178: the tab's text lands straight in the tab's own mode — no hand-over
+    // through the other editor, so a document last seen in «Код» keeps its bytes
+    mode: tab.mode,
     // #179: the tab's anchors travel INSIDE the load. A plain assignment after
     // it was overwritten for `baseline`: applyLoaded's anchor timer runs a
     // tick later and re-anchored to the tab's own unsaved text
@@ -604,7 +607,6 @@ function restoreTab(tab: DocTab): void {
   editedSinceSave = tab.editedSinceSave;
   activeExplicit = tab.explicit;
   if (tab.dirty) dirty = true;
-  if (mode !== tab.mode) setMode(tab.mode);
   refreshChrome();
 }
 
@@ -694,17 +696,6 @@ function findTabByPath(path: string): number | null {
   return tab ? tab.id : null;
 }
 
-// #178: a fresh document landing from disk (open dialog, double-click,
-// drop, recents, cold start) enters the opening mode chosen in Settings —
-// the stored value wins over the window's current mode; that override is
-// the point of the setting. Tab switches, tab reloads and Ctrl+N keep
-// their own mode rules, so the call sits in the open paths only, never in
-// applyLoaded (restoreTab/newFile pass through there too).
-function applyOpeningMode(): void {
-  const next = openingMode();
-  if (mode !== next) setMode(next);
-}
-
 async function openAsTab(path: string): Promise<void> {
   // dedup first (Sublime/Notepad canon): an already-open file activates
   // its tab, in this window or another one of this window's tabs
@@ -716,21 +707,17 @@ async function openAsTab(path: string): Promise<void> {
   // a pristine untitled document takes the file's place — no tab noise
   // for the first file of a window
   if (pristine()) {
-    if (await loadPath(path)) {
-      applyOpeningMode();
-      refreshOpenFiles();
-    }
+    if (await loadPath(path, { opening: true })) refreshOpenFiles();
     return;
   }
   syncActiveIntoTabs();
   const prevId = activeTabId;
   activeTabId = nextTabId++;
-  if (!(await loadPath(path))) {
+  if (!(await loadPath(path, { opening: true }))) {
     // the file never loaded — the slot still holds the previous document
     activeTabId = prevId;
     return;
   }
-  applyOpeningMode();
   touchMru(activeTabId);
   refreshOpenFiles();
 }
@@ -876,8 +863,16 @@ function applyLoaded(
   text: string,
   path: string | null,
   suggestedName?: string,
-  opts?: { recent?: boolean; anchors?: { savedRaw: string; baseline?: string } },
+  opts?: { recent?: boolean; mode?: Mode; anchors?: { savedRaw: string; baseline?: string } },
 ): void {
+  // #178: a document landing from disk (open dialog, double-click, drop,
+  // recents, cold start) enters the opening mode chosen in Settings — the
+  // stored value wins over the window's current mode; that override is the
+  // point of the setting. The mode is set BEFORE the load and without a
+  // hand-over, so the file's own bytes go straight into the raw view and
+  // nothing is parsed twice. Only the open paths and a tab's return name a
+  // mode: tab reloads and Ctrl+N keep their own rules.
+  if (opts?.mode !== undefined && opts.mode !== mode) setMode(opts.mode, { handover: false });
   const recent = opts?.recent !== false;
   // #179: a tab coming back brings the anchors of its own last save. A clean
   // tab keeps the original bytes, so a save that follows still writes them
@@ -995,9 +990,17 @@ function applyRecovered(text: string, path: string | null): void {
   }, 0);
 }
 
-async function loadPath(path: string): Promise<boolean> {
+/** `opening: true` — the path is being opened, not re-read: the document
+ *  enters the opening mode (#178). A reload («Обновить») passes no flag and
+ *  keeps the document's own mode. */
+async function loadPath(path: string, opts?: { opening?: boolean }): Promise<boolean> {
   try {
-    applyLoaded(await readTextFile(path), path);
+    applyLoaded(
+      await readTextFile(path),
+      path,
+      undefined,
+      opts?.opening ? { mode: openingMode() } : undefined,
+    );
     return true;
   } catch (err) {
     void message(`${t('openError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
@@ -1081,6 +1084,8 @@ function pickFilesBrowser(): Promise<File[]> {
  * discard-confirm is asked on any open path. */
 async function openBrowserFiles(files: File[]): Promise<void> {
   if (files.length === 0) return;
+  // #178: every file picked this way is being opened
+  const openMode = openingMode();
   for (const file of files) {
     if (!MD_PATH_RE.test(file.name)) {
       void message(t('notMarkdown'), { title: 'ProsaMD', kind: 'info' });
@@ -1089,14 +1094,12 @@ async function openBrowserFiles(files: File[]): Promise<void> {
     try {
       const text = await file.text();
       if (pristine()) {
-        applyLoaded(text, null, file.name);
-        applyOpeningMode();
+        applyLoaded(text, null, file.name, { mode: openMode });
         continue;
       }
       syncActiveIntoTabs();
       activeTabId = nextTabId++;
-      applyLoaded(text, null, file.name);
-      applyOpeningMode();
+      applyLoaded(text, null, file.name, { mode: openMode });
       touchMru(activeTabId);
     } catch (err) {
       void message(`${t('openError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
@@ -1872,13 +1875,37 @@ function handleSplitScrollEvent(target: Element): void {
   syncSplitScroll(isPreviewScroller ? 'preview' : 'code');
 }
 
-function setMode(next: Mode): void {
+/** The raw view's change listener — one wiring for setMode's hand-over and
+ *  for the on-demand creation below. */
+function onSourceDocChanged(): void {
+  markDirty();
+  scheduleToc();
+  findBar.notifyDocChanged();
+  // #62: in split the preview follows the code with a short debounce
+  if (mode === 'split') scheduleSplitSync();
+}
+
+/** The raw view exists from the first time a document needs it. */
+function ensureSourceEditor(raw: string): void {
+  if (source === null) source = new SourceEditor(els.sourcePane, raw, onSourceDocChanged);
+  else source.setContent(raw);
+}
+
+/** `handover: false` — the slot is about to receive another document (#178):
+ *  applyLoaded replaces every piece of content state the hand-over carries
+ *  across (both editors, front-matter, the #154 memo), so converting the
+ *  outgoing document would only cost a parse or a preview render. The raw
+ *  view still has to exist — it is created on demand. */
+function setMode(next: Mode, opts?: { handover?: boolean }): void {
   // reading ↔ visual stays in the same pane and instance: no content
   // hand-over, no re-parse — the document (and its dirty state) is untouched.
   // source ↔ split keeps the same content owner (the source editor); only
   // the visibility of the preview pane changes.
   // Same-mode calls still normalize the UI classes below.
-  if (contentOf(next) !== contentOf(mode)) {
+  const handover = opts?.handover !== false;
+  if (!handover && contentOf(next) === 'source' && source === null) {
+    ensureSourceEditor('');
+  } else if (handover && contentOf(next) !== contentOf(mode)) {
     const md = currentFullText();
     suppressChange = true;
     if (contentOf(next) === 'source') {
@@ -1894,15 +1921,7 @@ function setMode(next: Mode): void {
         raw = md.slice(unparsedPrefix.length);
         if (!unparsedPrefix.endsWith('\n') && raw.startsWith('\n')) raw = raw.slice(1);
       }
-      if (source === null)
-        source = new SourceEditor(els.sourcePane, raw, () => {
-          markDirty();
-          scheduleToc();
-          findBar.notifyDocChanged();
-          // #62: in split the preview follows the code with a short debounce
-          if (mode === 'split') scheduleSplitSync();
-        });
-      else source.setContent(raw);
+      ensureSourceEditor(raw);
       // leaving the visual side: its editor still holds exactly this body —
       // remember it so a no-edit round-trip back does not re-parse (#154)
       visualBodySynced = splitFrontMatter(md).body;
@@ -1932,7 +1951,7 @@ function setMode(next: Mode): void {
     window.setTimeout(() => {
       suppressChange = false;
     }, 0);
-  } else if (next === 'split' && mode !== 'split') {
+  } else if (handover && next === 'split' && mode !== 'split') {
     // source → split: the preview pane was hidden and may hold a stale or
     // empty document — bring it up to date with the code
     syncSplitPreview();
@@ -3180,8 +3199,7 @@ async function init(): Promise<void> {
     const qsFile = new URLSearchParams(location.search).get('file');
     let opened = false;
     if (qsFile !== null && MD_PATH_RE.test(qsFile)) {
-      opened = await loadPath(qsFile);
-      if (opened) applyOpeningMode();
+      opened = await loadPath(qsFile, { opening: true });
     }
     // cold start on the main window: the OS passed the associated file(s)
     // as CLI arguments (#146: a multi-select open passes several — the
@@ -3191,10 +3209,8 @@ async function init(): Promise<void> {
         const initial = await invoke<string[]>('get_initial_files');
         for (const path of initial) {
           if (!MD_PATH_RE.test(path)) continue;
-          if (!opened) {
-            opened = await loadPath(path);
-            if (opened) applyOpeningMode();
-          } else await openAsTab(path);
+          if (!opened) opened = await loadPath(path, { opening: true });
+          else await openAsTab(path);
         }
       } catch {
         // command unavailable — nothing to open

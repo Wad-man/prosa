@@ -2988,15 +2988,24 @@ body {
   gap: 8px;
 }
 
-/* #178: four cells with the long «Визуальный редактор» overflow the 400px
- * dialog — the mode segment wraps into a 2×2 grid instead (#173 lesson:
- * nowrap content needs an escape hatch, min-width: 0 is not available here) */
+/* #178: four cells — a 2×2 grid, both rows on the same column width (a
+ * wrapped flex left the first row ragged: the long «Визуальный редактор»
+ * set its own width). minmax(0, 1fr) plus wrappable labels keep the grid
+ * inside the dialog at any width (#173 lesson); the tighter side padding
+ * buys the long label a single line at the normal dialog width */
 .settings-segmented.wrap {
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 8px;
 }
 
 .settings-segmented.wrap .modal-btn {
-  flex: 1 1 40%;
+  height: auto;
+  min-height: 32px;
+  padding: 6px 10px;
+  line-height: 18px;
+  white-space: normal;
 }
 
 /* the auto-update toggle (#160): a native checkbox — unlike the language
