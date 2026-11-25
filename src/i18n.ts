@@ -120,6 +120,8 @@ const strings = {
     settingsLangSection: 'Язык интерфейса',
     // #172: the theme mode segmented control in Settings
     settingsThemeSection: 'Тема оформления',
+    // #178: the mode files open in (segment labels reuse the mode names)
+    settingsModeSection: 'Режим при открытии файла',
     // #160: the auto-update toggle in Settings
     settingsUpdatesSection: 'Обновления',
     updatesAuto: 'Проверять обновления автоматически',
@@ -270,6 +272,8 @@ const strings = {
     settingsLangSection: 'Interface language',
     // #172: the theme mode segmented control in Settings
     settingsThemeSection: 'Theme',
+    // #178: the mode files open in (segment labels reuse the mode names)
+    settingsModeSection: 'Opening mode',
     // #160: the auto-update toggle in Settings
     settingsUpdatesSection: 'Updates',
     updatesAuto: 'Check for updates automatically',

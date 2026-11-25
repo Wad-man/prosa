@@ -80,6 +80,7 @@ Download the latest version from [Releases](https://github.com/Wad-man/prosa/rel
 - Unsaved-changes indicator, word and character counts; closing a window with edits asks to save
 - The About dialog — click the version in the status bar
 - Light/dark theme (follows the system by default); interface RU / EN (Settings, `Ctrl+,`)
+- Opening mode: pick in Settings which mode every file opens in — Reading, Visual editor, Code or Split (default: Visual editor); Ctrl+N always starts a fresh document in the editor
 - Footnotes the Obsidian way: press a marker to jump to the note, the number to come back; Reading collects the notes at the bottom
 - Obsidian callouts: `> [!note]`, `> [!warning]`, `> [!tip]` and more render with per-type styling
 - "Copy for Word" (Edit menu): formatting survives into Word, Google Docs and mail

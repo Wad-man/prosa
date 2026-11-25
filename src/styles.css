@@ -2988,6 +2988,17 @@ body {
   gap: 8px;
 }
 
+/* #178: four cells with the long «Визуальный редактор» overflow the 400px
+ * dialog — the mode segment wraps into a 2×2 grid instead (#173 lesson:
+ * nowrap content needs an escape hatch, min-width: 0 is not available here) */
+.settings-segmented.wrap {
+  flex-wrap: wrap;
+}
+
+.settings-segmented.wrap .modal-btn {
+  flex: 1 1 40%;
+}
+
 /* the auto-update toggle (#160): a native checkbox — unlike the language
  * buttons above it must read as an on/off state, not as an action */
 .settings-check {

@@ -54,7 +54,7 @@ import { addRecent, listRecent, removeRecent } from './recent';
 import { isFeatureEnabled, setFeatureEnabled, onFeaturesChanged } from './features';
 import { applyWebView2DragFix } from './platform/webview2-dnd';
 import { getLang, t } from './i18n';
-import { autoUpdateEnabled, onLangChanged, setAutoUpdateEnabled, setLanguage, setThemeMode, themeMode, type ThemeOrigin } from './settings';
+import { autoUpdateEnabled, onLangChanged, setAutoUpdateEnabled, setLanguage, setOpeningMode, setThemeMode, themeMode, openingMode, type ThemeOrigin } from './settings';
 import { FindReplaceBar } from './search';
 import { initZoom, zoomIn, zoomOut, zoomReset } from './zoom';
 import './styles.css';
@@ -172,6 +172,11 @@ const els = {
   settingsThemeLight: $('settings-theme-light') as HTMLButtonElement,
   settingsThemeDark: $('settings-theme-dark') as HTMLButtonElement,
   settingsThemeSystem: $('settings-theme-system') as HTMLButtonElement,
+  settingsModeLabel: $('settings-mode-label'),
+  settingsModeReading: $('settings-mode-reading') as HTMLButtonElement,
+  settingsModeVisual: $('settings-mode-visual') as HTMLButtonElement,
+  settingsModeSource: $('settings-mode-source') as HTMLButtonElement,
+  settingsModeSplit: $('settings-mode-split') as HTMLButtonElement,
   settingsUpdatesLabel: $('settings-updates-label'),
   settingsUpdatesAuto: $('settings-updates-auto') as HTMLInputElement,
   settingsUpdatesAutoLabel: $('settings-updates-auto-label'),
@@ -685,6 +690,17 @@ function findTabByPath(path: string): number | null {
   return tab ? tab.id : null;
 }
 
+// #178: a fresh document landing from disk (open dialog, double-click,
+// drop, recents, cold start) enters the opening mode chosen in Settings —
+// the stored value wins over the window's current mode; that override is
+// the point of the setting. Tab switches, tab reloads and Ctrl+N keep
+// their own mode rules, so the call sits in the open paths only, never in
+// applyLoaded (restoreTab/newFile pass through there too).
+function applyOpeningMode(): void {
+  const next = openingMode();
+  if (mode !== next) setMode(next);
+}
+
 async function openAsTab(path: string): Promise<void> {
   // dedup first (Sublime/Notepad canon): an already-open file activates
   // its tab, in this window or another one of this window's tabs
@@ -696,7 +712,10 @@ async function openAsTab(path: string): Promise<void> {
   // a pristine untitled document takes the file's place — no tab noise
   // for the first file of a window
   if (pristine()) {
-    if (await loadPath(path)) refreshOpenFiles();
+    if (await loadPath(path)) {
+      applyOpeningMode();
+      refreshOpenFiles();
+    }
     return;
   }
   syncActiveIntoTabs();
@@ -707,6 +726,7 @@ async function openAsTab(path: string): Promise<void> {
     activeTabId = prevId;
     return;
   }
+  applyOpeningMode();
   touchMru(activeTabId);
   refreshOpenFiles();
 }
@@ -1059,11 +1079,13 @@ async function openBrowserFiles(files: File[]): Promise<void> {
       const text = await file.text();
       if (pristine()) {
         applyLoaded(text, null, file.name);
+        applyOpeningMode();
         continue;
       }
       syncActiveIntoTabs();
       activeTabId = nextTabId++;
       applyLoaded(text, null, file.name);
+      applyOpeningMode();
       touchMru(activeTabId);
     } catch (err) {
       void message(`${t('openError')}: ${String(err)}`, { title: 'ProsaMD', kind: 'error' });
@@ -2142,6 +2164,16 @@ function syncThemeSegments(): void {
   }
 }
 
+/** #178: the opening-mode segments mirror the stored value — a fresh press
+ *  and a live language switch (applyStaticTexts) both land here. */
+function syncModeSegments(): void {
+  const mode = openingMode();
+  els.settingsModeReading.setAttribute('aria-pressed', String(mode === 'reading'));
+  els.settingsModeVisual.setAttribute('aria-pressed', String(mode === 'visual'));
+  els.settingsModeSource.setAttribute('aria-pressed', String(mode === 'source'));
+  els.settingsModeSplit.setAttribute('aria-pressed', String(mode === 'split'));
+}
+
 // ---------- what's new dialog (#37) ----------
 
 /** Opens the «What's new» modal: the current release's summary plus a link
@@ -2374,6 +2406,13 @@ function applyStaticTexts(): void {
   // the pressed mark rides along — a menu/toolbar switch must not desync
   // the segments while the dialog is open
   syncThemeSegments();
+  els.settingsModeLabel.textContent = t('settingsModeSection');
+  // #178: segment labels are the mode names themselves
+  els.settingsModeReading.textContent = t('reading');
+  els.settingsModeVisual.textContent = t('visual');
+  els.settingsModeSource.textContent = t('source');
+  els.settingsModeSplit.textContent = t('split');
+  syncModeSegments();
   els.settingsUpdatesLabel.textContent = t('settingsUpdatesSection');
   els.settingsUpdatesAutoLabel.textContent = t('updatesAuto');
   // the checked mark rides along so a live language switch cannot desync it
@@ -3051,6 +3090,24 @@ async function init(): Promise<void> {
     setThemeMode('system', themeSegOrigin(els.settingsThemeSystem));
     syncThemeSegments();
   });
+  // #178: the opening mode is a stored preference only — it applies to the
+  // NEXT file that lands; the current document keeps its mode
+  els.settingsModeReading.addEventListener('click', () => {
+    setOpeningMode('reading');
+    syncModeSegments();
+  });
+  els.settingsModeVisual.addEventListener('click', () => {
+    setOpeningMode('visual');
+    syncModeSegments();
+  });
+  els.settingsModeSource.addEventListener('click', () => {
+    setOpeningMode('source');
+    syncModeSegments();
+  });
+  els.settingsModeSplit.addEventListener('click', () => {
+    setOpeningMode('split');
+    syncModeSegments();
+  });
   // #160: the toggle writes through immediately; applyStaticTexts re-syncs
   // the mark from storage on the way (e.g. after a live language switch)
   els.settingsUpdatesAuto.addEventListener('change', () => {
@@ -3111,7 +3168,10 @@ async function init(): Promise<void> {
     // document windows created by the Rust side carry their file in the URL
     const qsFile = new URLSearchParams(location.search).get('file');
     let opened = false;
-    if (qsFile !== null && MD_PATH_RE.test(qsFile)) opened = await loadPath(qsFile);
+    if (qsFile !== null && MD_PATH_RE.test(qsFile)) {
+      opened = await loadPath(qsFile);
+      if (opened) applyOpeningMode();
+    }
     // cold start on the main window: the OS passed the associated file(s)
     // as CLI arguments (#146: a multi-select open passes several — the
     // first takes the pristine window, the rest become its tabs)
@@ -3120,8 +3180,10 @@ async function init(): Promise<void> {
         const initial = await invoke<string[]>('get_initial_files');
         for (const path of initial) {
           if (!MD_PATH_RE.test(path)) continue;
-          if (!opened) opened = await loadPath(path);
-          else await openAsTab(path);
+          if (!opened) {
+            opened = await loadPath(path);
+            if (opened) applyOpeningMode();
+          } else await openAsTab(path);
         }
       } catch {
         // command unavailable — nothing to open

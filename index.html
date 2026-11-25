@@ -221,6 +221,15 @@
           <button id="settings-theme-dark" class="modal-btn" type="button" aria-pressed="false"></button>
           <button id="settings-theme-system" class="modal-btn" type="button" aria-pressed="false"></button>
         </div>
+        <!-- #178: the mode every fresh file opens in; segment labels are the
+             mode names themselves (applyStaticTexts reuses t('reading') etc) -->
+        <h3 class="settings-section-title" id="settings-mode-label"></h3>
+        <div class="settings-segmented wrap" role="group" aria-labelledby="settings-mode-label">
+          <button id="settings-mode-reading" class="modal-btn" type="button" aria-pressed="false"></button>
+          <button id="settings-mode-visual" class="modal-btn" type="button" aria-pressed="false"></button>
+          <button id="settings-mode-source" class="modal-btn" type="button" aria-pressed="false"></button>
+          <button id="settings-mode-split" class="modal-btn" type="button" aria-pressed="false"></button>
+        </div>
         <h3 class="settings-section-title" id="settings-updates-label"></h3>
         <label class="settings-check" for="settings-updates-auto">
           <input id="settings-updates-auto" type="checkbox" checked />
