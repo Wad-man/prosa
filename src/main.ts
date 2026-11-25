@@ -868,6 +868,11 @@ function applyLoaded(
   const anchors = opts?.anchors;
   suppressChange = true;
   savedRaw = anchors ? anchors.savedRaw : text;
+  // ...and the reference is set right here, not only by the anchor timer
+  // below: «Сохранить» from a background tab's menu saves immediately after
+  // the tab comes back, before that tick — with the reference still belonging
+  // to the document that just left (round 4 of the #178 review)
+  if (anchors?.baseline !== undefined) baseline = anchors.baseline;
   // the visual editor must not see the front-matter block (#33) nor the
   // #83 unparsed prefix; the raw source view keeps the front-matter as
   // part of the file text (the prefix stays hidden there too — it is
