@@ -589,17 +589,21 @@ function syncActiveIntoTabs(): void {
 // Coming back to a tab rides applyLoaded's plumbing (editors, anchors,
 // TOC, chrome) and then re-arms the tab's own bookkeeping: a dirty tab
 // keeps its unsaved dot, and savedRaw/baseline return to the values the
-// document left with — applyLoaded just reset them to the tab's text.
+// document left with.
 function restoreTab(tab: DocTab): void {
   activeTabId = tab.id;
-  applyLoaded(tab.text, tab.path, tab.suggestion ?? undefined, { recent: false });
+  applyLoaded(tab.text, tab.path, tab.suggestion ?? undefined, {
+    recent: false,
+    // #179: the tab's anchors travel INSIDE the load. A plain assignment after
+    // it was overwritten for `baseline`: applyLoaded's anchor timer runs a
+    // tick later and re-anchored to the tab's own unsaved text
+    anchors: tab.dirty
+      ? { savedRaw: tab.savedRaw, baseline: tab.baseline }
+      : { savedRaw: tab.savedRaw },
+  });
   editedSinceSave = tab.editedSinceSave;
   activeExplicit = tab.explicit;
-  if (tab.dirty) {
-    dirty = true;
-    savedRaw = tab.savedRaw;
-    baseline = tab.baseline;
-  }
+  if (tab.dirty) dirty = true;
   if (mode !== tab.mode) setMode(tab.mode);
   refreshChrome();
 }
@@ -872,11 +876,18 @@ function applyLoaded(
   text: string,
   path: string | null,
   suggestedName?: string,
-  opts?: { recent?: boolean },
+  opts?: { recent?: boolean; anchors?: { savedRaw: string; baseline?: string } },
 ): void {
   const recent = opts?.recent !== false;
+  // #179: a tab coming back brings the anchors of its own last save. A clean
+  // tab keeps the original bytes, so a save that follows still writes them
+  // verbatim; a dirty one also brings its clean reference — left to the timer
+  // below, the reference would become the tab's unsaved text, and the next
+  // save (or a late change notification's dirty check) would treat that text
+  // as saved and write the disk copy over the edits
+  const anchors = opts?.anchors;
   suppressChange = true;
-  savedRaw = text;
+  savedRaw = anchors ? anchors.savedRaw : text;
   // the visual editor must not see the front-matter block (#33) nor the
   // #83 unparsed prefix; the raw source view keeps the front-matter as
   // part of the file text (the prefix stays hidden there too — it is
@@ -914,7 +925,7 @@ function applyLoaded(
   window.clearTimeout(loadAnchorTimer);
   loadAnchorTimer = window.setTimeout(() => {
     suppressChange = false;
-    baseline = currentFullText();
+    baseline = anchors?.baseline ?? currentFullText();
     refreshChrome();
     reportDocState();
     toc.refresh();
