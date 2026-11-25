@@ -48,20 +48,12 @@ export const CHANGELOG_URL = 'https://prosamd.ru/changelog.html';
  *   (prosa-changelog skill), this window does not replace them. */
 const RELEASE_SUMMARY: Record<Lang, string[]> = {
   ru: [
-    'Тема: светлая, тёмная или системная.',
-    'В узком окне меню прокручивается и больше не перекрывает кнопки.',
-    'Список горячих клавиш листается стрелками (↑ ↓).',
-    'Вставленный текст больше не мелькает поверх стартового экрана.',
-    'В светлой теме неактивные пункты оглавления читаются лучше.',
-    'Вставка поверх всего документа больше не тянет за собой его старые определения ссылок.',
+    'Исправлено: правки на вкладке больше не теряются при сохранении после возврата к ней.',
+    'Исправлено: нетронутый файл после переключения вкладок сохраняется без изменений.',
   ],
   en: [
-    'Theme: light, dark or system.',
-    'In a narrow window the menu bar scrolls and no longer covers the buttons.',
-    'The hotkeys list scrolls with the arrow keys (↑ ↓).',
-    'Pasted text no longer flashes over the start screen.',
-    'In the light theme inactive outline entries are easier to read.',
-    'Pasting over the whole document no longer carries over its old link definitions.',
+    'Fixed: edits on a tab are no longer lost when saving after returning to it.',
+    'Fixed: an untouched file is saved unchanged after switching between tabs.',
   ],
 };
 
